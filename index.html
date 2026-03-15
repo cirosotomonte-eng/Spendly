@@ -1147,6 +1147,7 @@ function updateHeader() {
 
 // ── Tab switching ─────────────────────────────────────────────────────────────
 function switchTab(tab) {
+  if (tab !== 'expenses') expenseSearchQuery = '';
   state.currentTab = tab;
   document.querySelectorAll('.tab').forEach((t,i) => {
     t.classList.toggle('active', ['expenses','goals','savings','recycling','mortgage','tax','analytics'][i] === tab);
@@ -1190,21 +1191,58 @@ function isSetupComplete() {
 }
 
 // ── Expenses tab ──────────────────────────────────────────────────────────────
+let expenseSearchQuery = '';
+
+function setExpenseSearch(val) {
+  expenseSearchQuery = val;
+  renderExpenses();
+}
+
+function clearExpenseSearch() {
+  expenseSearchQuery = '';
+  const input = document.getElementById('expenseSearchInput');
+  if (input) input.value = '';
+  renderExpenses();
+}
+
 function renderExpenses() {
   const el = document.getElementById('content');
 
   if (!isSetupComplete()) { el.innerHTML = onboardingHTML(); return; }
 
-  const expenses = cycleExpenses().sort((a,b) => b.date.localeCompare(a.date) || b.id.localeCompare(a.id));
+  const query = expenseSearchQuery.trim().toLowerCase();
+  const allExpenses = cycleExpenses().sort((a,b) => b.date.localeCompare(a.date) || b.id.localeCompare(a.id));
+
+  // Filter by search query
+  const expenses = query ? allExpenses.filter(e => {
+    const cat = catById(e.categoryId);
+    const catName = cat ? cat.name.toLowerCase() : '';
+    const desc = (e.name || '').toLowerCase();
+    return catName.includes(query) || desc.includes(query);
+  }) : allExpenses;
+
+  // Search bar HTML — always shown when setup complete
+  const searchBar = '<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;background:var(--surface);border-radius:10px;padding:8px 12px;border:1.5px solid ' + (query ? 'var(--accent)' : 'transparent') + '">' +
+    '<svg width="15" height="15" viewBox="0 0 15 15" fill="none" style="flex-shrink:0;color:var(--muted)"><circle cx="6" cy="6" r="4.5" stroke="currentColor" stroke-width="1.5"/><path d="M10 10l3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>' +
+    '<input id="expenseSearchInput" type="text" placeholder="Search by category or description…" value="' + (query ? query.replace(/"/g,'&quot;') : '') + '" oninput="setExpenseSearch(this.value)" style="flex:1;background:none;border:none;outline:none;color:var(--text);font-size:14px;font-family:var(--font)">' +
+    (query ? '<button onclick="clearExpenseSearch()" style="background:none;border:none;color:var(--muted);font-size:18px;cursor:pointer;padding:0;line-height:1;flex-shrink:0">×</button>' : '') +
+  '</div>';
+
   if (expenses.length === 0) {
-    el.innerHTML = '<div class="empty"><div class="empty-icon">💸</div><div class="empty-text">No expenses yet</div><div class="empty-sub">Tap + to add your first expense</div></div>';
+    el.innerHTML = searchBar + (query
+      ? '<div class="empty"><div class="empty-icon">🔍</div><div class="empty-text">No results</div><div class="empty-sub">No expenses match "' + query + '"</div></div>'
+      : '<div class="empty"><div class="empty-icon">💸</div><div class="empty-text">No expenses yet</div><div class="empty-sub">Tap + to add your first expense</div></div>');
     return;
   }
 
   const groups = {};
   expenses.forEach(e => { if (!groups[e.date]) groups[e.date] = []; groups[e.date].push(e); });
 
-  let html = '';
+  let html = searchBar;
+  if (query) {
+    html += '<div style="font-size:12px;color:var(--muted);margin-bottom:10px">' + expenses.length + ' result' + (expenses.length !== 1 ? 's' : '') + ' for "<strong style="color:var(--text)">' + query + '</strong>"</div>';
+  }
+
   Object.keys(groups).sort((a,b) => b.localeCompare(a)).forEach(date => {
     const d = new Date(date + 'T00:00:00');
     const today = new Date(); today.setHours(0,0,0,0);
@@ -1229,6 +1267,11 @@ function renderExpenses() {
   document.querySelectorAll('.swipe-wrapper').forEach(w => {
     attachSwipeDelete(w, w.id.replace('sw-', ''));
   });
+  // Keep focus on search input if searching
+  if (query) {
+    const input = document.getElementById('expenseSearchInput');
+    if (input) { input.focus(); input.setSelectionRange(input.value.length, input.value.length); }
+  }
 }
 
 function onboardingHTML() {
@@ -2208,9 +2251,9 @@ function renderRecycling() {
   const total = trips.reduce((s, t) => s + t.amount, 0);
   const manualTrips = state.recyclingManualTrips || 0;
   const totalTripCount = trips.length + manualTrips;
-  const avg = totalTripCount > 0 ? total / (trips.length || 1) : 0;
+  const avg = totalTripCount > 0 ? total / totalTripCount : 0;
   const totalContainers = Math.round(total / 0.10);
-  const avgContainers = trips.length > 0 ? Math.round(avg / 0.10) : 0;
+  const avgContainers = totalTripCount > 0 ? Math.round(avg / 0.10) : 0;
   const startDate = state.recyclingStartDate || '';
   const { years, months, days } = startDate ? timeSince(startDate) : { years: 0, months: 0, days: 0 };
   const startFormatted = startDate ? new Date(startDate + 'T00:00:00').toLocaleDateString('en-AU', { day: 'numeric', month: 'long', year: 'numeric' }) : '';
@@ -2235,8 +2278,8 @@ function renderRecycling() {
     '</div>' +
     '<div style="background:var(--surface);border-radius:var(--r);padding:14px">' +
       '<div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:5px">Avg per trip</div>' +
-      '<div style="font-size:26px;font-weight:700;letter-spacing:-1px;color:#60f0d0">' + (trips.length > 0 ? fmt(avg) : '—') + '</div>' +
-      '<div style="font-size:11px;color:var(--muted);margin-top:3px">' + (trips.length > 0 ? '~' + avgContainers + ' containers' : 'per visit') + '</div>' +
+      '<div style="font-size:26px;font-weight:700;letter-spacing:-1px;color:#60f0d0">' + (totalTripCount > 0 ? fmt(avg) : '—') + '</div>' +
+      '<div style="font-size:11px;color:var(--muted);margin-top:3px">' + (totalTripCount > 0 ? '~' + avgContainers + ' containers' : 'per visit') + '</div>' +
     '</div>' +
   '</div>';
   // Stats cards — row 2 (containers)
@@ -2248,7 +2291,7 @@ function renderRecycling() {
     '</div>' +
     '<div style="background:var(--surface);border-radius:var(--r);padding:14px">' +
       '<div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:5px">Avg containers</div>' +
-      '<div style="font-size:26px;font-weight:700;letter-spacing:-1px;color:#f0a860">' + (trips.length > 0 ? avgContainers.toLocaleString() : '—') + '</div>' +
+      '<div style="font-size:26px;font-weight:700;letter-spacing:-1px;color:#f0a860">' + (totalTripCount > 0 ? avgContainers.toLocaleString() : '—') + '</div>' +
       '<div style="font-size:11px;color:var(--muted);margin-top:3px">per trip</div>' +
     '</div>' +
   '</div>';
