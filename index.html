@@ -543,10 +543,10 @@ if ('serviceWorker' in navigator) {
     <div class="modal-title" id="expenseModalTitle">New expense</div>
     <label>Amount</label>
     <input type="number" inputmode="decimal" id="expAmount" placeholder="0.00" step="0.01" min="0">
-    <label>Description</label>
-    <input type="text" id="expName" placeholder="Description (optional)">
     <label>Category</label>
     <select id="expCat"></select>
+    <label>Description (optional)</label>
+    <input type="text" id="expName" placeholder="e.g. Coffee with client">
     <label>Date</label>
     <input type="date" id="expDate">
     <button class="btn-primary" id="expSaveBtn" onclick="saveExpense()">Save expense</button>
@@ -607,6 +607,8 @@ if ('serviceWorker' in navigator) {
     <div class="modal-title">Recycling settings</div>
     <label>Start date (when you began recycling)</label>
     <input type="date" id="recycleStartDate">
+    <label>Previous trip count (enter if you have existing trips)</label>
+    <input type="number" inputmode="numeric" id="recycleManualTrips" placeholder="e.g. 95" min="0">
     <button class="btn-primary" onclick="saveRecycleSettings()">Save</button>
     <button class="btn-ghost" onclick="closeModal('recycleSettingsModal')">Cancel</button>
   </div>
@@ -1202,7 +1204,7 @@ function renderExpenses() {
         '</div>' +
         '<div class="list-item" onclick="openEditExpense(\'' + e.id + '\')">' +
         '<div class="cat-icon" style="background:' + cat.color + '22">' + cat.icon + '</div>' +
-        '<div class="item-info"><div class="item-name">' + (e.name || cat.name) + '</div><div class="item-meta">' + cat.name + '</div></div>' +
+        '<div class="item-info"><div class="item-name">' + cat.name + '</div>' + (e.name ? '<div class="item-meta">' + e.name + '</div>' : '') + '</div>' +
         '<div class="item-amount" style="color:' + cat.color + '">' + fmt(e.amount) + '</div></div></div>';
     });
   });
@@ -1361,7 +1363,7 @@ function renderGoals() {
   '</div>';
 
   ['fixed','variable'].forEach(type => {
-    const cats = state.categories.filter(c => c.type === type);
+    const cats = state.categories.filter(c => c.type === type).slice().sort((a,b) => a.name.localeCompare(b.name));
     if (cats.length === 0) return;
     const gBudget = cats.reduce((s,c)=>s+(c.budgetLimit||0),0);
     const gSpent  = cats.reduce((s,c)=>s+(bycat[c.id]||0),0);
@@ -2187,7 +2189,9 @@ function renderRecycling() {
   const el = document.getElementById('content');
   const trips = (state.recyclingTrips || []).sort((a, b) => b.date.localeCompare(a.date));
   const total = trips.reduce((s, t) => s + t.amount, 0);
-  const avg = trips.length > 0 ? total / trips.length : 0;
+  const manualTrips = state.recyclingManualTrips || 0;
+  const totalTripCount = trips.length + manualTrips;
+  const avg = totalTripCount > 0 ? total / (trips.length || 1) : 0;
   const totalContainers = Math.round(total / 0.10);
   const avgContainers = trips.length > 0 ? Math.round(avg / 0.10) : 0;
   const startDate = state.recyclingStartDate || '';
@@ -2210,7 +2214,7 @@ function renderRecycling() {
     '<div style="background:var(--surface);border-radius:var(--r);padding:14px">' +
       '<div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:5px">Total earned</div>' +
       '<div style="font-size:26px;font-weight:700;letter-spacing:-1px;color:var(--accent)">' + fmt(total) + '</div>' +
-      '<div style="font-size:11px;color:var(--muted);margin-top:3px">' + trips.length + ' trip' + (trips.length !== 1 ? 's' : '') + '</div>' +
+      '<div style="font-size:11px;color:var(--muted);margin-top:3px">' + totalTripCount + ' trip' + (totalTripCount !== 1 ? 's' : '') + '</div>' +
     '</div>' +
     '<div style="background:var(--surface);border-radius:var(--r);padding:14px">' +
       '<div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:5px">Avg per trip</div>' +
@@ -2316,12 +2320,15 @@ function deleteRecycleTrip() {
 
 function openRecycleSettings() {
   document.getElementById('recycleStartDate').value = state.recyclingStartDate || '';
+  document.getElementById('recycleManualTrips').value = state.recyclingManualTrips || '';
   document.getElementById('recycleSettingsModal').classList.add('open');
 }
 
 function saveRecycleSettings() {
   const d = document.getElementById('recycleStartDate').value;
   if (d) state.recyclingStartDate = d;
+  const mt = parseInt(document.getElementById('recycleManualTrips').value);
+  if (mt >= 0 && !isNaN(mt)) state.recyclingManualTrips = mt;
   saveState();
   closeModal('recycleSettingsModal');
   renderRecycling();
@@ -2635,7 +2642,27 @@ function renderSavings() {
   // ── Categories ────────────────────────────────────────────────────────────
   html += '<div class="section-label">Goals</div>';
 
-  cats.forEach(cat => {
+  // Sort: dated goals first (earliest date first), then undated alphabetically
+  const datedCats = cats.filter(c => c.goalDate || subsForCat(c.id).some(s=>s.goalDate))
+    .slice().sort((a,b) => {
+      const aDate = a.goalDate || (subsForCat(a.id).filter(s=>s.goalDate).sort((x,y)=>x.goalDate.localeCompare(y.goalDate))[0]||{}).goalDate || '';
+      const bDate = b.goalDate || (subsForCat(b.id).filter(s=>s.goalDate).sort((x,y)=>x.goalDate.localeCompare(y.goalDate))[0]||{}).goalDate || '';
+      return aDate.localeCompare(bDate);
+    });
+  const undatedCats = cats.filter(c => !c.goalDate && !subsForCat(c.id).some(s=>s.goalDate))
+    .slice().sort((a,b) => a.name.localeCompare(b.name));
+  const sortedCats = [...datedCats, ...undatedCats];
+
+  if (datedCats.length > 0 && undatedCats.length > 0) {
+    html += '<div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:8px">⏰ Time-sensitive goals</div>';
+  }
+  let shownUndatedHeader = false;
+  sortedCats.forEach((cat, catIdx) => {
+    if (undatedCats.length > 0 && datedCats.length > 0 && catIdx === datedCats.length) {
+      html += '<div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin:14px 0 8px">📌 No target date</div>';
+      shownUndatedHeader = true;
+    }
+    const cat2 = cat; // alias for clarity
     const subs = subsForCat(cat.id);
     const hasSubs = subs.length > 0;
     const catTotal = totalSavedForCat(cat.id);
