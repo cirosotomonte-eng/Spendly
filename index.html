@@ -3815,15 +3815,19 @@ init();
 
 // ── Data protection ───────────────────────────────────────────────────────────
 function checkDataLoss() {
-  const hasData = state.budget > 0 || (state.categories && state.categories.length > 0) || (state.expenses && state.expenses.length > 0);
+  // Don't show if Supabase already loaded data (syncStatus is 'saved') 
+  // or if state has data (cloud sync may have just loaded it)
+  const hasData = state.budget > 0 || (state.categories && state.categories.length > 0) || (state.expenses && state.expenses.length > 0) || (state.savingsCategories && state.savingsCategories.length > 0);
+  if (hasData) return; // data is present, all good
+  if (syncStatus === 'saved' || syncStatus === 'saving') return; // cloud just loaded/loading
   const lastSaved = localStorage.getItem(BACKUP_TS_KEY);
-  if (!hasData && lastSaved) {
-    const lastDate = new Date(lastSaved).toLocaleDateString('en-AU',{day:'numeric',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'});
-    document.getElementById('dataLossBanner').style.display = 'flex';
-    document.getElementById('dataLossDate').textContent = 'Your data was last seen: ' + lastDate;
-  }
+  if (!lastSaved) return; // never had data, first time user
+  // Only show if localStorage timestamp exists but state is empty — genuine loss
+  const lastDate = new Date(lastSaved).toLocaleDateString('en-AU',{day:'numeric',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'});
+  document.getElementById('dataLossBanner').style.display = 'flex';
+  document.getElementById('dataLossDate').textContent = 'Your data was last seen: ' + lastDate;
 }
-setTimeout(checkDataLoss, 900);
+setTimeout(checkDataLoss, 4000); // wait longer so Supabase has time to load
 
 function autoBackup() {
   const hasData = state.budget > 0 || (state.categories && state.categories.length > 0) || (state.expenses && state.expenses.length > 0);
