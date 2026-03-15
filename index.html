@@ -451,6 +451,15 @@ if ('serviceWorker' in navigator) {
   </button>
   <div class="lock-setup-hint" id="lockHint" style="display:none">Enter a 4-digit PIN to set one up.</div>
 </div>
+<div id="dataLossBanner" style="display:none;position:fixed;top:0;left:0;right:0;z-index:998;background:#ff5c5c;color:#fff;padding:12px 16px;flex-direction:column;gap:6px;box-shadow:0 2px 12px rgba(0,0,0,0.3)">
+  <div style="font-size:14px;font-weight:700">⚠️ Your data appears to be missing</div>
+  <div style="font-size:12px;opacity:0.9" id="dataLossDate"></div>
+  <div style="font-size:12px;opacity:0.9">Safari may have cleared your storage. Restore from a backup file if you have one.</div>
+  <div style="display:flex;gap:8px;margin-top:4px">
+    <button onclick="document.getElementById('importFile').click();document.getElementById('backupModal').classList.add('open');document.getElementById('dataLossBanner').style.display='none'" style="background:#fff;color:#ff5c5c;border:none;border-radius:8px;padding:8px 14px;font-size:13px;font-weight:700;font-family:var(--font);cursor:pointer">Restore backup</button>
+    <button onclick="document.getElementById('dataLossBanner').style.display='none'" style="background:rgba(255,255,255,0.2);color:#fff;border:none;border-radius:8px;padding:8px 14px;font-size:13px;font-family:var(--font);cursor:pointer">Dismiss</button>
+  </div>
+</div>
 <div id="app">
   <div class="header">
     <div class="header-top">
@@ -459,6 +468,7 @@ if ('serviceWorker' in navigator) {
         <button class="icon-btn" onclick="openBackup()" title="Backup">
           <svg width="17" height="17" viewBox="0 0 17 17" fill="none"><path d="M8.5 2v8M5.5 7l3 3 3-3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M2.5 12v1a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2v-1" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
         </button>
+        <span id="syncIndicator" title="Cloud sync" style="font-size:13px;color:var(--muted);cursor:default;padding:4px;line-height:1">☁</span>
         <button class="icon-btn" onclick="openSettings()" title="Settings">
           <svg width="17" height="17" viewBox="0 0 17 17" fill="none"><circle cx="8.5" cy="8.5" r="2" stroke="currentColor" stroke-width="1.5"/><path d="M8.5 1.5v1M8.5 14.5v1M1.5 8.5h1M14.5 8.5h1M3.5 3.5l.7.7M12.8 12.8l.7.7M3.5 13.5l.7-.7M12.8 4.2l.7-.7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
         </button>
@@ -892,15 +902,110 @@ let state = {
   savingsDeposits: [], // { id, targetId, catId, amount, date, note }
 };
 
-function loadState() {
+const BACKUP_KEY = 'spendly_backup_v1';
+const BACKUP_KEY2 = 'spendly_backup_v2';
+const BACKUP_TS_KEY = 'spendly_backup_ts';
+
+// ── Supabase sync ─────────────────────────────────────────────────────────────
+const SB_URL = 'https://cebpejgbszahdnhitibh.supabase.co';
+const SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNlYnBlamdic3phaGRuaGl0aWJoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM1MzA4NDcsImV4cCI6MjA4OTEwNjg0N30.JyLWB4lNUWhPetG4o6DGPxHWcd2CmGAWx0LHzqwEnfo';
+const SB_HEADERS = { 'Content-Type': 'application/json', 'apikey': SB_KEY, 'Authorization': 'Bearer ' + SB_KEY };
+let syncTimer = null;
+let syncStatus = 'idle'; // 'idle' | 'saving' | 'saved' | 'error'
+
+function setSyncStatus(s) {
+  syncStatus = s;
+  const el = document.getElementById('syncIndicator');
+  if (!el) return;
+  if (s === 'saving') { el.textContent = '↑'; el.style.color = 'var(--muted)'; el.title = 'Saving…'; }
+  else if (s === 'saved') { el.textContent = '✓'; el.style.color = 'var(--accent)'; el.title = 'Saved to cloud'; }
+  else if (s === 'error') { el.textContent = '!'; el.style.color = 'var(--orange)'; el.title = 'Cloud save failed — stored locally'; }
+  else { el.textContent = '☁'; el.style.color = 'var(--muted)'; el.title = 'Cloud sync'; }
+}
+
+async function syncToSupabase(data) {
   try {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved) state = { ...state, ...JSON.parse(saved) };
-  } catch(e) {}
+    setSyncStatus('saving');
+    const res = await fetch(SB_URL + '/rest/v1/spendly_data?id=eq.main', {
+      method: 'PATCH',
+      headers: { ...SB_HEADERS, 'Prefer': 'return=minimal' },
+      body: JSON.stringify({ data, updated_at: new Date().toISOString() })
+    });
+    if (!res.ok) throw new Error('patch failed ' + res.status);
+    setSyncStatus('saved');
+    setTimeout(() => setSyncStatus('idle'), 3000);
+  } catch(e) {
+    setSyncStatus('error');
+  }
 }
+
+async function loadFromSupabase() {
+  try {
+    const res = await fetch(SB_URL + '/rest/v1/spendly_data?id=eq.main&select=data,updated_at', {
+      headers: SB_HEADERS
+    });
+    if (!res.ok) return null;
+    const rows = await res.json();
+    if (!rows || !rows.length || !rows[0].data) return null;
+    return rows[0].data;
+  } catch(e) { return null; }
+}
+
 function saveState() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  const data = JSON.stringify(state);
+  // Always save locally first (instant)
+  try { localStorage.setItem(STORAGE_KEY, data); } catch(e) {}
+  try { localStorage.setItem(BACKUP_KEY, data); } catch(e) {}
+  try { sessionStorage.setItem(BACKUP_KEY2, data); } catch(e) {}
+  try { localStorage.setItem(BACKUP_TS_KEY, new Date().toISOString()); } catch(e) {}
+  // Debounce cloud sync — wait 1.5s after last change
+  clearTimeout(syncTimer);
+  syncTimer = setTimeout(() => syncToSupabase(state), 1500);
 }
+
+async function loadState() {
+  // Try cloud first
+  const cloudData = await loadFromSupabase();
+  if (cloudData && typeof cloudData === 'object') {
+    const hasData = cloudData.budget > 0 ||
+      (cloudData.categories && cloudData.categories.length > 0) ||
+      (cloudData.expenses && cloudData.expenses.length > 0) ||
+      (cloudData.savingsCategories && cloudData.savingsCategories.length > 0);
+    if (hasData) {
+      state = { ...state, ...cloudData };
+      saveState(); // mirror to localStorage
+      setSyncStatus('saved');
+      setTimeout(() => setSyncStatus('idle'), 2000);
+      return;
+    }
+  }
+  // Fall back to localStorage
+  const sources = [
+    () => localStorage.getItem(STORAGE_KEY),
+    () => localStorage.getItem(BACKUP_KEY),
+    () => sessionStorage.getItem(BACKUP_KEY2),
+  ];
+  for (const src of sources) {
+    try {
+      const saved = src();
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed && (parsed.budget > 0 || (parsed.categories && parsed.categories.length > 0) || (parsed.expenses && parsed.expenses.length > 0))) {
+          state = { ...state, ...parsed };
+          saveState(); // push to cloud too
+          return;
+        }
+      }
+    } catch(e) {}
+  }
+  for (const src of sources) {
+    try {
+      const saved = src();
+      if (saved) { state = { ...state, ...JSON.parse(saved) }; saveState(); return; }
+    } catch(e) {}
+  }
+}
+
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function fmt(n) {
@@ -3600,14 +3705,39 @@ function renderTax() {
 }
 
 
-updateHeader();
-renderContent();
-if (!initWelcome()) {
-  // Returning user — skip welcome, go straight to lock if needed
-  initLock();
+// ── Boot ──────────────────────────────────────────────────────────────────────
+async function init() {
+  updateHeader();
+  renderContent();
+  await loadState();
+  updateHeader();
+  renderContent();
+  if (!initWelcome()) {
+    initLock();
+  }
+  setTimeout(checkCycleComplete, 1200);
 }
-// Check if cycle just ended with savings
-setTimeout(checkCycleComplete, 1200);
+init();
+
+// ── Data protection ───────────────────────────────────────────────────────────
+function checkDataLoss() {
+  const hasData = state.budget > 0 || (state.categories && state.categories.length > 0) || (state.expenses && state.expenses.length > 0);
+  const lastSaved = localStorage.getItem(BACKUP_TS_KEY);
+  if (!hasData && lastSaved) {
+    const lastDate = new Date(lastSaved).toLocaleDateString('en-AU',{day:'numeric',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'});
+    document.getElementById('dataLossBanner').style.display = 'flex';
+    document.getElementById('dataLossDate').textContent = 'Your data was last seen: ' + lastDate;
+  }
+}
+setTimeout(checkDataLoss, 900);
+
+function autoBackup() {
+  const hasData = state.budget > 0 || (state.categories && state.categories.length > 0) || (state.expenses && state.expenses.length > 0);
+  if (hasData) saveState();
+}
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') autoBackup(); });
+window.addEventListener('pagehide', autoBackup);
+window.addEventListener('beforeunload', autoBackup);
 
 // ── Swipe to delete ───────────────────────────────────────────────────────────
 let activeSwipeEl = null;
