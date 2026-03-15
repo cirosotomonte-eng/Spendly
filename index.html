@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Spendly">
@@ -1224,7 +1224,7 @@ function renderExpenses() {
   // Search bar HTML — always shown when setup complete
   const searchBar = '<div style="display:inline-flex;align-items:center;gap:6px;margin-bottom:14px;background:var(--surface);border-radius:var(--r);padding:0 14px;border:1.5px solid ' + (query ? 'var(--accent)' : 'transparent') + ';height:34px;width:100%;box-sizing:border-box">' +
     '<svg width="13" height="13" viewBox="0 0 15 15" fill="none" style="flex-shrink:0;opacity:0.4"><circle cx="6" cy="6" r="4.5" stroke="currentColor" stroke-width="1.5"/><path d="M10 10l3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>' +
-    '<input id="expenseSearchInput" type="text" placeholder="Search expenses…" value="' + (query ? query.replace(/"/g,'&quot;') : '') + '" oninput="setExpenseSearch(this.value)" style="flex:1;background:none;border:none;outline:none;color:var(--text);font-size:13px;font-family:var(--font);padding:0;margin:0;height:100%">' +
+    '<input id="expenseSearchInput" type="text" placeholder="Search expenses…" value="' + (query ? query.replace(/"/g,'&quot;') : '') + '" oninput="setExpenseSearch(this.value)" style="flex:1;background:none;border:none;outline:none;color:var(--text);font-size:16px;font-family:var(--font);padding:0;margin:0;height:100%">' +
     (query ? '<button onclick="clearExpenseSearch()" style="background:none;border:none;color:var(--muted);font-size:16px;cursor:pointer;padding:0;line-height:1;flex-shrink:0">×</button>' : '') +
   '</div>';
 
@@ -2155,49 +2155,14 @@ function unlockApp() {
   renderContent();
 }
 async function offerBiometric() {
-  if (!window.PublicKeyCredential) { unlockApp(); return; }
-  const avail = await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable().catch(()=>false);
-  if (!avail) { unlockApp(); return; }
-  const use = window.confirm('Enable Face ID / fingerprint to unlock Spendly faster?');
-  if (use) {
-    try {
-      const cred = await navigator.credentials.create({ publicKey: {
-        challenge: crypto.getRandomValues(new Uint8Array(32)),
-        rp: { name: 'Spendly', id: location.hostname || 'localhost' },
-        user: { id: new Uint8Array(16), name: 'spendly-user', displayName: 'Spendly User' },
-        pubKeyCredParams: [{ alg: -7, type: 'public-key' }, { alg: -257, type: 'public-key' }],
-        authenticatorSelection: { userVerification: 'required', residentKey: 'discouraged' },
-        timeout: 60000,
-      }});
-      const credId = btoa(String.fromCharCode(...new Uint8Array(cred.rawId)));
-      localStorage.setItem('spendly_cred_id', credId);
-      localStorage.setItem(BIOM_KEY, '1');
-    } catch(e) {}
-  }
+  // Skip WebAuthn/passkey — it shows an intrusive iOS sheet we can't suppress
+  // PIN-only is cleaner and more reliable on iOS
   unlockApp();
 }
 async function triggerBiometric() {
-  if (!window.PublicKeyCredential) return;
-  try {
-    const stored = localStorage.getItem('spendly_cred_id');
-    if (!stored) return;
-    const credId = Uint8Array.from(atob(stored), c => c.charCodeAt(0));
-    await navigator.credentials.get({
-      mediation: 'silent',
-      publicKey: {
-        challenge: crypto.getRandomValues(new Uint8Array(32)),
-        allowCredentials: [{ id: credId, type: 'public-key' }],
-        userVerification: 'required',
-        timeout: 60000,
-      }
-    });
-    unlockApp();
-  } catch(e) {
-    // Silent failed — show the button so user can tap to trigger Face ID manually
-    document.getElementById('lockBiomBtn').style.display = 'flex';
-    document.getElementById('lockBiomSmall').style.display = 'flex';
-    if (e.name === 'NotAllowedError') document.getElementById('lockError').textContent = 'Biometric cancelled';
-  }
+  // Not used — biometric via WebAuthn shows unavoidable iOS passkey sheet
+  document.getElementById('lockBiomBtn').style.display = 'none';
+  document.getElementById('lockBiomSmall').style.display = 'none';
 }
 async function initLock() {
   const hasPin = !!localStorage.getItem(LOCK_KEY);
@@ -2222,11 +2187,8 @@ async function initLock() {
     document.getElementById('lockSub').textContent = 'Enter your PIN to continue';
     document.getElementById('lockHint').style.display = 'none';
     document.getElementById('lockSkipBtn').style.display = 'none';
-    if (hasBiometric()) {
-      document.getElementById('lockBiomBtn').style.display = 'flex';
-      document.getElementById('lockBiomSmall').style.display = 'flex';
-      setTimeout(triggerBiometric, 400);
-    }
+    document.getElementById('lockBiomBtn').style.display = 'none';
+    document.getElementById('lockBiomSmall').style.display = 'none';
     updateDots(0, false);
     showLockScreen();
   }
