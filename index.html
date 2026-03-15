@@ -765,6 +765,28 @@ self.addEventListener('fetch', e => {
   </div>
 </div>
 
+<!-- Mortgage interest log modal -->
+<div class="modal-overlay" id="mortgageInterestModal">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title" id="mortgageInterestTitle">Log monthly interest</div>
+    <div style="background:var(--surface2);border-radius:10px;padding:12px 14px;margin-bottom:14px;font-size:12px;color:var(--muted);line-height:1.6">
+      Enter the figures from your bank statement. We'll compare the offset benefit to our calculation.
+    </div>
+    <label>Month</label>
+    <input type="month" id="mgIntMonth" style="margin-bottom:14px">
+    <label>Loan interest charged ($)</label>
+    <input type="number" inputmode="decimal" id="mgIntAmount" placeholder="e.g. 1944.16" step="0.01" min="0">
+    <label>Offset benefit ($)</label>
+    <input type="number" inputmode="decimal" id="mgIntOffset" placeholder="e.g. 335.41" step="0.01" min="0">
+    <label>Note (optional)</label>
+    <input type="text" id="mgIntNote" placeholder="e.g. Rate change this month">
+    <button class="btn-primary" id="mgIntSaveBtn" onclick="saveMortgageInterest()">Save</button>
+    <button class="btn-danger" id="mgIntDeleteBtn" onclick="deleteMortgageInterest()" style="display:none">Delete</button>
+    <button class="btn-ghost" onclick="closeModal('mortgageInterestModal')">Cancel</button>
+  </div>
+</div>
+
 <!-- Mortgage settings modal -->
 <div class="modal-overlay" id="mortgageSettingsModal">
   <div class="modal">
@@ -914,6 +936,7 @@ let state = {
   },
   mortgageExtras: [],       // { id, amount, date, note } extra loan repayments
   offsetTransactions: [],   // { id, type:'deposit'|'withdrawal', amount, date, note }
+  mortgageInterestLog: [],  // { id, month, interest, offsetBenefit, date } — from bank statement
   taxCategories: [],        // { id, name, icon, color } e.g. Work from home, Vehicle
   taxTransactions: [],      // { id, catId, amount, date, description, receipt:bool }
   savingsCategories: [], // { id, name, icon, color, goalDate }
@@ -992,7 +1015,10 @@ async function loadState() {
       (cloudData.savingsCategories && cloudData.savingsCategories.length > 0);
     if (hasData) {
       state = { ...state, ...cloudData };
-      saveState(); // mirror to localStorage
+      // If they have data they're clearly onboarded — mark it
+      if (!state.setupDone) { state.setupDone = true; }
+      localStorage.setItem(ONBOARDED_KEY, '1');
+      saveState();
       setSyncStatus('saved');
       setTimeout(() => setSyncStatus('idle'), 2000);
       return;
@@ -2032,6 +2058,7 @@ function wbFinish() {
     const dateVal = document.getElementById('wbRecycleStartDate').value;
     if (dateVal) state.recyclingStartDate = dateVal;
   }
+  state.setupDone = true;
   saveState();
   localStorage.setItem(ONBOARDED_KEY, '1');
   const ws = document.getElementById('welcomeScreen');
@@ -2042,12 +2069,15 @@ function wbFinish() {
 function wbSubmitName() {} // legacy — no longer needed
 
 function initWelcome() {
-  const onboarded = localStorage.getItem(ONBOARDED_KEY);
+  // Check both localStorage (fast) and state.setupDone (from Supabase)
+  const onboarded = localStorage.getItem(ONBOARDED_KEY) || state.setupDone;
   if (!onboarded) {
     document.getElementById('welcomeScreen').style.opacity = '1';
     wbAnimate();
     return true;
   }
+  // Mirror to localStorage so future loads are instant
+  localStorage.setItem(ONBOARDED_KEY, '1');
   document.getElementById('welcomeScreen').style.display = 'none';
   return false;
 }
@@ -3302,6 +3332,58 @@ function deleteOffsetTx() {
   saveState(); closeModal('offsetTxModal'); renderContent();
 }
 
+// ── Mortgage interest log ─────────────────────────────────────────────────────
+let editingMortgageInterestId = null;
+
+function openAddMortgageInterest() {
+  editingMortgageInterestId = null;
+  document.getElementById('mortgageInterestTitle').textContent = 'Log monthly interest';
+  // Default to current month
+  const now = new Date();
+  document.getElementById('mgIntMonth').value = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2,'0');
+  document.getElementById('mgIntAmount').value = '';
+  document.getElementById('mgIntOffset').value = '';
+  document.getElementById('mgIntNote').value = '';
+  document.getElementById('mgIntDeleteBtn').style.display = 'none';
+  document.getElementById('mgIntSaveBtn').textContent = 'Save';
+  document.getElementById('mortgageInterestModal').classList.add('open');
+  setTimeout(() => document.getElementById('mgIntAmount').focus(), 350);
+}
+function openEditMortgageInterest(id) {
+  const entry = (state.mortgageInterestLog||[]).find(e=>e.id===id); if (!entry) return;
+  editingMortgageInterestId = id;
+  document.getElementById('mortgageInterestTitle').textContent = 'Edit interest entry';
+  document.getElementById('mgIntMonth').value = entry.month;
+  document.getElementById('mgIntAmount').value = entry.interest;
+  document.getElementById('mgIntOffset').value = entry.offsetBenefit || '';
+  document.getElementById('mgIntNote').value = entry.note || '';
+  document.getElementById('mgIntDeleteBtn').style.display = 'block';
+  document.getElementById('mgIntSaveBtn').textContent = 'Update';
+  document.getElementById('mortgageInterestModal').classList.add('open');
+}
+function saveMortgageInterest() {
+  const month = document.getElementById('mgIntMonth').value;
+  const interest = parseFloat(document.getElementById('mgIntAmount').value);
+  const offsetBenefit = parseFloat(document.getElementById('mgIntOffset').value) || 0;
+  const note = document.getElementById('mgIntNote').value.trim();
+  if (!month || !interest || interest <= 0) return;
+  if (!state.mortgageInterestLog) state.mortgageInterestLog = [];
+  if (editingMortgageInterestId) {
+    const idx = state.mortgageInterestLog.findIndex(e=>e.id===editingMortgageInterestId);
+    if (idx>=0) state.mortgageInterestLog[idx] = {...state.mortgageInterestLog[idx], month, interest, offsetBenefit, note};
+  } else {
+    // Replace existing entry for same month if exists
+    state.mortgageInterestLog = state.mortgageInterestLog.filter(e=>e.month!==month);
+    state.mortgageInterestLog.push({id:uid(), month, interest, offsetBenefit, note});
+  }
+  saveState(); closeModal('mortgageInterestModal'); renderContent();
+}
+function deleteMortgageInterest() {
+  if (!editingMortgageInterestId) return;
+  state.mortgageInterestLog = (state.mortgageInterestLog||[]).filter(e=>e.id!==editingMortgageInterestId);
+  saveState(); closeModal('mortgageInterestModal'); renderContent();
+}
+
 function renderMortgage() {
   const el = document.getElementById('content');
   const mg = state.mortgage || {};
@@ -3492,6 +3574,54 @@ function renderMortgage() {
       '</div>'
       : '') +
   '</div>';
+
+  // ── Monthly interest log ──────────────────────────────────────────────────
+  const intLog = (state.mortgageInterestLog||[]).slice().sort((a,b)=>b.month.localeCompare(a.month));
+  const totalInterestPaid = intLog.reduce((s,e)=>s+e.interest,0);
+  const totalOffsetBenefit = intLog.reduce((s,e)=>s+(e.offsetBenefit||0),0);
+
+  html += '<div style="display:flex;justify-content:space-between;align-items:center;margin:12px 0 8px">' +
+    '<div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em">Monthly interest (from bank)</div>' +
+    '<button onclick="openAddMortgageInterest()" style="background:var(--accent-dim);color:var(--accent);border:none;border-radius:8px;padding:6px 12px;font-size:12px;font-weight:600;font-family:var(--font);cursor:pointer">+ Log</button>' +
+  '</div>';
+
+  if (intLog.length > 0) {
+    // Summary row
+    html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">' +
+      '<div style="background:var(--surface);border-radius:var(--r);padding:11px 12px">' +
+        '<div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:3px">Total interest paid</div>' +
+        '<div style="font-size:17px;font-weight:700;color:var(--red)">-' + fmtF(totalInterestPaid) + '</div>' +
+      '</div>' +
+      '<div style="background:var(--surface);border-radius:var(--r);padding:11px 12px">' +
+        '<div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:3px">Total offset saved</div>' +
+        '<div style="font-size:17px;font-weight:700;color:var(--accent)">+' + fmtF(totalOffsetBenefit) + '</div>' +
+      '</div>' +
+    '</div>';
+
+    html += '<div style="background:var(--surface);border-radius:var(--r);overflow:hidden;margin-bottom:12px">';
+    intLog.forEach((entry, i) => {
+      const [yr, mo] = entry.month.split('-');
+      const monthLabel = new Date(+yr, +mo-1, 1).toLocaleDateString('en-AU',{month:'long',year:'numeric'});
+      // Compare offset benefit to our calculation for that month
+      const calcMonthly = currentOffset > 0 ? Math.round(currentOffset * (annualRateNow / 12) * 100) / 100 : 0;
+      const diff = entry.offsetBenefit > 0 && calcMonthly > 0 ? entry.offsetBenefit - calcMonthly : null;
+      html += '<div style="padding:11px 14px;'+(i>0?'border-top:1px solid var(--surface2)':'')+';cursor:pointer" onclick="openEditMortgageInterest(\''+entry.id+'\')">' +
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">' +
+          '<div style="font-size:13px;font-weight:600">' + monthLabel + (entry.note ? ' <span style="font-size:11px;color:var(--muted);font-weight:400">· '+entry.note+'</span>' : '') + '</div>' +
+          '<div style="font-size:13px;font-weight:700;color:var(--red)">-' + fmtF(entry.interest) + '</div>' +
+        '</div>' +
+        '<div style="display:flex;justify-content:space-between;align-items:center">' +
+          '<div style="font-size:11px;color:var(--muted)">Offset benefit: <span style="color:var(--accent);font-weight:600">+' + fmtF(entry.offsetBenefit||0) + '</span>' +
+            (diff !== null ? ' <span style="color:'+(Math.abs(diff)<5?'var(--muted)':diff>0?'var(--accent)':'var(--orange)')+'">('+(diff>0?'+':'')+diff.toFixed(2)+' vs calc)</span>' : '') +
+          '</div>' +
+          '<div style="font-size:11px;color:var(--muted)">Net: <strong style="color:var(--text)">-' + fmtF(entry.interest - (entry.offsetBenefit||0)) + '</strong></div>' +
+        '</div>' +
+      '</div>';
+    });
+    html += '</div>';
+  } else {
+    html += '<div style="background:var(--surface);border-radius:var(--r);padding:14px;margin-bottom:12px;text-align:center;font-size:13px;color:var(--muted)">Tap + Log to record your bank\'s monthly interest charges</div>';
+  }
 
   // ── Extra repayments ──────────────────────────────────────────────────────
   const extras = (state.mortgageExtras||[]).slice().sort((a,b)=>b.date.localeCompare(a.date));
