@@ -17,7 +17,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '1.2.0-202603192149';
+  const APP_VER = '1.2.0-202603192157';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -1218,7 +1218,7 @@ const PALETTE = [
 // ── State ─────────────────────────────────────────────────────────────────────
 const APP_VERSION = '1.2.0';
 const BUILD_DATE = '2026-03-19';
-const BUILD_TIME = '19 Mar 2026 9:49 PM AEDT';
+const BUILD_TIME = '19 Mar 2026 9:57 PM AEDT';
 const STORAGE_KEY = 'spendly_generic_v1';
 const LOCK_KEY = 'spendly_pin_hash';
 const BIOM_KEY = 'spendly_biometric';
@@ -4202,6 +4202,7 @@ function renderMortgage() {
       '</div>' +
       '<div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--surface2);font-size:11px;color:var(--muted)">' +
         'Paying ' + fmtF(c.weeklyOverpayment) + ' extra per week · ' + fmtD(c.weeklyOverpayment * 52) + '/year extra' +
+        '<div style="margin-top:6px;padding-top:6px;border-top:1px solid var(--surface2);font-size:10px;color:var(--muted)">⚡ Includes your <strong style="color:var(--text)">' + fmtD(getOffsetBalance()) + ' offset balance</strong> — interest calculated on net balance (loan − offset)</div>' +
       '</div>' +
     '</div>';
   }
@@ -4420,11 +4421,12 @@ function renderMortgage() {
     html += '<div style="position:relative;height:160px;margin-bottom:6px"><canvas id="mgBalanceChart"></canvas></div>';
     html += '<div style="display:flex;gap:14px;font-size:11px;margin-bottom:16px">' +
       '<div style="display:flex;align-items:center;gap:5px"><div style="width:12px;height:3px;background:#888;border-radius:2px"></div><span style="color:var(--muted)">Min repayment only</span></div>' +
-      '<div style="display:flex;align-items:center;gap:5px"><div style="width:12px;height:3px;background:var(--accent);border-radius:2px"></div><span style="color:var(--muted)">Your current path</span></div>' +
+      '<div style="display:flex;align-items:center;gap:5px"><div style="width:12px;height:3px;background:var(--accent);border-radius:2px"></div><span style="color:var(--muted)">Your path (with ' + fmtD(proj.baseOffset) + ' offset)</span></div>' +
     '</div>';
 
     // ── Interest snowball ─────────────────────────────────────────────────────
-    html += '<div style="font-size:11px;font-weight:600;color:var(--text);margin-bottom:8px">Interest saved with your offset</div>';
+    html += '<div style="font-size:11px;font-weight:600;color:var(--text);margin-bottom:4px">Interest saved with your offset</div>' +
+      '<div style="font-size:10px;color:var(--muted);margin-bottom:8px">Based on your current ' + fmtD(proj.baseOffset) + ' offset · vs same repayments with no offset</div>';
     html += '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:16px">';
     proj.snowball.forEach(s => {
       html += '<div style="background:var(--surface2);border-radius:10px;padding:10px;text-align:center">' +
@@ -4437,7 +4439,8 @@ function renderMortgage() {
 
     // ── What-if slider ────────────────────────────────────────────────────────
     html += '<div style="border-top:1px solid var(--surface2);padding-top:14px">';
-    html += '<div style="font-size:11px;font-weight:600;color:var(--text);margin-bottom:6px">💡 What if I add more to my offset?</div>';
+    html += '<div style="font-size:11px;font-weight:600;color:var(--text);margin-bottom:3px">💡 What if I add more to my offset?</div>' +
+      '<div style="font-size:10px;color:var(--muted);margin-bottom:8px">On top of your current ' + fmtD(proj.baseOffset) + ' offset balance</div>';
     html += '<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">' +
       '<span style="font-size:12px;color:var(--muted)">+$</span>' +
       '<input type="range" id="mgWhatIfSlider" min="0" max="50000" step="1000" value="0" oninput="updateMgWhatIf(this.value)" style="flex:1;accent-color:var(--accent)">' +
