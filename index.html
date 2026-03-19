@@ -17,9 +17,9 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '1.2.0';
+  const APP_VER = '1.2.0-202603191810';
   const swCode = `
-const CACHE = 'spendly-${APP_VER}';
+const CACHE = 'spendly-${APP_VER}-202603191810';
 const VERSION = '${APP_VER}';
 
 self.addEventListener('install', e => {
