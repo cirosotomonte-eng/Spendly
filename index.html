@@ -17,7 +17,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '1.1.0';
+  const APP_VER = '1.2.0';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -696,10 +696,16 @@ async function applyUpdate() {
     <div style="background:var(--surface2);border-radius:10px;padding:12px 14px;margin-bottom:14px;font-size:12px;color:var(--muted);line-height:1.6">
       Example: if your statement closes on the 17th, enter <strong style="color:var(--text)">18</strong> (the day the new cycle starts).
     </div>
+    <label>City</label>
+    <input type="text" id="setCity" placeholder="e.g. Sydney">
+    <label>Country</label>
+    <input type="text" id="setCountry" placeholder="e.g. Australia">
+    <div id="setTimezoneDisplay" style="font-size:11px;color:var(--muted);margin-top:-8px;margin-bottom:14px"></div>
     <button class="btn-primary" onclick="saveSettings()">Save settings</button>
     <button class="btn-ghost" onclick="closeModal('settingsModal')">Cancel</button>
     <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--surface2);text-align:center">
-      <div style="font-size:12px;color:var(--muted);margin-bottom:10px">Version <strong style="color:var(--text)" id="appVersionDisplay"></strong> · Built <span id="appBuildDate"></span></div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:4px">Version <strong style="color:var(--text)" id="appVersionDisplay"></strong></div>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:10px">🕐 Built <span id="appBuildDate"></span> · <span id="appBuildTime"></span></div>
       <button onclick="forceAppUpdate()" style="background:none;border:1px solid var(--border);border-radius:8px;padding:8px 16px;font-size:12px;color:var(--muted);font-family:var(--font);cursor:pointer;width:100%">🔄 Check for update</button>
     </div>
   </div>
@@ -1056,7 +1062,7 @@ async function applyUpdate() {
     <label>Frequency</label>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px" id="recFreqBtns">
       <button type="button" onclick="setRecFreq('weekly')" id="recFreqWeekly" style="padding:10px;border-radius:10px;border:2px solid var(--accent);background:var(--accent-dim);color:var(--accent);font-weight:700;font-family:var(--font);cursor:pointer;font-size:13px">Weekly</button>
-      <button type="button" onclick="setRecFreq('fortnightly')" id="recFreqFortnightly" style="padding:10px;border-radius:10px;border:2px solid var(--border);background:var(--surface2);color:var(--muted);font-weight:600;font-family:var(--font);cursor:pointer;font-size:13px">Fortnightly</button>
+      <button type="button" onclick="setRecFreq('xweeks')" id="recFreqXweeks" style="padding:10px;border-radius:10px;border:2px solid var(--border);background:var(--surface2);color:var(--muted);font-weight:600;font-family:var(--font);cursor:pointer;font-size:13px">Every X weeks</button>
       <button type="button" onclick="setRecFreq('monthly')" id="recFreqMonthly" style="padding:10px;border-radius:10px;border:2px solid var(--border);background:var(--surface2);color:var(--muted);font-weight:600;font-family:var(--font);cursor:pointer;font-size:13px">Monthly</button>
       <button type="button" onclick="setRecFreq('quarterly')" id="recFreqQuarterly" style="padding:10px;border-radius:10px;border:2px solid var(--border);background:var(--surface2);color:var(--muted);font-weight:600;font-family:var(--font);cursor:pointer;font-size:13px">Quarterly</button>
     </div>
@@ -1073,10 +1079,13 @@ async function applyUpdate() {
         <button type="button" onclick="setRecWeekday(0)" id="recWd0" class="rec-wd-btn">Sun</button>
       </div>
     </div>
-    <!-- Fortnightly: pick start date -->
-    <div id="recFortnightlySection" style="display:none;margin-bottom:14px">
-      <label>Next due date</label>
-      <input type="date" id="recFortnightDate">
+    <!-- Every X weeks: pick number of weeks + start date -->
+    <div id="recXweeksSection" style="display:none;margin-bottom:14px">
+      <label>Repeat every how many weeks?</label>
+      <input type="number" inputmode="numeric" id="recXweeksNum" placeholder="e.g. 3" min="1" max="52" oninput="updateRecPreview()" style="margin-bottom:10px">
+      <label>Last done / start date</label>
+      <input type="date" id="recXweeksDate" oninput="updateRecPreview()">
+      <div style="font-size:11px;color:var(--muted);margin-top:-8px">Next occurrence will be calculated from this date</div>
     </div>
     <!-- Monthly: pick day of month -->
     <div id="recMonthlySection" style="display:none;margin-bottom:14px">
@@ -1127,8 +1136,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '1.1.0';
+const APP_VERSION = '1.2.0';
 const BUILD_DATE = '2026-03-19';
+const BUILD_TIME = '19 Mar 2026 5:58 PM AEDT';
 const STORAGE_KEY = 'spendly_generic_v1';
 const LOCK_KEY = 'spendly_pin_hash';
 const BIOM_KEY = 'spendly_biometric';
@@ -1136,6 +1146,9 @@ const LOCK_SKIPPED = 'spendly_lock_skipped';
 
 let state = {
   appName: 'Spendly',
+  timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+  city: '',
+  country: 'Australia',
   budget: 0,
   cycleDay: 1,
   categories: [],  // { id, name, icon, color, type, budgetLimit }
@@ -1295,7 +1308,13 @@ function fmtCell(v) {
   if (!v) return '';
   return v % 1 === 0 ? v.toString() : v.toFixed(2);
 }
-function todayStr() { return new Date().toISOString().split('T')[0]; }
+function todayStr() {
+  const d = new Date();
+  return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+}
+function dateToStr(d) {
+  return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+}
 function catById(id) { return state.categories.find(c => c.id === id); }
 function uid() { return Date.now() + Math.random().toString(36).slice(2,6); }
 
@@ -1345,7 +1364,7 @@ function getUpcomingRecurring() {
     // Walk forward through all occurrences within this cycle that are future
     const visited = new Set();
     while (d <= cycleEnd) {
-      const key = d.toISOString().split('T')[0];
+      const key = dateToStr(d);
       if (visited.has(key)) break;
       visited.add(key);
       if (d > today && d >= cycleStart) {
@@ -1362,7 +1381,7 @@ function getUpcomingRecurring() {
       // Advance to next occurrence
       const next = new Date(d);
       if (r.frequency === 'weekly') next.setDate(next.getDate() + 7);
-      else if (r.frequency === 'fortnightly') next.setDate(next.getDate() + 14);
+      else if (r.frequency === 'xweeks') next.setDate(next.getDate() + (r.xweeksNum||2)*7);
       else if (r.frequency === 'monthly') next.setMonth(next.getMonth() + 1);
       else if (r.frequency === 'quarterly') next.setMonth(next.getMonth() + 3);
       else break;
@@ -1682,7 +1701,7 @@ function renderAnalytics() {
   const { cycleStart: cs, cycleEnd: ce } = getCycleRange();
   const dayMap = {};
   const cur = new Date(cs);
-  while (cur <= ce) { dayMap[cur.toISOString().split('T')[0]] = 0; cur.setDate(cur.getDate()+1); }
+  while (cur <= ce) { dayMap[dateToStr(cur)] = 0; cur.setDate(cur.getDate()+1); }
   expenses.forEach(e => { if (dayMap[e.date] !== undefined) dayMap[e.date] += e.amount; });
   const dayKeys = Object.keys(dayMap);
   const dayLabels = dayKeys.map((d,i) => { const dt=new Date(d+'T00:00:00'); return (dt.getDate()===1||i===0) ? dt.toLocaleDateString('en-AU',{day:'numeric',month:'short'}) : dt.getDate()+''; });
@@ -1863,7 +1882,7 @@ function renderCalendar() {
   html += '<th style="position:sticky;left:' + COL_CAT + 'px;z-index:3;background:var(--bg);text-align:right;padding:5px 6px;font-size:10px;color:var(--muted);font-weight:600;min-width:' + COL_NUM + 'px;border-bottom:1px solid var(--border)">Budget</th>';
   html += '<th style="position:sticky;left:' + (COL_CAT+COL_NUM) + 'px;z-index:3;background:var(--bg);text-align:right;padding:5px 6px;font-size:10px;color:var(--muted);font-weight:600;min-width:' + COL_NUM + 'px;border-bottom:1px solid var(--border)">Spent</th>';
   days.forEach(d => {
-    const iso = d.toISOString().split('T')[0];
+    const iso = dateToStr(d);
     const isT = d.getTime()===today.getTime();
     const dayN = d.getDate(); const dayNm = d.toLocaleDateString('en-AU',{weekday:'short'}).slice(0,2);
     html += '<th style="text-align:center;padding:3px 1px;min-width:' + COL_DAY + 'px;max-width:' + COL_DAY + 'px;border-bottom:1px solid var(--border);' + (isT?'background:rgba(79,142,247,0.15)':'') + '"><div style="font-size:9px;color:' + (isT?'var(--accent)':'var(--muted)') + ';font-weight:' + (isT?'700':'400') + '">' + dayNm + '</div><div style="font-size:10px;font-weight:' + (isT?'700':'400') + ';color:' + (isT?'var(--accent)':'var(--muted)') + '">' + dayN + '</div></th>';
@@ -1884,7 +1903,7 @@ function renderCalendar() {
       html += '<td style="position:sticky;left:' + COL_CAT + 'px;z-index:2;background:var(--bg);text-align:right;padding:4px 5px;color:var(--muted);min-width:' + COL_NUM + 'px">' + (budget>0?fmtA(budget):'—') + '</td>';
       html += '<td style="position:sticky;left:' + (COL_CAT+COL_NUM) + 'px;z-index:2;background:var(--bg);text-align:right;padding:4px 5px;min-width:' + COL_NUM + 'px;' + (over?'color:var(--red);font-weight:600':'') + '">' + fmtA(spent) + '</td>';
       days.forEach(d => {
-        const iso = d.toISOString().split('T')[0];
+        const iso = dateToStr(d);
         const val = (spendMap[cat.id]||{})[iso]||0;
         const isT = d.getTime()===today.getTime();
         html += '<td style="text-align:center;padding:3px 1px;min-width:' + COL_DAY + 'px;max-width:' + COL_DAY + 'px;' + (isT?'background:rgba(79,142,247,0.08);':(val?'background:rgba(96,176,240,0.1);':'')) + '">' + fmtCell(val) + '</td>';
@@ -1897,7 +1916,7 @@ function renderCalendar() {
     html += '<td style="position:sticky;left:' + COL_CAT + 'px;z-index:2;background:var(--surface2);text-align:right;padding:4px 5px;font-weight:600;min-width:' + COL_NUM + 'px">' + fmtA(gB) + '</td>';
     html += '<td style="position:sticky;left:' + (COL_CAT+COL_NUM) + 'px;z-index:2;background:var(--surface2);text-align:right;padding:4px 5px;font-weight:600;min-width:' + COL_NUM + 'px;' + (gS>gB&&gB>0?'color:var(--red)':'') + '">' + fmtA(gS) + '</td>';
     days.forEach(d => {
-      const iso = d.toISOString().split('T')[0];
+      const iso = dateToStr(d);
       const dT = cats.reduce((s,c)=>s+((spendMap[c.id]||{})[iso]||0),0);
       const isT = d.getTime()===today.getTime();
       html += '<td style="text-align:center;padding:3px 1px;font-weight:600;background:var(--surface2);' + (isT?'background:rgba(79,142,247,0.15);':'') + 'min-width:' + COL_DAY + 'px;max-width:' + COL_DAY + 'px">' + fmtCell(dT) + '</td>';
@@ -1912,7 +1931,7 @@ function renderCalendar() {
   html += '<td style="position:sticky;left:' + COL_CAT + 'px;z-index:2;background:var(--surface);text-align:right;padding:5px 5px;font-weight:700;font-size:12px;min-width:' + COL_NUM + 'px">' + fmtA(totalBudget) + '</td>';
   html += '<td style="position:sticky;left:' + (COL_CAT+COL_NUM) + 'px;z-index:2;background:var(--surface);text-align:right;padding:5px 5px;font-weight:700;font-size:12px;min-width:' + COL_NUM + 'px;' + (totalSpent>totalBudget&&totalBudget>0?'color:var(--red)':'') + '">' + fmtA(totalSpent) + '</td>';
   days.forEach(d => {
-    const iso = d.toISOString().split('T')[0]; const v=dayTotals[iso]||0; const isT=d.getTime()===today.getTime();
+    const iso = dateToStr(d); const v=dayTotals[iso]||0; const isT=d.getTime()===today.getTime();
     html += '<td style="text-align:center;padding:4px 1px;font-weight:700;' + (isT?'background:rgba(79,142,247,0.2);':(v?'background:rgba(96,176,240,0.08);':'')) + 'min-width:' + COL_DAY + 'px;max-width:' + COL_DAY + 'px">' + fmtCell(v) + '</td>';
   });
   html += '<td style="text-align:right;padding:5px 8px;font-weight:700;font-size:12px;' + (totalLeft<0?'color:var(--red)':'') + '">' + (totalLeft<0?'-':'') + fmtA(Math.abs(totalLeft)) + '</td></tr>';
@@ -1946,15 +1965,25 @@ function openSettings() {
   document.getElementById('setAppName').value = state.appName || '';
   document.getElementById('setBudget').value = state.budget || '';
   document.getElementById('setCycleDay').value = state.cycleDay || '';
+  document.getElementById('setCity').value = state.city || '';
+  document.getElementById('setCountry').value = state.country || 'Australia';
+  const tz = state.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const tzEl = document.getElementById('setTimezoneDisplay');
+  if (tzEl) tzEl.textContent = '🌏 Detected timezone: ' + tz;
   document.getElementById('settingsModal').classList.add('open');
 }
 function saveSettings() {
   const name = document.getElementById('setAppName').value.trim();
   const budget = parseFloat(document.getElementById('setBudget').value);
   const cd = parseInt(document.getElementById('setCycleDay').value);
+  const city = document.getElementById('setCity').value.trim();
+  const country = document.getElementById('setCountry').value.trim();
   if (name) state.appName = name;
   if (budget > 0) state.budget = budget;
   if (cd >= 1 && cd <= 28) state.cycleDay = cd;
+  if (city) state.city = city;
+  if (country) state.country = country;
+  state.timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   saveState();
   closeModal('settingsModal');
   updateHeader();
@@ -3222,7 +3251,7 @@ const CONGRATS_KEY = 'spendly_congrats_shown';
 
 function getCycleKey() {
   const { cycleStart } = getCycleRange(0);
-  return cycleStart.toISOString().split('T')[0];
+  return { cycleStart, cycleEnd };
 }
 
 function checkCycleComplete() {
@@ -3245,7 +3274,7 @@ function checkCycleComplete() {
 function showCongratsModal(saved, spent) {
   const fmt2 = (n) => '$' + Math.abs(n).toLocaleString('en-AU', {minimumFractionDigits:2, maximumFractionDigits:2});
   const { cycleStart, cycleEnd } = getCycleRange(0);
-  const cycleEndDate = cycleEnd.toISOString().split('T')[0];
+  const cycleEndDate = cycleEndateToStr(d);
   const cycleLabel = cycleStart.toLocaleDateString('en-AU',{day:'numeric',month:'short'}) + ' – ' + cycleEnd.toLocaleDateString('en-AU',{day:'numeric',month:'short'});
   document.getElementById('congratsCycleLabel').textContent = cycleLabel;
   document.getElementById('congratsAmount').textContent = fmt2(saved);
@@ -3642,8 +3671,7 @@ function getOffsetBalanceAt(beforeDate) {
     .reduce((s, t) => s + (t.type === 'withdrawal' ? -t.amount : t.amount), 0);
 }
 function getOffsetTxInRange(start, end) {
-  const s = start.toISOString().split('T')[0];
-  const e = end.toISOString().split('T')[0];
+  const e = endateToStr(d);
   return (state.offsetTransactions || []).filter(t => t.date >= s && t.date <= e);
 }
 
@@ -4070,7 +4098,7 @@ function getFYRange(fyLabel) {
   const yr = 2000 + parseInt(fyLabel.replace('FY',''));
   return { start: new Date(yr-1, 6, 1), end: new Date(yr, 5, 30) };
 }
-function getCurrentFY() { return getFY(new Date().toISOString().split('T')[0]); }
+function getCurrentFY() { return getFY(todayStr()); }
 function taxCatById(id) { return (state.taxCategories||[]).find(c=>c.id===id); }
 
 function buildTaxEmojiGrid(selected) {
@@ -4311,7 +4339,7 @@ function toggleRecActive() {
 
 function setRecFreq(freq) {
   recFreqState = freq;
-  const freqs = ['weekly','fortnightly','monthly','quarterly'];
+  const freqs = ['weekly','xweeks','monthly','quarterly'];
   freqs.forEach(f => {
     const btn = document.getElementById('recFreq' + f.charAt(0).toUpperCase() + f.slice(1));
     if (!btn) return;
@@ -4326,7 +4354,7 @@ function setRecFreq(freq) {
     }
   });
   document.getElementById('recWeeklySection').style.display = freq === 'weekly' ? 'block' : 'none';
-  document.getElementById('recFortnightlySection').style.display = freq === 'fortnightly' ? 'block' : 'none';
+  document.getElementById('recXweeksSection').style.display = freq === 'xweeks' ? 'block' : 'none';
   document.getElementById('recMonthlySection').style.display = freq === 'monthly' ? 'block' : 'none';
   document.getElementById('recQuarterlySection').style.display = freq === 'quarterly' ? 'block' : 'none';
   updateRecPreview();
@@ -4357,12 +4385,19 @@ function updateRecPreview() {
     const diff = (wd - next.getDay() + 7) % 7;
     next.setDate(next.getDate() + (diff === 0 ? 0 : diff));
     text = 'Every ' + fullDayNames[wd] + ' · Next: ' + next.toLocaleDateString('en-AU',{day:'numeric',month:'short'});
-  } else if (recFreqState === 'fortnightly') {
-    const d = document.getElementById('recFortnightDate').value;
-    if (d) {
+  } else if (recFreqState === 'xweeks') {
+    const n = parseInt(document.getElementById('recXweeksNum').value);
+    const d = document.getElementById('recXweeksDate').value;
+    if (n >= 1 && d) {
       const base = new Date(d+'T00:00:00');
-      text = 'Every 2 weeks from ' + base.toLocaleDateString('en-AU',{day:'numeric',month:'short',year:'numeric'});
-    } else text = 'Pick a start date above';
+      const next = new Date(base); next.setDate(next.getDate() + n*7);
+      const today = new Date(); today.setHours(0,0,0,0);
+      // Walk forward to next future occurrence
+      while (next <= today) next.setDate(next.getDate() + n*7);
+      text = 'Every ' + n + ' week' + (n>1?'s':'') + ' · Next: ' + next.toLocaleDateString('en-AU',{weekday:'short',day:'numeric',month:'short'});
+    } else if (n >= 1) {
+      text = 'Every ' + n + ' week' + (n>1?'s':'') + ' — pick a start date';
+    } else text = 'Enter number of weeks above';
   } else if (recFreqState === 'monthly') {
     const day = parseInt(document.getElementById('recMonthDay').value);
     if (day >= 1 && day <= 31) {
@@ -4416,7 +4451,8 @@ function openAddRecurring() {
   // Default: weekly, Monday
   setRecFreq('weekly');
   setRecWeekday(1);
-  document.getElementById('recFortnightDate').value = '';
+  document.getElementById('recXweeksNum').value = '';
+  document.getElementById('recXweeksDate').value = '';
   document.getElementById('recMonthDay').value = '';
   document.getElementById('recQuarterlyDate').value = '';
   closeModal('recurringListModal');
@@ -4443,8 +4479,9 @@ function openEditRecurring(id) {
   setRecFreq(freq);
   if (freq === 'weekly') {
     setRecWeekday(rec.weekday !== undefined ? rec.weekday : 1);
-  } else if (freq === 'fortnightly') {
-    document.getElementById('recFortnightDate').value = rec.nextDate || '';
+  } else if (freq === 'xweeks') {
+    document.getElementById('recXweeksNum').value = rec.xweeksNum || 2;
+    document.getElementById('recXweeksDate').value = rec.nextDate || '';
   } else if (freq === 'monthly') {
     document.getElementById('recMonthDay').value = rec.monthDay || '';
   } else if (freq === 'quarterly') {
@@ -4462,7 +4499,8 @@ function saveRecurring() {
   if (!name || !amount || !categoryId) return;
   // Validate frequency-specific fields
   if (recFreqState === 'monthly' && !document.getElementById('recMonthDay').value) return;
-  if ((recFreqState === 'fortnightly' || recFreqState === 'quarterly') && !document.getElementById(recFreqState === 'fortnightly' ? 'recFortnightDate' : 'recQuarterlyDate').value) return;
+  if (recFreqState === 'xweeks' && (!document.getElementById('recXweeksNum').value || !document.getElementById('recXweeksDate').value)) return;
+  if (recFreqState === 'quarterly' && !document.getElementById('recQuarterlyDate').value) return;
   if (!state.recurringExpenses) state.recurringExpenses = [];
   const rec = {
     id: editingRecurringId || uid(),
@@ -4472,7 +4510,8 @@ function saveRecurring() {
     // Frequency-specific
     weekday: recFreqState === 'weekly' ? recWeekdayState : undefined,
     monthDay: recFreqState === 'monthly' ? parseInt(document.getElementById('recMonthDay').value) : undefined,
-    nextDate: (recFreqState === 'fortnightly') ? document.getElementById('recFortnightDate').value
+    xweeksNum: recFreqState === 'xweeks' ? parseInt(document.getElementById('recXweeksNum').value) : undefined,
+    nextDate: (recFreqState === 'xweeks') ? document.getElementById('recXweeksDate').value
              : (recFreqState === 'quarterly') ? document.getElementById('recQuarterlyDate').value
              : undefined,
     lastAdded: editingRecurringId ? (state.recurringExpenses.find(r=>r.id===editingRecurringId)||{}).lastAdded || '' : '',
@@ -4497,7 +4536,7 @@ function recFreqLabel(r) {
     const days = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
     return 'Weekly · ' + (days[r.weekday] || 'Mon');
   }
-  if (r.frequency === 'fortnightly') return 'Fortnightly';
+  if (r.frequency === 'xweeks') return 'Every ' + (r.xweeksNum||2) + ' week' + ((r.xweeksNum||2)>1?'s':'');
   if (r.frequency === 'monthly') return 'Monthly · ' + (r.monthDay || '?') + (r.monthDay===1?'st':r.monthDay===2?'nd':r.monthDay===3?'rd':'th');
   if (r.frequency === 'quarterly') return 'Quarterly';
   return 'Recurring';
@@ -4512,9 +4551,10 @@ function getRecNextDate(r) {
     next.setDate(today.getDate() + (diff === 0 ? 0 : diff));
     return next;
   }
-  if (r.frequency === 'fortnightly' && r.nextDate) {
+  if (r.frequency === 'xweeks' && r.nextDate && r.xweeksNum) {
+    const weeks = r.xweeksNum * 7;
     const base = new Date(r.nextDate + 'T00:00:00');
-    while (base < today) base.setDate(base.getDate() + 14);
+    while (base < today) base.setDate(base.getDate() + weeks);
     return base;
   }
   if (r.frequency === 'monthly' && r.monthDay) {
@@ -4560,11 +4600,11 @@ function applyRecurringExpenses() {
   const recs = (state.recurringExpenses||[]).filter(r=>r.active!==false);
   if (!recs.length) return;
   const today = new Date(); today.setHours(0,0,0,0);
-  const todayStr = today.toISOString().split('T')[0];
+  const todayDateStr = todayStr();
   let added = false;
   recs.forEach(r => {
     // Don't add twice on same day
-    if (r.lastAdded === todayStr) return;
+    if (r.lastAdded === todayDateStr) return;
     const next = getRecNextDate(r);
     if (!next) return;
     next.setHours(0,0,0,0);
@@ -4575,13 +4615,92 @@ function applyRecurringExpenses() {
       amount: r.amount,
       name: r.name,
       categoryId: r.categoryId,
-      date: todayStr,
+      date: todayDateStr,
     });
     r.lastAdded = todayStr;
     added = true;
   });
   if (added) saveState();
 }
+// ── Investor / Money Allocation Tab ──────────────────────────────────────────
+function renderInvestor() {
+  const el = document.getElementById('content');
+  const income = state.budget || 0;
+  const fmtI = n => '$' + Math.round(n).toLocaleString('en-AU');
+
+  const needs = income * 0.50;
+  const wants = income * 0.30;
+  const savings50 = income * 0.20;
+
+  const blowAcct = income * 0.60;
+  const splurgeAcct = income * 0.10;
+  const fireAcct = income * 0.20;
+  const smileAcct = income * 0.10;
+
+  let html = '<div style="font-size:16px;font-weight:700;margin:8px 0 4px">💡 Money allocation</div>' +
+    '<div style="font-size:12px;color:var(--muted);margin-bottom:16px;line-height:1.5">Two popular frameworks for dividing your money. Based on your monthly budget of <strong style="color:var(--text)">' + fmtI(income) + '</strong>.</div>';
+
+  // ── 50/30/20 ──────────────────────────────────────────────────────────────
+  html += '<div style="background:var(--surface);border-radius:var(--r);padding:14px;margin-bottom:12px">' +
+    '<div style="font-size:14px;font-weight:700;margin-bottom:4px">The 50/30/20 Rule</div>' +
+    '<div style="font-size:12px;color:var(--muted);margin-bottom:14px;line-height:1.5">A simple framework popularised by US Senator Elizabeth Warren. Split your after-tax income into three buckets.</div>' +
+    '<div style="display:flex;border-radius:8px;overflow:hidden;height:12px;margin-bottom:12px">' +
+      '<div style="width:50%;background:#4F8EF7"></div>' +
+      '<div style="width:30%;background:#f0a860"></div>' +
+      '<div style="width:20%;background:#34C759"></div>' +
+    '</div>' +
+    '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">' +
+      _allocCard('50% Needs', fmtI(needs), '#4F8EF7', 'Rent, groceries, utilities, transport') +
+      _allocCard('30% Wants', fmtI(wants), '#f0a860', 'Dining out, subscriptions, shopping, holidays') +
+      _allocCard('20% Savings', fmtI(savings50), '#34C759', 'Emergency fund, super top-ups, investments, debt') +
+    '</div>' +
+  '</div>';
+
+  // ── Barefoot Investor ─────────────────────────────────────────────────────
+  html += '<div style="background:var(--surface);border-radius:var(--r);padding:14px;margin-bottom:12px">' +
+    '<div style="font-size:14px;font-weight:700;margin-bottom:4px">The Barefoot Investor Buckets</div>' +
+    '<div style="font-size:12px;color:var(--muted);margin-bottom:14px;line-height:1.5">Scott Pape\'s system from Australia\'s best-selling personal finance book. Four accounts, each with a purpose — automate transfers on payday.</div>' +
+    '<div style="display:flex;border-radius:8px;overflow:hidden;height:12px;margin-bottom:12px">' +
+      '<div style="width:60%;background:#4F8EF7"></div>' +
+      '<div style="width:10%;background:#f060b0"></div>' +
+      '<div style="width:20%;background:#34C759"></div>' +
+      '<div style="width:10%;background:#f0d860"></div>' +
+    '</div>' +
+    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">' +
+      _allocCard('60% Blow', fmtI(blowAcct), '#4F8EF7', 'Everyday spending — bills, groceries, regular expenses') +
+      _allocCard('10% Splurge', fmtI(splurgeAcct), '#f060b0', 'Guilt-free fun — spend however you like') +
+      _allocCard('20% Fire Extinguisher', fmtI(fireAcct), '#34C759', 'Pay off debt, then build a 3-month emergency fund') +
+      _allocCard('10% Smile', fmtI(smileAcct), '#f0d860', 'Save for things that make you smile — holidays, car') +
+    '</div>' +
+    '<div style="background:var(--surface2);border-radius:10px;padding:12px;font-size:12px;color:var(--muted);line-height:1.6">' +
+      '📖 <strong style="color:var(--text)">The Barefoot Investor</strong> by Scott Pape is Australia\'s best-selling personal finance book. Set up separate bank accounts for each bucket and automate transfers on payday.' +
+    '</div>' +
+  '</div>';
+
+  // ── How Spendly maps ──────────────────────────────────────────────────────
+  html += '<div style="background:var(--surface);border-radius:var(--r);padding:14px;margin-bottom:12px">' +
+    '<div style="font-size:14px;font-weight:700;margin-bottom:10px">How Spendly maps to these frameworks</div>' +
+    '<div style="font-size:12px;color:var(--muted);line-height:2">' +
+      '💳 <strong style="color:var(--text)">Expenses tab</strong> — track your Blow / Needs & Wants spending<br>' +
+      '🎯 <strong style="color:var(--text)">Budget tab</strong> — set limits per category to stay within your buckets<br>' +
+      '💰 <strong style="color:var(--text)">Savings tab</strong> — track your Smile / 20% savings goals<br>' +
+      '🏠 <strong style="color:var(--text)">Mortgage tab</strong> — Fire Extinguisher in action — paying down debt<br>' +
+      '🎉 <strong style="color:var(--text)">End of cycle</strong> — Spendly suggests how to split leftover budget across your goals' +
+    '</div>' +
+  '</div>';
+
+  el.innerHTML = html;
+}
+
+function _allocCard(label, amount, color, desc) {
+  return '<div style="background:var(--surface2);border-radius:10px;padding:10px">' +
+    '<div style="width:8px;height:8px;border-radius:2px;background:' + color + ';margin-bottom:6px"></div>' +
+    '<div style="font-size:11px;font-weight:700;color:var(--text);margin-bottom:2px">' + label + '</div>' +
+    '<div style="font-size:16px;font-weight:700;color:' + color + ';margin-bottom:4px">' + amount + '</div>' +
+    '<div style="font-size:10px;color:var(--muted);line-height:1.4">' + desc + '</div>' +
+  '</div>';
+}
+
 // ── Version & Update ──────────────────────────────────────────────────────────
 function initVersionDisplay() {
   const hv = document.getElementById('headerVersion');
@@ -4590,6 +4709,8 @@ function initVersionDisplay() {
   if (av) av.textContent = APP_VERSION;
   const bd = document.getElementById('appBuildDate');
   if (bd) bd.textContent = BUILD_DATE;
+  const bt = document.getElementById('appBuildTime');
+  if (bt) bt.textContent = BUILD_TIME;
 }
 
 async function forceAppUpdate() { await applyUpdate(); }
@@ -4605,7 +4726,7 @@ function recordTodayOffsetSaving() {
   if (balance <= 0) return;
   const rate = mg.interestRate / 100;
   const dailySaving = balance * (rate / 365);
-  state.offsetDailyLog.push({ date: today, balance, dailySaving, rate: mg.interestRate });
+  state.offsetDailyLog.push({ date: todayStr(), balance, dailySaving, rate: mg.interestRate });
   rollupOffsetMonthlyHistory();
   saveState();
 }
