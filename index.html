@@ -17,13 +17,24 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
+  const APP_VER = '1.1.0';
   const swCode = `
-const CACHE='spendly-v${Date.now()}';
-self.addEventListener('install', e => { self.skipWaiting(); });
-self.addEventListener('activate', e => {
-  e.waitUntil(caches.keys().then(keys => Promise.all(keys.map(k => caches.delete(k)))));
-  self.clients.claim();
+const CACHE = 'spendly-${APP_VER}';
+const VERSION = '${APP_VER}';
+
+self.addEventListener('install', e => {
+  self.skipWaiting();
 });
+
+self.addEventListener('activate', e => {
+  // Delete all old caches that don't match current version
+  e.waitUntil(
+    caches.keys().then(keys =>
+      Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k)))
+    ).then(() => self.clients.claim())
+  );
+});
+
 self.addEventListener('fetch', e => {
   if (e.request.method !== 'GET') return;
   e.respondWith(
@@ -34,9 +45,64 @@ self.addEventListener('fetch', e => {
     }).catch(() => caches.match(e.request))
   );
 });
+
+// Respond to version check messages from the page
+self.addEventListener('message', e => {
+  if (e.data === 'GET_VERSION') {
+    e.source.postMessage({ type: 'VERSION', version: VERSION });
+  }
+});
   `;
   const swBlob = new Blob([swCode], {type:'application/javascript'});
-  navigator.serviceWorker.register(URL.createObjectURL(swBlob)).catch(()=>{});
+  const swUrl = URL.createObjectURL(swBlob);
+
+  navigator.serviceWorker.register(swUrl).then(reg => {
+    // Check for updates every 60 seconds
+    setInterval(() => reg.update(), 60000);
+  }).catch(() => {});
+
+  // Listen for version messages from SW
+  navigator.serviceWorker.addEventListener('message', e => {
+    if (e.data && e.data.type === 'VERSION') {
+      const swVer = e.data.version;
+      const appVer = '${APP_VER}';
+      if (swVer && swVer !== appVer) {
+        showUpdateBanner();
+      }
+    }
+  });
+
+  // Ask SW for its version shortly after load
+  navigator.serviceWorker.ready.then(reg => {
+    if (reg.active) reg.active.postMessage('GET_VERSION');
+  });
+}
+
+function showUpdateBanner() {
+  // Don't show twice
+  if (document.getElementById('updateBanner')) return;
+  const banner = document.createElement('div');
+  banner.id = 'updateBanner';
+  banner.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:9999;background:#4F8EF7;color:#fff;padding:12px 16px;display:flex;justify-content:space-between;align-items:center;font-family:-apple-system,sans-serif;font-size:14px;box-shadow:0 2px 12px rgba(0,0,0,0.3)';
+  banner.innerHTML = '<span>🚀 A new version of Spendly is available!</span>' +
+    '<button onclick="applyUpdate()" style="background:#fff;color:#4F8EF7;border:none;border-radius:8px;padding:6px 14px;font-size:13px;font-weight:700;cursor:pointer;flex-shrink:0;margin-left:12px">Update now</button>';
+  document.body.prepend(banner);
+}
+
+async function applyUpdate() {
+  const banner = document.getElementById('updateBanner');
+  if (banner) banner.innerHTML = '<span>⏳ Updating…</span>';
+  try {
+    if ('caches' in window) {
+      const keys = await caches.keys();
+      await Promise.all(keys.map(k => caches.delete(k)));
+    }
+    if ('serviceWorker' in navigator) {
+      const regs = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(regs.map(r => r.unregister()));
+    }
+  } catch(e) {}
+  window.location.reload(true);
 }
 </script>
 <style>
@@ -308,7 +374,7 @@ self.addEventListener('fetch', e => {
 </head>
 <body>
 
-<div id="welcomeScreen">
+<div id="welcomeScreen" style="display:none;opacity:0;" data-ready="false">
   <!-- Page 1: Splash -->
   <div id="wbPage1" style="display:flex;flex-direction:column;align-items:center;width:100%">
     <div class="wb-logo" id="wbLogo">💚</div>
@@ -555,8 +621,11 @@ self.addEventListener('fetch', e => {
 <div id="app">
   <div class="header">
     <div class="header-top">
-      <span class="app-name">Spendly</span>
+      <div style="display:flex;flex-direction:column;gap:1px"><span class="app-name" id="headerAppName">Spendly</span><span style="font-size:9px;color:var(--surface3);letter-spacing:0.06em" id="headerVersion"></span></div>
       <div class="header-actions">
+        <button class="icon-btn" onclick="openRecurringList()" title="Recurring expenses">
+          <svg width="17" height="17" viewBox="0 0 17 17" fill="none"><path d="M2 8.5a6.5 6.5 0 1 0 6.5-6.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="M2 5v3.5h3.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
         <button class="icon-btn" onclick="openBackup()" title="Backup">
           <svg width="17" height="17" viewBox="0 0 17 17" fill="none"><path d="M8.5 2v8M5.5 7l3 3 3-3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M2.5 12v1a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2v-1" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
         </button>
@@ -598,6 +667,7 @@ self.addEventListener('fetch', e => {
     <button class="tab" onclick="switchTab('recycling')">♻️ Recycling</button>
     <button class="tab" onclick="switchTab('mortgage')">🏠 Mortgage</button>
     <button class="tab" onclick="switchTab('tax')">🧾 Tax</button>
+    <button class="tab" onclick="switchTab('investor')">💡 Investor</button>
     <button class="tab" onclick="switchTab('analytics')">Analytics</button>
   </div>
 
@@ -625,6 +695,10 @@ self.addEventListener('fetch', e => {
     </div>
     <button class="btn-primary" onclick="saveSettings()">Save settings</button>
     <button class="btn-ghost" onclick="closeModal('settingsModal')">Cancel</button>
+    <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--surface2);text-align:center">
+      <div style="font-size:12px;color:var(--muted);margin-bottom:10px">Version <strong style="color:var(--text)" id="appVersionDisplay"></strong> · Built <span id="appBuildDate"></span></div>
+      <button onclick="forceAppUpdate()" style="background:none;border:1px solid var(--border);border-radius:8px;padding:8px 16px;font-size:12px;color:var(--muted);font-family:var(--font);cursor:pointer;width:100%">🔄 Check for update</button>
+    </div>
   </div>
 </div>
 
@@ -952,6 +1026,46 @@ self.addEventListener('fetch', e => {
   </div>
 </div>
 
+<!-- Recurring list modal -->
+<div class="modal-overlay" id="recurringListModal">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+      <div class="modal-title" style="margin-bottom:0">Recurring expenses</div>
+      <button onclick="openAddRecurring()" style="background:var(--accent-dim);color:var(--accent);border:none;border-radius:8px;padding:7px 12px;font-size:12px;font-weight:600;font-family:var(--font);cursor:pointer">+ Add</button>
+    </div>
+    <div id="recurringListContent"></div>
+    <button class="btn-ghost" onclick="closeModal('recurringListModal')">Close</button>
+  </div>
+</div>
+
+<!-- Recurring expense modal -->
+<div class="modal-overlay" id="recurringModal">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title" id="recurringModalTitle">New recurring expense</div>
+    <div style="background:var(--surface2);border-radius:10px;padding:12px 14px;margin-bottom:14px;font-size:12px;color:var(--muted);line-height:1.6">
+      Recurring expenses are added automatically on their due date each cycle — so when you open the app on that day, the expense is already there.
+    </div>
+    <label>Description</label>
+    <input type="text" id="recName" placeholder="e.g. Netflix, Gym, Rent">
+    <label>Amount ($)</label>
+    <input type="number" inputmode="decimal" id="recAmount" placeholder="0.00" step="0.01" min="0">
+    <label>Category</label>
+    <select id="recCat"></select>
+    <label>Day of cycle to add it</label>
+    <input type="number" inputmode="numeric" id="recDay" placeholder="e.g. 5 (5th day of your cycle)" min="1" max="28" oninput="updateRecDayPreview()">
+    <div id="recDayPreview" style="font-size:12px;color:var(--muted);margin-top:-8px;margin-bottom:14px;min-height:16px"></div>
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+      <div id="recActiveCheck" onclick="toggleRecActive()" style="width:22px;height:22px;border-radius:6px;background:var(--accent);border:2px solid var(--accent);display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:13px;color:#fff;flex-shrink:0">✓</div>
+      <span style="font-size:13px">Active — add to every new cycle</span>
+    </div>
+    <button class="btn-primary" id="recSaveBtn" onclick="saveRecurring()">Save</button>
+    <button class="btn-danger" id="recDeleteBtn" onclick="deleteRecurring()" style="display:none">Delete</button>
+    <button class="btn-ghost" onclick="closeModal('recurringModal')">Cancel</button>
+  </div>
+</div>
+
 <!-- Backup modal -->
 <div class="modal-overlay" id="backupModal">
   <div class="modal">
@@ -979,6 +1093,8 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
+const APP_VERSION = '1.1.0';
+const BUILD_DATE = '2026-03-19';
 const STORAGE_KEY = 'spendly_generic_v1';
 const LOCK_KEY = 'spendly_pin_hash';
 const BIOM_KEY = 'spendly_biometric';
@@ -1017,6 +1133,9 @@ let state = {
   savingsCategories: [], // { id, name, icon, color, goalDate }
   savingsSubcategories: [], // { id, catId, name, icon, target, goalDate }
   savingsDeposits: [], // { id, targetId, catId, amount, date, note }
+  recurringExpenses: [], // { id, name, amount, categoryId, dayOfCycle, active }
+  offsetDailyLog: [],   // { date, balance, dailySaving, rate } — one entry per day
+  offsetMonthlyHistory: [], // { month:'YYYY-MM', totalSaving, avgBalance, rate }
 };
 
 const BACKUP_KEY = 'spendly_backup_v1';
@@ -1043,12 +1162,13 @@ function setSyncStatus(s) {
 async function syncToSupabase(data) {
   try {
     setSyncStatus('saving');
-    const res = await fetch(SB_URL + '/rest/v1/spendly_data?id=eq.main', {
-      method: 'PATCH',
-      headers: { ...SB_HEADERS, 'Prefer': 'return=minimal' },
-      body: JSON.stringify({ data, updated_at: new Date().toISOString() })
+    // Use POST with upsert — works whether row exists or not
+    const res = await fetch(SB_URL + '/rest/v1/spendly_data', {
+      method: 'POST',
+      headers: { ...SB_HEADERS, 'Prefer': 'resolution=merge-duplicates,return=minimal' },
+      body: JSON.stringify({ id: 'main', data, updated_at: new Date().toISOString() })
     });
-    if (!res.ok) throw new Error('patch failed ' + res.status);
+    if (!res.ok) throw new Error('upsert failed ' + res.status);
     setSyncStatus('saved');
     setTimeout(() => setSyncStatus('idle'), 3000);
   } catch(e) {
@@ -1253,11 +1373,11 @@ function switchTab(tab) {
   if (tab !== 'expenses') expenseSearchQuery = '';
   state.currentTab = tab;
   document.querySelectorAll('.tab').forEach((t,i) => {
-    t.classList.toggle('active', ['expenses','goals','savings','recycling','mortgage','tax','analytics'][i] === tab);
+    t.classList.toggle('active', ['expenses','goals','savings','recycling','mortgage','tax','investor','analytics'][i] === tab);
   });
   const fab = document.getElementById('fab');
   const isPast = (state.viewingCycleOffset || 0) < 0;
-  if (tab === 'calendar' || tab === 'recycling' || tab === 'mortgage' || tab === 'tax') {
+  if (tab === 'calendar' || tab === 'recycling' || tab === 'mortgage' || tab === 'tax' || tab === 'investor') {
     fab.style.display = 'none';
   } else if (tab === 'savings') {
     fab.innerHTML = '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 2v12M2 8h12" stroke="#fff" stroke-width="2.5" stroke-linecap="round"/></svg> Add category';
@@ -1283,6 +1403,7 @@ function renderContent() {
   else if (state.currentTab === 'calendar')  renderCalendar();
   else if (state.currentTab === 'recycling') renderRecycling();
   else if (state.currentTab === 'mortgage')  renderMortgage();
+  else if (state.currentTab === 'investor')  renderInvestor();
   else if (state.currentTab === 'tax')       renderTax();
   else if (state.currentTab === 'savings')   renderSavings();
 }
@@ -1295,6 +1416,27 @@ function isSetupComplete() {
 
 // ── Expenses tab ──────────────────────────────────────────────────────────────
 let expenseSearchQuery = '';
+let _searchDebounce = null;
+function debounceSearch(val) {
+  expenseSearchQuery = val;
+  clearTimeout(_searchDebounce);
+  _searchDebounce = setTimeout(() => {
+    renderExpensesKeepSearch();
+  }, 300);
+}
+function renderExpensesKeepSearch() {
+  const scrollY = window.scrollY || document.documentElement.scrollTop;
+  renderExpenses();
+  const input = document.getElementById('expenseSearchInput');
+  if (input && expenseSearchQuery) {
+    // Use requestAnimationFrame to re-focus after DOM settles without dismissing keyboard
+    requestAnimationFrame(() => {
+      input.focus({ preventScroll: true });
+      try { input.setSelectionRange(expenseSearchQuery.length, expenseSearchQuery.length); } catch(e){}
+    });
+  }
+  window.scrollTo(0, scrollY);
+}
 
 function setExpenseSearch(val) {
   expenseSearchQuery = val;
@@ -1327,7 +1469,7 @@ function renderExpenses() {
   // Search bar HTML — always shown when setup complete
   const searchBar = '<div style="display:inline-flex;align-items:center;gap:6px;margin-bottom:14px;background:var(--surface);border-radius:var(--r);padding:0 14px;border:1.5px solid ' + (query ? 'var(--accent)' : 'transparent') + ';height:34px;width:100%;box-sizing:border-box">' +
     '<svg width="13" height="13" viewBox="0 0 15 15" fill="none" style="flex-shrink:0;opacity:0.4"><circle cx="6" cy="6" r="4.5" stroke="currentColor" stroke-width="1.5"/><path d="M10 10l3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>' +
-    '<input id="expenseSearchInput" type="text" placeholder="Search expenses…" value="' + (query ? query.replace(/"/g,'&quot;') : '') + '" oninput="setExpenseSearch(this.value)" style="flex:1;background:none;border:none;outline:none;color:var(--text);font-size:16px;font-family:var(--font);padding:0;margin:0;height:100%">' +
+    '<input id="expenseSearchInput" type="text" placeholder="Search expenses…" value="' + (query ? query.replace(/"/g,'&quot;') : '') + '" oninput="debounceSearch(this.value)" style="flex:1;background:none;border:none;outline:none;color:var(--text);font-size:16px;font-family:var(--font);padding:0;margin:0;height:100%">' +
     (query ? '<button onclick="clearExpenseSearch()" style="background:none;border:none;color:var(--muted);font-size:16px;cursor:pointer;padding:0;line-height:1;flex-shrink:0">×</button>' : '') +
   '</div>';
 
@@ -1354,7 +1496,7 @@ function renderExpenses() {
     if (d.getTime() === today.getTime()) label = 'Today';
     else if (d.getTime() === yest.getTime()) label = 'Yesterday';
     html += '<div class="section-label">' + label + '</div>';
-    groups[date].forEach(e => {
+    groups[date].sort((a,b)=>b.id.localeCompare(a.id)).forEach(e => {
       const cat = catById(e.categoryId) || { name:'Unknown', icon:'❓', color:'#888' };
       html += '<div class="swipe-wrapper" id="sw-' + e.id + '">' +
         '<div class="delete-bg" onclick="quickDeleteExpense(\'' + e.id + '\')">' +
@@ -2157,16 +2299,20 @@ function wbFinish() {
 function wbSubmitName() {} // legacy — no longer needed
 
 function initWelcome() {
-  // Check both localStorage (fast) and state.setupDone (from Supabase)
+  // Check localStorage synchronously — this is instant
   const onboarded = localStorage.getItem(ONBOARDED_KEY) || state.setupDone;
   if (!onboarded) {
-    document.getElementById('welcomeScreen').style.opacity = '1';
+    const ws = document.getElementById('welcomeScreen');
+    ws.style.display = 'flex';
+    ws.style.opacity = '1';
     wbAnimate();
     return true;
   }
-  // Mirror to localStorage so future loads are instant
+  // Already onboarded — keep hidden, no flash
   localStorage.setItem(ONBOARDED_KEY, '1');
-  document.getElementById('welcomeScreen').style.display = 'none';
+  const ws = document.getElementById('welcomeScreen');
+  ws.style.display = 'none';
+  ws.style.opacity = '0';
   return false;
 }
 
@@ -2491,6 +2637,7 @@ const SAVINGS_EMOJIS = [
   '🌸','🐶','🐱','🌿','🧘','🍷','☕','🎵','🛋️','🔑',
 ];
 let savingsChart = null;
+let _savingsCatScrollTarget = null;
 let editingSavingsCatId = null, editingSavingsSubId = null, editingSavingsDepositId = null;
 let depositTargetId = null, depositCatId = null;
 
@@ -2697,13 +2844,16 @@ function saveSavingsDeposit() {
   if (!amount || amount<=0 || !date) return;
   if (!state.savingsDeposits) state.savingsDeposits = [];
   const type = currentSdType;
+  const catId = depositCatId;
   if (editingSavingsDepositId) {
-    const idx = state.savingsDeposits.findIndex(d=>d.id===editingSavingsDepositId);
-    if (idx>=0) state.savingsDeposits[idx] = {...state.savingsDeposits[idx], amount, date, note, type};
+    const idx2 = state.savingsDeposits.findIndex(d=>d.id===editingSavingsDepositId);
+    if (idx2>=0) state.savingsDeposits[idx2] = {...state.savingsDeposits[idx2], amount, date, note, type};
   } else {
     state.savingsDeposits.push({id:uid(), targetId:depositTargetId, catId:depositCatId, amount, date, note, type});
   }
-  saveState(); closeModal('savingsDepositModal'); renderContent();
+  saveState(); closeModal('savingsDepositModal');
+  _savingsCatScrollTarget = catId;
+  renderContent();
 }
 function deleteSavingsDeposit() {
   if (!editingSavingsDepositId) return;
@@ -2817,20 +2967,23 @@ function renderSavings() {
     const catTotal = totalSavedForCat(cat.id);
     const catCycleNet = cycleNetForCat(cat.id);
 
-    html += '<div style="background:var(--surface);border-radius:var(--r);margin-bottom:12px;overflow:hidden">';
+    html += '<div id="savcat-' + cat.id + '" style="background:var(--surface);border-radius:var(--r);margin-bottom:12px;overflow:hidden">';
 
     // Category header
     const catDays = !hasSubs && cat.goalDate ? daysUntil(cat.goalDate) : null;
-    html += '<div style="display:flex;align-items:center;gap:12px;padding:14px;cursor:pointer" onclick="openEditSavingsCat(\''+cat.id+'\')">' +
-      '<div style="width:42px;height:42px;border-radius:11px;background:'+cat.color+'22;display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0">'+cat.icon+'</div>' +
-      '<div style="flex:1;min-width:0">' +
+    html += '<div style="display:flex;align-items:center;gap:12px;padding:14px">' +
+      '<div style="width:42px;height:42px;border-radius:11px;background:'+cat.color+'22;display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0;cursor:pointer" onclick="openEditSavingsCat(\''+cat.id+'\')">'+cat.icon+'</div>' +
+      '<div style="flex:1;min-width:0;cursor:pointer" onclick="openEditSavingsCat(\''+cat.id+'\')">' +
         '<div style="font-size:15px;font-weight:700">'+cat.name+'</div>' +
         (!hasSubs && cat.goalDate ? '<div style="font-size:11px;color:var(--muted);margin-top:1px">Goal: '+fmtGoalDate(cat.goalDate)+(catDays!==null?' · '+(catDays>0?catDays+' days left':catDays===0?'Today!':'Overdue'):'')+'</div>' : '') +
       '</div>' +
-      '<div style="text-align:right;flex-shrink:0">' +
+      '<div style="text-align:right;flex-shrink:0;margin-right:8px">' +
         '<div style="font-size:16px;font-weight:700;color:'+(catTotal < 0 ? 'var(--red)' : 'var(--text)')+'">'+( catTotal < 0 ? '-' : '')+fmt(Math.abs(catTotal))+'</div>' +
         (catCycleNet !== 0 ? '<div style="font-size:10px;color:'+(catCycleNet>0?'var(--accent)':'var(--red)')+'">'+( catCycleNet>0?'+':'-')+'$'+Math.abs(catCycleNet).toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2})+' this cycle</div>' : '<div style="font-size:10px;color:var(--muted)">total saved</div>') +
       '</div>' +
+      '<button onclick="openSavingsHistory(\''+cat.id+'\',null)" style="background:var(--surface2);border:none;border-radius:8px;padding:6px 8px;cursor:pointer;flex-shrink:0" title="View history">' +
+        '<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="7" cy="7" r="5.5" stroke="currentColor" stroke-width="1.3"/><path d="M7 4v3l2 1.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>' +
+      '</button>' +
     '</div>';
 
     if (hasSubs) {
@@ -2852,11 +3005,14 @@ function renderSavings() {
               (cycleNet!==0 ? '<div style="font-size:10px;color:'+(cycleNet>0?'var(--accent)':'var(--red)')+'">'+( cycleNet>0?'+':'-')+'$'+Math.abs(cycleNet).toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2})+'</div>' : '') +
             '</div>' +
             '<button onclick="openAddDeposit(\''+sub.id+'\',\''+cat.id+'\')" style="background:var(--accent-dim);color:var(--accent);border:none;border-radius:8px;padding:6px 10px;font-size:12px;font-weight:700;font-family:var(--font);cursor:pointer;flex-shrink:0">+ Add</button>' +
+            '<button onclick="openSavingsHistory(\''+cat.id+'\',\''+sub.id+'\')" style="background:var(--surface2);border:none;border-radius:8px;padding:6px 8px;cursor:pointer;flex-shrink:0;margin-left:4px" title="History">' +
+              '<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="7" cy="7" r="5.5" stroke="currentColor" stroke-width="1.3"/><path d="M7 4v3l2 1.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>' +
+            '</button>' +
           '</div>' +
           (sub.target>0 ? '<div style="background:var(--surface2);border-radius:100px;height:5px;overflow:hidden"><div style="width:'+pct+'%;height:100%;background:'+cat.color+';border-radius:100px;transition:width 0.4s"></div></div>' +
             '<div style="font-size:10px;color:var(--muted);margin-top:4px">'+Math.round(pct)+'% · '+(sub.target-saved>0?fmt(Math.max(sub.target-saved,0))+' to go':'Goal reached! 🎉')+'</div>' : '') +
         (() => {
-          const subDeps = depositsForTarget(sub.id).sort((a,b)=>b.date.localeCompare(a.date));
+          const subDeps = depositsForTarget(sub.id).sort((a,b)=>b.date.localeCompare(a.date)||b.id.localeCompare(a.id));
           if (subDeps.length === 0) return '';
           let depHtml = '<div style="margin-top:10px;border-top:1px solid var(--surface3)">';
           subDeps.slice(0,4).forEach(d => {
@@ -2880,7 +3036,7 @@ function renderSavings() {
       '</div>';
     } else {
       // Direct deposits/withdrawals on category
-      const allDeps = depositsForCat(cat.id).sort((a,b)=>b.date.localeCompare(a.date));
+      const allDeps = depositsForCat(cat.id).sort((a,b)=>b.date.localeCompare(a.date)||b.id.localeCompare(a.id));
       html += '<div style="border-top:1px solid var(--surface2);padding:10px 14px;display:flex;gap:8px">' +
         '<button onclick="openAddDeposit(null,\''+cat.id+'\')" style="flex:1;background:var(--accent-dim);color:var(--accent);border:none;border-radius:8px;padding:10px;font-size:13px;font-weight:700;font-family:var(--font);cursor:pointer">+ Add / Withdraw</button>' +
         '<button onclick="openAddSavingsSub(\''+cat.id+'\')" style="background:var(--surface2);color:var(--muted);border:none;border-radius:8px;padding:10px 12px;font-size:12px;font-family:var(--font);cursor:pointer">Add goals</button>' +
@@ -2905,6 +3061,15 @@ function renderSavings() {
   });
 
   el.innerHTML = html;
+
+  // Scroll to category if we just added a deposit
+  if (_savingsCatScrollTarget) {
+    requestAnimationFrame(() => {
+      const catEl = document.getElementById('savcat-' + _savingsCatScrollTarget);
+      if (catEl) catEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      _savingsCatScrollTarget = null;
+    });
+  }
 
   // ── Charts ────────────────────────────────────────────────────────────────
   if (sortedMonths.length > 0) {
@@ -3590,7 +3755,8 @@ function renderMortgage() {
   const currentOffset = getOffsetBalance();
   const annualRateNow = (mg.interestRate || 0) / 100;
   const dailyInterestSaved = currentOffset * (annualRateNow / 365);
-  const monthlyInterestSaved = currentOffset * (annualRateNow / 12);
+  const currentMonthSaving = getOffsetCurrentMonthSaving();
+  const monthlyHistory = (state.offsetMonthlyHistory || []).slice().sort((a,b)=>b.month.localeCompare(a.month));
 
   // Cycle offset transactions
   const cycleTxs = getOffsetTxInRange(cycleStart, cycleEnd).sort((a,b)=>b.date.localeCompare(a.date));
@@ -3610,11 +3776,11 @@ function renderMortgage() {
       '</div>' +
       '<div>' +
         '<div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:3px">Daily saving</div>' +
-        '<div style="font-size:18px;font-weight:700;color:var(--accent)">$' + dailyInterestSaved.toFixed(2) + '</div>' +
+        '<div style="font-size:18px;font-weight:700;color:'+(currentOffset>0?'var(--accent)':'var(--muted)')+'">$' + dailyInterestSaved.toFixed(2) + '</div>' +
       '</div>' +
       '<div>' +
-        '<div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:3px">Monthly saving</div>' +
-        '<div style="font-size:18px;font-weight:700;color:var(--accent)">$' + Math.round(monthlyInterestSaved).toLocaleString('en-AU') + '</div>' +
+        '<div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:3px">This month</div>' +
+        '<div style="font-size:18px;font-weight:700;color:'+(currentMonthSaving>0?'var(--accent)':'var(--muted)')+'">$' + currentMonthSaving.toFixed(2) + '</div>' +
       '</div>' +
     '</div>' +
     (cycleTxs.length > 0 ?
@@ -3637,6 +3803,34 @@ function renderMortgage() {
       '</div>'
     : '<div style="font-size:12px;color:var(--muted);text-align:center;padding:6px 0 2px">No transactions this month — tap + to add</div>') +
   '</div>';
+
+  // ── Offset monthly history ───────────────────────────────────────────────────
+  if (monthlyHistory.length > 0) {
+    html += '<div style="background:var(--surface);border-radius:var(--r);padding:14px;margin-bottom:8px">' +
+      '<div style="font-size:13px;font-weight:700;margin-bottom:10px">Offset savings history</div>' +
+      '<div style="font-size:11px;color:var(--muted);margin-bottom:10px">Each month shows total interest saved, average offset balance, and the implied savings rate — useful for predicting future savings.</div>';
+    html += '<div style="background:var(--surface);border-radius:var(--r);overflow:hidden;margin-bottom:8px">';
+    monthlyHistory.slice(0,12).forEach((h, i) => {
+      const [yr, mo] = h.month.split('-');
+      const label = new Date(+yr, +mo-1, 1).toLocaleDateString('en-AU',{month:'short',year:'numeric'});
+      const savingPerK = h.avgBalance > 0 ? (h.totalSaving / h.avgBalance * 1000) : 0;
+      html += '<div style="display:grid;grid-template-columns:80px 1fr 1fr 1fr;gap:4px;align-items:center;padding:9px 12px;' + (i>0?'border-top:1px solid var(--surface2)':'') + '">' +
+        '<div style="font-size:11px;color:var(--muted)">' + label + '</div>' +
+        '<div><div style="font-size:10px;color:var(--muted)">Saved</div><div style="font-size:12px;font-weight:600;color:var(--accent)">$'+h.totalSaving.toFixed(2)+'</div></div>' +
+        '<div><div style="font-size:10px;color:var(--muted)">Avg balance</div><div style="font-size:12px;font-weight:600">$'+Math.round(h.avgBalance).toLocaleString('en-AU')+'</div></div>' +
+        '<div><div style="font-size:10px;color:var(--muted)">Per $1k</div><div style="font-size:12px;font-weight:600">$'+savingPerK.toFixed(2)+'/mo</div></div>' +
+      '</div>';
+    });
+    html += '</div>';
+    if (monthlyHistory.length > 0) {
+      const latest = monthlyHistory[0];
+      const perK = latest.avgBalance > 0 ? (latest.totalSaving / latest.avgBalance * 1000) : 0;
+      html += '<div style="background:var(--surface2);border-radius:10px;padding:10px 12px;font-size:12px;color:var(--muted);line-height:1.6">' +
+        '📊 <strong style="color:var(--text)">Prediction:</strong> Based on last month, every $1,000 extra in your offset saves you approx <strong style="color:var(--accent)">$'+perK.toFixed(2)+'</strong> per month in interest.' +
+      '</div>';
+    }
+    html += '</div>';
+  }
 
   // ── Redraw card ───────────────────────────────────────────────────────────
   html += '<div style="background:var(--surface);border-radius:var(--r);padding:12px 14px;margin-bottom:8px">' +
@@ -3985,6 +4179,359 @@ function renderTax() {
 }
 
 
+// ── Recurring Expenses ────────────────────────────────────────────────────────
+let editingRecurringId = null;
+let recActiveState = true;
+
+function toggleRecActive() {
+  recActiveState = !recActiveState;
+  const el = document.getElementById('recActiveCheck');
+  el.textContent = recActiveState ? '✓' : '';
+  el.style.background = recActiveState ? 'var(--accent)' : 'var(--surface3)';
+  el.style.border = '2px solid ' + (recActiveState ? 'var(--accent)' : 'var(--border)');
+}
+
+function getCycleDateForDay(dayOfCycle) {
+  // Returns the actual calendar date for a given day within the current cycle
+  const { cycleStart } = getCycleRange(0);
+  const d = new Date(cycleStart);
+  d.setDate(d.getDate() + (dayOfCycle - 1));
+  return d;
+}
+
+function populateRecCatSelect() {
+  const sel = document.getElementById('recCat'); sel.innerHTML = '';
+  const fixed = state.categories.filter(c=>c.type==='fixed');
+  const variable = state.categories.filter(c=>c.type==='variable');
+  if (fixed.length) {
+    const og = document.createElement('optgroup'); og.label = 'Fixed';
+    fixed.forEach(c => { const o=document.createElement('option'); o.value=c.id; o.textContent=c.icon+' '+c.name; og.appendChild(o); });
+    sel.appendChild(og);
+  }
+  if (variable.length) {
+    const og = document.createElement('optgroup'); og.label = 'Variable';
+    variable.forEach(c => { const o=document.createElement('option'); o.value=c.id; o.textContent=c.icon+' '+c.name; og.appendChild(o); });
+    sel.appendChild(og);
+  }
+}
+
+function updateRecDayPreview() {
+  const day = parseInt(document.getElementById('recDay').value);
+  const el = document.getElementById('recDayPreview');
+  if (!day || day < 1 || day > 28) { el.textContent = ''; return; }
+  const date = getCycleDateForDay(day);
+  el.textContent = 'This cycle: ' + date.toLocaleDateString('en-AU', {weekday:'short',day:'numeric',month:'short'});
+}
+
+function openAddRecurring() {
+  editingRecurringId = null; recActiveState = true;
+  document.getElementById('recurringModalTitle').textContent = 'New recurring expense';
+  document.getElementById('recName').value = '';
+  document.getElementById('recAmount').value = '';
+  document.getElementById('recDay').value = '';
+  document.getElementById('recDayPreview').textContent = '';
+  document.getElementById('recDeleteBtn').style.display = 'none';
+  document.getElementById('recSaveBtn').textContent = 'Save';
+  const check = document.getElementById('recActiveCheck');
+  check.textContent = '✓'; check.style.background = 'var(--accent)'; check.style.border = '2px solid var(--accent)';
+  populateRecCatSelect();
+  closeModal('recurringListModal');
+  document.getElementById('recurringModal').classList.add('open');
+  setTimeout(()=>document.getElementById('recName').focus(),350);
+}
+
+function openEditRecurring(id) {
+  const rec = (state.recurringExpenses||[]).find(r=>r.id===id); if (!rec) return;
+  editingRecurringId = id; recActiveState = rec.active !== false;
+  document.getElementById('recurringModalTitle').textContent = 'Edit recurring expense';
+  document.getElementById('recName').value = rec.name||'';
+  document.getElementById('recAmount').value = rec.amount||'';
+  document.getElementById('recDay').value = rec.dayOfCycle||'';
+  document.getElementById('recDeleteBtn').style.display = 'block';
+  document.getElementById('recSaveBtn').textContent = 'Update';
+  const check = document.getElementById('recActiveCheck');
+  check.textContent = recActiveState ? '✓' : '';
+  check.style.background = recActiveState ? 'var(--accent)' : 'var(--surface3)';
+  check.style.border = '2px solid ' + (recActiveState ? 'var(--accent)' : 'var(--border)');
+  populateRecCatSelect();
+  document.getElementById('recCat').value = rec.categoryId||'';
+  updateRecDayPreview();
+  closeModal('recurringListModal');
+  document.getElementById('recurringModal').classList.add('open');
+}
+
+function saveRecurring() {
+  const name = document.getElementById('recName').value.trim();
+  const amount = parseFloat(document.getElementById('recAmount').value);
+  const categoryId = document.getElementById('recCat').value;
+  const dayOfCycle = parseInt(document.getElementById('recDay').value);
+  if (!name || !amount || !categoryId || !dayOfCycle) return;
+  if (!state.recurringExpenses) state.recurringExpenses = [];
+  const active = recActiveState;
+  if (editingRecurringId) {
+    const idx = state.recurringExpenses.findIndex(r=>r.id===editingRecurringId);
+    if (idx>=0) state.recurringExpenses[idx] = {...state.recurringExpenses[idx], name, amount, categoryId, dayOfCycle, active};
+  } else {
+    state.recurringExpenses.push({id:uid(), name, amount, categoryId, dayOfCycle, active, lastAddedCycle:''});
+  }
+  saveState(); closeModal('recurringModal'); openRecurringList();
+}
+
+function deleteRecurring() {
+  if (!editingRecurringId) return;
+  state.recurringExpenses = (state.recurringExpenses||[]).filter(r=>r.id!==editingRecurringId);
+  saveState(); closeModal('recurringModal'); openRecurringList();
+}
+
+function openRecurringList() {
+  const content = document.getElementById('recurringListContent');
+  const recs = state.recurringExpenses || [];
+  if (recs.length === 0) {
+    content.innerHTML = '<div style="text-align:center;padding:20px;color:var(--muted);font-size:13px">No recurring expenses yet.<br>Tap + to add one.</div>';
+  } else {
+    content.innerHTML = recs.map(r => {
+      const cat = catById(r.categoryId);
+      const date = getCycleDateForDay(r.dayOfCycle);
+      const dateStr = date.toLocaleDateString('en-AU',{weekday:'short',day:'numeric',month:'short'});
+      return '<div style="display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid var(--surface2);cursor:pointer" onclick="openEditRecurring(\''+r.id+'\')">' +
+        '<div style="width:38px;height:38px;border-radius:10px;background:'+(cat?cat.color:'#888')+'22;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">'+(cat?cat.icon:'❓')+'</div>' +
+        '<div style="flex:1;min-width:0">' +
+          '<div style="font-size:13px;font-weight:600">' + r.name + '</div>' +
+          '<div style="font-size:11px;color:var(--muted)">Day '+ r.dayOfCycle +' · ' + dateStr + (r.active===false?' · <span style="color:var(--orange)">Paused</span>':'') + '</div>' +
+        '</div>' +
+        '<div style="text-align:right;flex-shrink:0">' +
+          '<div style="font-size:13px;font-weight:600">' + fmt(r.amount) + '</div>' +
+          '<div style="font-size:10px;color:var(--muted)">' + (cat?cat.name:'') + '</div>' +
+        '</div>' +
+      '</div>';
+    }).join('');
+  }
+  document.getElementById('recurringListModal').classList.add('open');
+}
+
+function applyRecurringExpenses() {
+  // Called on boot — adds any recurring expenses that are due today
+  const recs = (state.recurringExpenses||[]).filter(r=>r.active!==false);
+  if (!recs.length) return;
+  const { cycleStart } = getCycleRange(0);
+  const cycleKey = cycleStart.toISOString().split('T')[0];
+  const today = new Date(); today.setHours(0,0,0,0);
+  let added = false;
+  recs.forEach(r => {
+    // Check if already added this cycle
+    if (r.lastAddedCycle === cycleKey) return;
+    // Check if today is the due date
+    const dueDate = getCycleDateForDay(r.dayOfCycle);
+    dueDate.setHours(0,0,0,0);
+    if (today.getTime() !== dueDate.getTime()) return;
+    // Add the expense dated today
+    state.expenses.push({
+      id: uid(),
+      amount: r.amount,
+      name: r.name,
+      categoryId: r.categoryId,
+      date: today.toISOString().split('T')[0],
+    });
+    r.lastAddedCycle = cycleKey;
+    added = true;
+  });
+  if (added) saveState();
+}
+
+// ── Offset Daily Savings Log ──────────────────────────────────────────────────
+function recordTodayOffsetSaving() {
+  const mg = state.mortgage || {};
+  if (!mg.interestRate) return;
+  const today = todayStr();
+  if (!state.offsetDailyLog) state.offsetDailyLog = [];
+  // Don't double-record same day
+  if (state.offsetDailyLog.find(e=>e.date===today)) return;
+  const balance = getOffsetBalance();
+  if (balance <= 0) return;
+  const rate = mg.interestRate / 100;
+  const dailySaving = balance * (rate / 365);
+  state.offsetDailyLog.push({ date: today, balance, dailySaving, rate: mg.interestRate });
+
+  // Check if we need to roll up last month into monthly history
+  rollupOffsetMonthlyHistory();
+  saveState();
+}
+
+function rollupOffsetMonthlyHistory() {
+  if (!state.offsetDailyLog || !state.offsetDailyLog.length) return;
+  if (!state.offsetMonthlyHistory) state.offsetMonthlyHistory = [];
+  const today = new Date();
+  const thisMonth = today.getFullYear() + '-' + String(today.getMonth()+1).padStart(2,'0');
+
+  // Group daily logs by month, exclude current month
+  const byMonth = {};
+  state.offsetDailyLog.forEach(e => {
+    const m = e.date.slice(0,7);
+    if (m === thisMonth) return; // don't roll up current month yet
+    if (!byMonth[m]) byMonth[m] = [];
+    byMonth[m].push(e);
+  });
+
+  Object.entries(byMonth).forEach(([month, entries]) => {
+    // Only roll up if not already in history
+    if (state.offsetMonthlyHistory.find(h=>h.month===month)) return;
+    const totalSaving = entries.reduce((s,e)=>s+e.dailySaving,0);
+    const avgBalance = entries.reduce((s,e)=>s+e.balance,0) / entries.length;
+    const rate = entries[entries.length-1].rate;
+    state.offsetMonthlyHistory.push({ month, totalSaving, avgBalance, rate });
+    // Remove rolled-up daily entries to save space
+    state.offsetDailyLog = state.offsetDailyLog.filter(e=>e.date.slice(0,7)!==month);
+  });
+  state.offsetMonthlyHistory.sort((a,b)=>b.month.localeCompare(a.month));
+}
+
+function getOffsetCurrentMonthSaving() {
+  if (!state.offsetDailyLog) return 0;
+  const today = new Date();
+  const thisMonth = today.getFullYear() + '-' + String(today.getMonth()+1).padStart(2,'0');
+  return state.offsetDailyLog.filter(e=>e.date.slice(0,7)===thisMonth).reduce((s,e)=>s+e.dailySaving,0);
+}
+
+// ── Savings transaction history per category ──────────────────────────────────
+function openSavingsHistory(catId, subId) {
+  const cat = (state.savingsCategories||[]).find(c=>c.id===catId);
+  const sub = subId ? (state.savingsSubcategories||[]).find(s=>s.id===subId) : null;
+  const title = sub ? sub.icon+' '+sub.name+' — History' : (cat?cat.icon+' '+cat.name+' — History':'History');
+  const deps = subId ? depositsForTarget(subId) : depositsForCat(catId);
+  const sorted = deps.slice().sort((a,b)=>b.date.localeCompare(a.date)||b.id.localeCompare(a.id));
+
+  let runningBal = deps.reduce((s,d)=>s+(d.type==='withdrawal'?-d.amount:d.amount),0);
+  let rows = '';
+  sorted.forEach((d,i) => {
+    const isW = d.type==='withdrawal';
+    rows += '<div style="display:flex;align-items:center;gap:10px;padding:11px 14px;'+(i>0?'border-top:1px solid var(--surface2)':'')+';cursor:pointer" onclick="openEditDeposit(\''+d.id+'\')">' +
+      '<div style="flex:1;min-width:0">' +
+        '<div style="font-size:13px;font-weight:500">'+(isW?'💸 ':' 💰 ')+(d.note||(isW?'Withdrawal':'Deposit'))+'</div>' +
+        '<div style="font-size:11px;color:var(--muted)">'+new Date(d.date+'T00:00:00').toLocaleDateString('en-AU',{day:'numeric',month:'short',year:'numeric'})+'</div>' +
+      '</div>' +
+      '<div style="text-align:right;flex-shrink:0">' +
+        '<div style="font-size:13px;font-weight:600;color:'+(isW?'var(--red)':'var(--accent)')+'">'+( isW?'-':'+')+fmt(d.amount)+'</div>' +
+      '</div>' +
+    '</div>';
+  });
+
+  // Build and show modal dynamically
+  let modal = document.getElementById('savingsHistoryModal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.className = 'modal-overlay';
+    modal.id = 'savingsHistoryModal';
+    modal.innerHTML = '<div class="modal"><div class="modal-handle"></div><div class="modal-title" id="savingsHistoryTitle"></div><div id="savingsHistoryBody" style="max-height:60vh;overflow-y:auto"></div><button class="btn-ghost" onclick="closeModal(\'savingsHistoryModal\')">Close</button></div>';
+    document.body.appendChild(modal);
+    modal.addEventListener('click', e => { if (e.target===modal) modal.classList.remove('open'); });
+  }
+  document.getElementById('savingsHistoryTitle').textContent = title;
+  document.getElementById('savingsHistoryBody').innerHTML = sorted.length
+    ? '<div style="background:var(--surface);border-radius:var(--r);overflow:hidden;margin-bottom:12px">'+rows+'</div>'
+    : '<div style="text-align:center;padding:20px;color:var(--muted);font-size:13px">No transactions yet</div>';
+  modal.classList.add('open');
+}
+
+// ── Investor / Money Allocation Tab ───────────────────────────────────────────
+function switchToInvestor() { switchTab('investor'); }
+
+function renderInvestor() {
+  const el = document.getElementById('content');
+  const income = state.budget || 0;
+  const fmtI = n => '$' + Math.round(n).toLocaleString('en-AU');
+
+  // 50/30/20 Rule
+  const needs = income * 0.50;
+  const wants = income * 0.30;
+  const savings = income * 0.20;
+
+  // Barefoot Investor buckets
+  const blowAcct = income * 0.60;
+  const smileAcct = income * 0.10;
+  const fireAcct = income * 0.20;
+  const splurgeAcct = income * 0.10;
+
+  let html = '<div style="font-size:16px;font-weight:700;margin:8px 0 4px">💡 Money allocation</div>' +
+    '<div style="font-size:12px;color:var(--muted);margin-bottom:16px;line-height:1.5">Two popular frameworks for dividing your money. Based on your monthly budget of <strong style="color:var(--text)">' + fmtI(income) + '</strong>.</div>';
+
+  // ── 50/30/20 ──────────────────────────────────────────────────────────────
+  html += '<div style="background:var(--surface);border-radius:var(--r);padding:14px;margin-bottom:12px">' +
+    '<div style="font-size:14px;font-weight:700;margin-bottom:4px">The 50/30/20 Rule</div>' +
+    '<div style="font-size:12px;color:var(--muted);margin-bottom:14px;line-height:1.5">A simple framework popularised by US Senator Elizabeth Warren. Split your after-tax income into three buckets.</div>' +
+    // Stacked bar
+    '<div style="display:flex;border-radius:8px;overflow:hidden;height:12px;margin-bottom:12px">' +
+      '<div style="width:50%;background:#4F8EF7"></div>' +
+      '<div style="width:30%;background:#f0a860"></div>' +
+      '<div style="width:20%;background:#60f0d0"></div>' +
+    '</div>' +
+    '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">' +
+      _allocCard('50% Needs', fmtI(needs), '#4F8EF7', 'Rent, groceries, utilities, transport — essentials you can\'t avoid') +
+      _allocCard('30% Wants', fmtI(wants), '#f0a860', 'Dining out, subscriptions, shopping, holidays — things you enjoy') +
+      _allocCard('20% Savings', fmtI(savings), '#60f0d0', 'Emergency fund, super top-ups, investments, debt repayment') +
+    '</div>' +
+  '</div>';
+
+  // ── Barefoot Investor ─────────────────────────────────────────────────────
+  html += '<div style="background:var(--surface);border-radius:var(--r);padding:14px;margin-bottom:12px">' +
+    '<div style="font-size:14px;font-weight:700;margin-bottom:4px">The Barefoot Investor Buckets</div>' +
+    '<div style="font-size:12px;color:var(--muted);margin-bottom:14px;line-height:1.5">Scott Pape\'s system from the bestselling Australian personal finance book. Four accounts, each with a purpose — automate transfers and forget about it.</div>' +
+    '<div style="display:flex;border-radius:8px;overflow:hidden;height:12px;margin-bottom:12px">' +
+      '<div style="width:60%;background:#4F8EF7"></div>' +
+      '<div style="width:10%;background:#f060b0"></div>' +
+      '<div style="width:20%;background:#60f0d0"></div>' +
+      '<div style="width:10%;background:#f0d860"></div>' +
+    '</div>' +
+    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">' +
+      _allocCard('60% Blow', fmtI(blowAcct), '#4F8EF7', 'Everyday spending — bills, groceries, regular expenses') +
+      _allocCard('10% Splurge', fmtI(splurgeAcct), '#f060b0', 'Guilt-free fun — spend this however you like, no questions asked') +
+      _allocCard('20% Fire Extinguisher', fmtI(fireAcct), '#60f0d0', 'Pay off debt first, then build your emergency fund (3 months expenses)') +
+      _allocCard('10% Smile', fmtI(smileAcct), '#f0d860', 'Save for things that make you smile — holidays, car, home deposit') +
+    '</div>' +
+    '<div style="background:var(--surface2);border-radius:10px;padding:12px;font-size:12px;color:var(--muted);line-height:1.6">' +
+      '📖 <strong style="color:var(--text)">The Barefoot Investor</strong> by Scott Pape is Australia\'s best-selling personal finance book. The system is designed to be automated — set up separate bank accounts for each bucket and transfer automatically on payday.' +
+    '</div>' +
+  '</div>';
+
+  // ── How Spendly helps ─────────────────────────────────────────────────────
+  html += '<div style="background:var(--surface);border-radius:var(--r);padding:14px;margin-bottom:12px">' +
+    '<div style="font-size:14px;font-weight:700;margin-bottom:10px">How Spendly maps to these frameworks</div>' +
+    '<div style="font-size:12px;color:var(--muted);line-height:1.8">' +
+      '💳 <strong style="color:var(--text)">Expenses tab</strong> — track your Blow / Needs & Wants spending<br>' +
+      '🎯 <strong style="color:var(--text)">Budget tab</strong> — set limits per category to stay in your buckets<br>' +
+      '💰 <strong style="color:var(--text)">Savings tab</strong> — track your Smile / 20% savings goals<br>' +
+      '🏠 <strong style="color:var(--text)">Mortgage tab</strong> — Fire Extinguisher in action — paying down debt<br>' +
+      '🎉 <strong style="color:var(--text)">End of cycle</strong> — Spendly suggests how to split any leftover budget across your savings goals' +
+    '</div>' +
+  '</div>';
+
+  el.innerHTML = html;
+}
+
+function _allocCard(label, amount, color, desc) {
+  return '<div style="background:var(--surface2);border-radius:10px;padding:10px">' +
+    '<div style="width:8px;height:8px;border-radius:2px;background:'+color+';margin-bottom:6px"></div>' +
+    '<div style="font-size:11px;font-weight:700;color:var(--text);margin-bottom:2px">'+label+'</div>' +
+    '<div style="font-size:16px;font-weight:700;color:'+color+';margin-bottom:4px">'+amount+'</div>' +
+    '<div style="font-size:10px;color:var(--muted);line-height:1.4">'+desc+'</div>' +
+  '</div>';
+}
+
+// ── Version & Update ──────────────────────────────────────────────────────────
+function initVersionDisplay() {
+  // Header tiny version
+  const hv = document.getElementById('headerVersion');
+  if (hv) hv.textContent = 'v' + APP_VERSION;
+  // Settings modal
+  const av = document.getElementById('appVersionDisplay');
+  if (av) av.textContent = APP_VERSION;
+  const bd = document.getElementById('appBuildDate');
+  if (bd) bd.textContent = BUILD_DATE;
+}
+
+async function forceAppUpdate() {
+  await applyUpdate();
+}
+
 // ── Boot ──────────────────────────────────────────────────────────────────────
 function hideLaunchScreen(callback) {
   const ls = document.getElementById('launchScreen');
@@ -4003,6 +4550,7 @@ async function init() {
   state.currentTab = 'expenses';
   updateHeader();
   renderContent();
+  initVersionDisplay();
   // Hide launch screen THEN show next screen
   hideLaunchScreen(() => {
     if (!initWelcome()) {
@@ -4010,6 +4558,10 @@ async function init() {
       initLock();
     }
   });
+  // Apply recurring expenses for today
+  applyRecurringExpenses();
+  // Record today's offset saving
+  recordTodayOffsetSaving();
   setTimeout(checkCycleComplete, 2000);
 }
 init();
