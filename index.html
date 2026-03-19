@@ -17,7 +17,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '1.2.0-202603192056';
+  const APP_VER = '1.2.0-202603192149';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -91,7 +91,9 @@ function showUpdateBanner() {
 
 async function applyUpdate() {
   const banner = document.getElementById('updateBanner');
+  const btn = document.querySelector('[onclick="forceAppUpdate()"]');
   if (banner) banner.innerHTML = '<span>⏳ Updating…</span>';
+  if (btn) { btn.textContent = '⏳ Clearing cache…'; btn.disabled = true; }
   try {
     if ('caches' in window) {
       const keys = await caches.keys();
@@ -102,7 +104,9 @@ async function applyUpdate() {
       await Promise.all(regs.map(r => r.unregister()));
     }
   } catch(e) {}
-  window.location.reload(true);
+  // Use cache-busting URL redirect — works on Safari iOS where reload(true) is ignored
+  const url = window.location.href.split('?')[0] + '?v=' + Date.now();
+  window.location.replace(url);
 }
 </script>
 <style>
@@ -1214,7 +1218,7 @@ const PALETTE = [
 // ── State ─────────────────────────────────────────────────────────────────────
 const APP_VERSION = '1.2.0';
 const BUILD_DATE = '2026-03-19';
-const BUILD_TIME = '19 Mar 2026 8:56 PM AEDT';
+const BUILD_TIME = '19 Mar 2026 9:49 PM AEDT';
 const STORAGE_KEY = 'spendly_generic_v1';
 const LOCK_KEY = 'spendly_pin_hash';
 const BIOM_KEY = 'spendly_biometric';
@@ -3521,7 +3525,7 @@ function checkCycleComplete() {
 function showCongratsModal(saved, spent) {
   const fmt2 = (n) => '$' + Math.abs(n).toLocaleString('en-AU', {minimumFractionDigits:2, maximumFractionDigits:2});
   const { cycleStart, cycleEnd } = getCycleRange(0);
-  const cycleEndDate = cycleEndateToStr(d);
+  const cycleEndDate = dateToStr(cycleEnd);
   const cycleLabel = cycleStart.toLocaleDateString('en-AU',{day:'numeric',month:'short'}) + ' – ' + cycleEnd.toLocaleDateString('en-AU',{day:'numeric',month:'short'});
   document.getElementById('congratsCycleLabel').textContent = cycleLabel;
   document.getElementById('congratsAmount').textContent = fmt2(saved);
@@ -3918,8 +3922,7 @@ function getOffsetBalanceAt(beforeDate) {
     .reduce((s, t) => s + (t.type === 'withdrawal' ? -t.amount : t.amount), 0);
 }
 function getOffsetTxInRange(start, end) {
-  const e = endateToStr(d);
-  return (state.offsetTransactions || []).filter(t => t.date >= s && t.date <= e);
+  return (state.offsetTransactions || []).filter(t => t.date >= start && t.date <= end);
 }
 
 function setOffsetTxType(type) {
