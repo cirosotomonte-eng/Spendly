@@ -4035,86 +4035,77 @@ function deleteMortgageInterest() {
 }
 
 // ── Mortgage Projection Helpers ───────────────────────────────────────────────
-function mortgageProjectionData(extraWeeklyOffset) {
+function mortgageProjectionData(extraOffsetAmt) {
   const mg = state.mortgage || {};
   if (!mg.loanAmount || !mg.interestRate || !mg.termYears) return null;
   const startBalance = mg.currentBalance > 0 ? mg.currentBalance : mg.loanAmount;
   const annualRate = mg.interestRate / 100;
   const weeklyRate = annualRate / 52;
+  if (weeklyRate <= 0) return null;
   const totalWeeks = mg.termYears * 52;
   const minPmt = mg.minimumRepayment > 0 ? mg.minimumRepayment
     : (startBalance * weeklyRate / (1 - Math.pow(1 + weeklyRate, -totalWeeks)));
   const actualPmt = (mg.weeklyRepayment > 0 ? mg.weeklyRepayment : minPmt);
+  // Safety: if payment doesn't cover interest, can't project
+  if (!actualPmt || actualPmt <= startBalance * weeklyRate) return null;
   const baseOffset = getOffsetBalance();
-  const totalOffset = baseOffset + (extraWeeklyOffset || 0) * 52 / 12; // rough monthly equiv
+  const totalOffset = baseOffset + (extraOffsetAmt || 0);
+  const MAX_WEEKS = totalWeeks * 2;
 
-  // Path A: minimum only, no offset
-  const pathA = []; let balA = startBalance;
-  for (let w = 0; w < totalWeeks * 2; w++) {
-    if (w % 52 === 0) pathA.push(Math.max(balA, 0));
-    if (balA <= 0) break;
-    const intW = balA * weeklyRate;
-    const prinW = Math.min(minPmt - intW, balA);
-    balA -= Math.max(prinW, 0);
-  }
-  if (balA > 0) pathA.push(0);
-
-  // Path B: actual payments + offset + extras
-  const pathB = []; let balB = startBalance;
-  const sortedExtras = (state.mortgageExtras || []).slice().sort((a,b)=>a.date.localeCompare(b.date));
-  let extraIdx = 0;
-  const today = new Date(); today.setHours(0,0,0,0);
-  const weekMs = 7*24*60*60*1000;
-  let weekDate = new Date(today);
-  let weeksB = 0, totalIntA2 = 0, totalIntB = 0, paidOffDate = null;
-
-  // Also compute no-offset total interest
-  let balC = startBalance, totalIntC = 0;
-  for (let w = 0; w < totalWeeks * 2; w++) {
-    if (balC <= 0) break;
-    const intW = balC * weeklyRate;
-    totalIntC += intW;
-    balC -= Math.max(Math.min(actualPmt - intW, balC), 0);
-  }
-
-  for (let w = 0; w < totalWeeks * 2; w++) {
-    if (w % 52 === 0) pathB.push(Math.max(balB, 0));
-    if (balB <= 0) { if (!paidOffDate) paidOffDate = new Date(weekDate); break; }
-    while (extraIdx < sortedExtras.length) {
-      const eDate = new Date(sortedExtras[extraIdx].date+'T00:00:00');
-      if (eDate <= weekDate) { balB -= sortedExtras[extraIdx].amount; extraIdx++; if (balB <= 0) { balB = 0; break; } }
-      else break;
+  // Helper: run amortisation, return {balsByYear, totalInterest, weeksTaken, paidOffDate}
+  function runAmort(offset, pmt) {
+    const bals = [startBalance];
+    let bal = startBalance, totalInt = 0, weeks = 0;
+    const today = new Date(); today.setHours(0,0,0,0);
+    const weekMs = 7*24*60*60*1000;
+    let weekDate = new Date(today);
+    const sortedExtras = (state.mortgageExtras||[]).slice().sort((a,b)=>a.date.localeCompare(b.date));
+    let extraIdx = 0, paidOffDate = null;
+    for (let w = 0; w < MAX_WEEKS; w++) {
+      if (bal <= 0) { if (!paidOffDate) paidOffDate = new Date(weekDate); break; }
+      if (offset > 0) {
+        while (extraIdx < sortedExtras.length) {
+          const eDate = new Date(sortedExtras[extraIdx].date+'T00:00:00');
+          if (eDate <= weekDate) { bal -= sortedExtras[extraIdx].amount; extraIdx++; if (bal<=0){bal=0;break;} } else break;
+        }
+      }
+      const effBal = Math.max(bal - offset, 0);
+      const intW = effBal * weeklyRate;
+      const prinW = Math.min(pmt - intW, bal);
+      if (prinW <= 0) break; // safety
+      totalInt += intW;
+      bal -= prinW;
+      weeks++;
+      if (w % 52 === 51) bals.push(Math.max(bal, 0));
+      weekDate = new Date(weekDate.getTime() + weekMs);
+      if (bal <= 0 && !paidOffDate) paidOffDate = new Date(weekDate);
     }
-    if (balB <= 0) { if (!paidOffDate) paidOffDate = new Date(weekDate); break; }
-    const effBal = Math.max(balB - totalOffset, 0);
-    const intW = effBal * weeklyRate;
-    totalIntB += intW;
-    balB -= Math.max(Math.min(actualPmt - intW, balB), 0);
-    weeksB++;
-    weekDate = new Date(weekDate.getTime() + weekMs);
-    if (balB <= 0 && !paidOffDate) paidOffDate = new Date(weekDate);
+    bals.push(0);
+    return { bals, totalInt, weeks, paidOffDate };
   }
-  if (balB > 0) pathB.push(0);
 
-  const interestSaved = Math.max(totalIntC - totalIntB, 0);
-  const weeksSaved = Math.max(pathA.length - pathB.length, 0) * 52;
+  const resA = runAmort(0, actualPmt);       // no offset baseline
+  const resB = runAmort(totalOffset, actualPmt); // with offset
+
+  const weeksSaved = Math.max(resA.weeks - resB.weeks, 0);
   const yearsSaved = Math.floor(weeksSaved / 52);
   const monthsSaved = Math.floor((weeksSaved % 52) / 4.33);
-  const yearsLeft = Math.floor(weeksB / 52);
-  const monthsLeft = Math.floor((weeksB % 52) / 4.33);
+  const yearsLeft = Math.floor(resB.weeks / 52);
+  const monthsLeft = Math.floor((resB.weeks % 52) / 4.33);
+  const interestSaved = Math.max(resA.totalInt - resB.totalInt, 0);
 
-  // Snowball: cumulative interest saved at 5, 10, 20 years
+  // Snowball at 5/10/20 years
   const snowball = [5,10,20].map(yrs => {
     const wks = yrs * 52;
-    let bA = startBalance, bB = startBalance, intA = 0, intB2 = 0;
+    let bA = startBalance, bB = startBalance, intA = 0, intB = 0;
     for (let w = 0; w < wks; w++) {
-      if (bA > 0) { const i = bA*weeklyRate; intA+=i; bA-=Math.max(Math.min(actualPmt-i,bA),0); }
-      if (bB > 0) { const i = Math.max(bB-totalOffset,0)*weeklyRate; intB2+=i; bB-=Math.max(Math.min(actualPmt-i,bB),0); }
+      if (bA > 0) { const i=bA*weeklyRate; intA+=i; bA-=Math.max(Math.min(actualPmt-i,bA),0); }
+      if (bB > 0) { const i=Math.max(bB-totalOffset,0)*weeklyRate; intB+=i; bB-=Math.max(Math.min(actualPmt-i,bB),0); }
     }
-    return { years: yrs, saved: Math.max(intA-intB2, 0) };
+    return { years: yrs, saved: Math.max(intA - intB, 0) };
   });
 
-  return { pathA, pathB, interestSaved, yearsSaved, monthsSaved, yearsLeft, monthsLeft, paidOffDate, snowball, totalIntC, totalIntB, baseOffset };
+  return { pathA: resA.bals, pathB: resB.bals, interestSaved, yearsSaved, monthsSaved, yearsLeft, monthsLeft, paidOffDate: resB.paidOffDate, snowball, totalIntA: resA.totalInt, totalIntB: resB.totalInt, baseOffset };
 }
 
 function renderMortgage() {
@@ -4499,17 +4490,17 @@ function updateMgWhatIf(extraAmt) {
     return;
   }
   const base = mortgageProjectionData(0);
-  const proj = mortgageProjectionData(amt / 52 * 52); // pass as annual
+  const proj = mortgageProjectionData(amt);
   if (!base || !proj) return;
-  const extraSaved = Math.max(base.totalIntC - proj.totalIntB, 0);
-  const wksSaved = Math.max(base.pathA.length*52 - proj.pathB.length*52, 0);
-  const yrsSaved = Math.floor(wksSaved / 52);
-  const mosSaved = Math.floor((wksSaved % 52) / 4.33);
+  const extraSaved = Math.max(base.totalIntA - proj.totalIntB, 0);
+  const weeksSaved = Math.max(base.pathA.length - proj.pathB.length, 0) * 52;
+  const yrsSaved = Math.floor(weeksSaved / 52);
+  const mosSaved = Math.floor((weeksSaved % 52) / 4.33);
   const timeStr = yrsSaved > 0 || mosSaved > 0
     ? (yrsSaved > 0 ? yrsSaved + ' yr ' : '') + (mosSaved > 0 ? mosSaved + ' mo' : '')
     : 'a little sooner';
   document.getElementById('mgWhatIfResult').innerHTML =
-    'Adding <strong style="color:var(--text)">$' + amt.toLocaleString('en-AU') + '</strong> to your offset would save you approximately ' +
+    'Adding <strong style="color:var(--text)">$' + amt.toLocaleString('en-AU') + '</strong> extra to your offset would save approximately ' +
     '<strong style="color:var(--accent)">$' + Math.round(extraSaved).toLocaleString('en-AU') + '</strong> in interest ' +
     'and pay off your loan <strong style="color:var(--accent)">' + timeStr + '</strong> earlier.';
 }
