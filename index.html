@@ -333,6 +333,9 @@ async function applyUpdate() {
   .wb-dots { display: flex; gap: 6px; margin-top: 32px; }
   .wb-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--surface3); transition: background 0.3s, width 0.3s; }
   .wb-dot.active { background: var(--accent); width: 20px; border-radius: 3px; }
+  .rec-wd-btn { flex:1;min-width:38px;padding:8px 4px;border-radius:8px;border:2px solid var(--border);background:var(--surface2);color:var(--muted);font-weight:600;font-family:var(--font);cursor:pointer;font-size:12px;transition:all 0.15s; }
+  .rec-wd-btn.selected { border-color:var(--accent);background:var(--accent-dim);color:var(--accent); }
+
   /* Date inputs — full tap area opens calendar */
   input[type="date"] {
     -webkit-appearance: none;
@@ -1044,21 +1047,52 @@ async function applyUpdate() {
   <div class="modal">
     <div class="modal-handle"></div>
     <div class="modal-title" id="recurringModalTitle">New recurring expense</div>
-    <div style="background:var(--surface2);border-radius:10px;padding:12px 14px;margin-bottom:14px;font-size:12px;color:var(--muted);line-height:1.6">
-      Recurring expenses are added automatically on their due date each cycle — so when you open the app on that day, the expense is already there.
-    </div>
     <label>Description</label>
-    <input type="text" id="recName" placeholder="e.g. Netflix, Gym, Rent">
+    <input type="text" id="recName" placeholder="e.g. Netflix, Mortgage, Strata">
     <label>Amount ($)</label>
     <input type="number" inputmode="decimal" id="recAmount" placeholder="0.00" step="0.01" min="0">
     <label>Category</label>
     <select id="recCat"></select>
-    <label>Day of cycle to add it</label>
-    <input type="number" inputmode="numeric" id="recDay" placeholder="e.g. 5 (5th day of your cycle)" min="1" max="28" oninput="updateRecDayPreview()">
-    <div id="recDayPreview" style="font-size:12px;color:var(--muted);margin-top:-8px;margin-bottom:14px;min-height:16px"></div>
+    <label>Frequency</label>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px" id="recFreqBtns">
+      <button type="button" onclick="setRecFreq('weekly')" id="recFreqWeekly" style="padding:10px;border-radius:10px;border:2px solid var(--accent);background:var(--accent-dim);color:var(--accent);font-weight:700;font-family:var(--font);cursor:pointer;font-size:13px">Weekly</button>
+      <button type="button" onclick="setRecFreq('fortnightly')" id="recFreqFortnightly" style="padding:10px;border-radius:10px;border:2px solid var(--border);background:var(--surface2);color:var(--muted);font-weight:600;font-family:var(--font);cursor:pointer;font-size:13px">Fortnightly</button>
+      <button type="button" onclick="setRecFreq('monthly')" id="recFreqMonthly" style="padding:10px;border-radius:10px;border:2px solid var(--border);background:var(--surface2);color:var(--muted);font-weight:600;font-family:var(--font);cursor:pointer;font-size:13px">Monthly</button>
+      <button type="button" onclick="setRecFreq('quarterly')" id="recFreqQuarterly" style="padding:10px;border-radius:10px;border:2px solid var(--border);background:var(--surface2);color:var(--muted);font-weight:600;font-family:var(--font);cursor:pointer;font-size:13px">Quarterly</button>
+    </div>
+    <!-- Weekly: pick day of week -->
+    <div id="recWeeklySection" style="margin-bottom:14px">
+      <label>Day of week</label>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">
+        <button type="button" onclick="setRecWeekday(1)" id="recWd1" class="rec-wd-btn">Mon</button>
+        <button type="button" onclick="setRecWeekday(2)" id="recWd2" class="rec-wd-btn">Tue</button>
+        <button type="button" onclick="setRecWeekday(3)" id="recWd3" class="rec-wd-btn">Wed</button>
+        <button type="button" onclick="setRecWeekday(4)" id="recWd4" class="rec-wd-btn">Thu</button>
+        <button type="button" onclick="setRecWeekday(5)" id="recWd5" class="rec-wd-btn">Fri</button>
+        <button type="button" onclick="setRecWeekday(6)" id="recWd6" class="rec-wd-btn">Sat</button>
+        <button type="button" onclick="setRecWeekday(0)" id="recWd0" class="rec-wd-btn">Sun</button>
+      </div>
+    </div>
+    <!-- Fortnightly: pick start date -->
+    <div id="recFortnightlySection" style="display:none;margin-bottom:14px">
+      <label>Next due date</label>
+      <input type="date" id="recFortnightDate">
+    </div>
+    <!-- Monthly: pick day of month -->
+    <div id="recMonthlySection" style="display:none;margin-bottom:14px">
+      <label>Day of month</label>
+      <input type="number" inputmode="numeric" id="recMonthDay" placeholder="e.g. 28" min="1" max="31" oninput="updateRecPreview()">
+    </div>
+    <!-- Quarterly: pick start date -->
+    <div id="recQuarterlySection" style="display:none;margin-bottom:14px">
+      <label>Next due date</label>
+      <input type="date" id="recQuarterlyDate">
+      <div style="font-size:11px;color:var(--muted);margin-top:-8px">Will repeat every 3 months from this date</div>
+    </div>
+    <div id="recPreview" style="font-size:12px;color:var(--muted);margin-bottom:14px;min-height:16px;background:var(--surface2);border-radius:8px;padding:8px 10px;display:none"></div>
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
       <div id="recActiveCheck" onclick="toggleRecActive()" style="width:22px;height:22px;border-radius:6px;background:var(--accent);border:2px solid var(--accent);display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:13px;color:#fff;flex-shrink:0">✓</div>
-      <span style="font-size:13px">Active — add to every new cycle</span>
+      <span style="font-size:13px">Active</span>
     </div>
     <button class="btn-primary" id="recSaveBtn" onclick="saveRecurring()">Save</button>
     <button class="btn-danger" id="recDeleteBtn" onclick="deleteRecurring()" style="display:none">Delete</button>
@@ -4182,6 +4216,8 @@ function renderTax() {
 // ── Recurring Expenses ────────────────────────────────────────────────────────
 let editingRecurringId = null;
 let recActiveState = true;
+let recFreqState = 'weekly';
+let recWeekdayState = 1; // 1=Mon default
 
 function toggleRecActive() {
   recActiveState = !recActiveState;
@@ -4191,12 +4227,82 @@ function toggleRecActive() {
   el.style.border = '2px solid ' + (recActiveState ? 'var(--accent)' : 'var(--border)');
 }
 
-function getCycleDateForDay(dayOfCycle) {
-  // Returns the actual calendar date for a given day within the current cycle
-  const { cycleStart } = getCycleRange(0);
-  const d = new Date(cycleStart);
-  d.setDate(d.getDate() + (dayOfCycle - 1));
-  return d;
+function setRecFreq(freq) {
+  recFreqState = freq;
+  const freqs = ['weekly','fortnightly','monthly','quarterly'];
+  freqs.forEach(f => {
+    const btn = document.getElementById('recFreq' + f.charAt(0).toUpperCase() + f.slice(1));
+    if (!btn) return;
+    if (f === freq) {
+      btn.style.border = '2px solid var(--accent)';
+      btn.style.background = 'var(--accent-dim)';
+      btn.style.color = 'var(--accent)';
+    } else {
+      btn.style.border = '2px solid var(--border)';
+      btn.style.background = 'var(--surface2)';
+      btn.style.color = 'var(--muted)';
+    }
+  });
+  document.getElementById('recWeeklySection').style.display = freq === 'weekly' ? 'block' : 'none';
+  document.getElementById('recFortnightlySection').style.display = freq === 'fortnightly' ? 'block' : 'none';
+  document.getElementById('recMonthlySection').style.display = freq === 'monthly' ? 'block' : 'none';
+  document.getElementById('recQuarterlySection').style.display = freq === 'quarterly' ? 'block' : 'none';
+  updateRecPreview();
+}
+
+function setRecWeekday(day) {
+  recWeekdayState = day;
+  [0,1,2,3,4,5,6].forEach(d => {
+    const btn = document.getElementById('recWd' + d);
+    if (!btn) return;
+    btn.classList.toggle('selected', d === day);
+  });
+  updateRecPreview();
+}
+
+function updateRecPreview() {
+  const el = document.getElementById('recPreview');
+  if (!el) return;
+  const today = new Date(); today.setHours(0,0,0,0);
+  let text = '';
+  const dayNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  const fullDayNames = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+
+  if (recFreqState === 'weekly') {
+    const wd = recWeekdayState;
+    // Find next occurrence
+    const next = new Date(today);
+    const diff = (wd - next.getDay() + 7) % 7;
+    next.setDate(next.getDate() + (diff === 0 ? 0 : diff));
+    text = 'Every ' + fullDayNames[wd] + ' · Next: ' + next.toLocaleDateString('en-AU',{day:'numeric',month:'short'});
+  } else if (recFreqState === 'fortnightly') {
+    const d = document.getElementById('recFortnightDate').value;
+    if (d) {
+      const base = new Date(d+'T00:00:00');
+      text = 'Every 2 weeks from ' + base.toLocaleDateString('en-AU',{day:'numeric',month:'short',year:'numeric'});
+    } else text = 'Pick a start date above';
+  } else if (recFreqState === 'monthly') {
+    const day = parseInt(document.getElementById('recMonthDay').value);
+    if (day >= 1 && day <= 31) {
+      const next = new Date(today.getFullYear(), today.getMonth(), day);
+      if (next < today) next.setMonth(next.getMonth() + 1);
+      text = 'Every month on the ' + day + (day===1?'st':day===2?'nd':day===3?'rd':'th') + ' · Next: ' + next.toLocaleDateString('en-AU',{day:'numeric',month:'short'});
+    } else text = 'Enter a day of month above';
+  } else if (recFreqState === 'quarterly') {
+    const d = document.getElementById('recQuarterlyDate').value;
+    if (d) {
+      const base = new Date(d+'T00:00:00');
+      const next3 = new Date(base); next3.setMonth(next3.getMonth() + 3);
+      text = 'Every 3 months · Next after that: ' + next3.toLocaleDateString('en-AU',{day:'numeric',month:'short',year:'numeric'});
+    } else text = 'Pick a due date above';
+  }
+
+  if (text) {
+    el.textContent = '📅 ' + text;
+    el.style.display = 'block';
+  } else {
+    el.style.display = 'none';
+  }
 }
 
 function populateRecCatSelect() {
@@ -4215,26 +4321,22 @@ function populateRecCatSelect() {
   }
 }
 
-function updateRecDayPreview() {
-  const day = parseInt(document.getElementById('recDay').value);
-  const el = document.getElementById('recDayPreview');
-  if (!day || day < 1 || day > 28) { el.textContent = ''; return; }
-  const date = getCycleDateForDay(day);
-  el.textContent = 'This cycle: ' + date.toLocaleDateString('en-AU', {weekday:'short',day:'numeric',month:'short'});
-}
-
 function openAddRecurring() {
   editingRecurringId = null; recActiveState = true;
   document.getElementById('recurringModalTitle').textContent = 'New recurring expense';
   document.getElementById('recName').value = '';
   document.getElementById('recAmount').value = '';
-  document.getElementById('recDay').value = '';
-  document.getElementById('recDayPreview').textContent = '';
   document.getElementById('recDeleteBtn').style.display = 'none';
   document.getElementById('recSaveBtn').textContent = 'Save';
   const check = document.getElementById('recActiveCheck');
   check.textContent = '✓'; check.style.background = 'var(--accent)'; check.style.border = '2px solid var(--accent)';
   populateRecCatSelect();
+  // Default: weekly, Monday
+  setRecFreq('weekly');
+  setRecWeekday(1);
+  document.getElementById('recFortnightDate').value = '';
+  document.getElementById('recMonthDay').value = '';
+  document.getElementById('recQuarterlyDate').value = '';
   closeModal('recurringListModal');
   document.getElementById('recurringModal').classList.add('open');
   setTimeout(()=>document.getElementById('recName').focus(),350);
@@ -4246,7 +4348,6 @@ function openEditRecurring(id) {
   document.getElementById('recurringModalTitle').textContent = 'Edit recurring expense';
   document.getElementById('recName').value = rec.name||'';
   document.getElementById('recAmount').value = rec.amount||'';
-  document.getElementById('recDay').value = rec.dayOfCycle||'';
   document.getElementById('recDeleteBtn').style.display = 'block';
   document.getElementById('recSaveBtn').textContent = 'Update';
   const check = document.getElementById('recActiveCheck');
@@ -4254,8 +4355,20 @@ function openEditRecurring(id) {
   check.style.background = recActiveState ? 'var(--accent)' : 'var(--surface3)';
   check.style.border = '2px solid ' + (recActiveState ? 'var(--accent)' : 'var(--border)');
   populateRecCatSelect();
-  document.getElementById('recCat').value = rec.categoryId||'';
-  updateRecDayPreview();
+  if (rec.categoryId) document.getElementById('recCat').value = rec.categoryId;
+  // Restore frequency settings
+  const freq = rec.frequency || 'weekly';
+  setRecFreq(freq);
+  if (freq === 'weekly') {
+    setRecWeekday(rec.weekday !== undefined ? rec.weekday : 1);
+  } else if (freq === 'fortnightly') {
+    document.getElementById('recFortnightDate').value = rec.nextDate || '';
+  } else if (freq === 'monthly') {
+    document.getElementById('recMonthDay').value = rec.monthDay || '';
+  } else if (freq === 'quarterly') {
+    document.getElementById('recQuarterlyDate').value = rec.nextDate || '';
+  }
+  updateRecPreview();
   closeModal('recurringListModal');
   document.getElementById('recurringModal').classList.add('open');
 }
@@ -4264,15 +4377,29 @@ function saveRecurring() {
   const name = document.getElementById('recName').value.trim();
   const amount = parseFloat(document.getElementById('recAmount').value);
   const categoryId = document.getElementById('recCat').value;
-  const dayOfCycle = parseInt(document.getElementById('recDay').value);
-  if (!name || !amount || !categoryId || !dayOfCycle) return;
+  if (!name || !amount || !categoryId) return;
+  // Validate frequency-specific fields
+  if (recFreqState === 'monthly' && !document.getElementById('recMonthDay').value) return;
+  if ((recFreqState === 'fortnightly' || recFreqState === 'quarterly') && !document.getElementById(recFreqState === 'fortnightly' ? 'recFortnightDate' : 'recQuarterlyDate').value) return;
   if (!state.recurringExpenses) state.recurringExpenses = [];
-  const active = recActiveState;
+  const rec = {
+    id: editingRecurringId || uid(),
+    name, amount, categoryId,
+    frequency: recFreqState,
+    active: recActiveState,
+    // Frequency-specific
+    weekday: recFreqState === 'weekly' ? recWeekdayState : undefined,
+    monthDay: recFreqState === 'monthly' ? parseInt(document.getElementById('recMonthDay').value) : undefined,
+    nextDate: (recFreqState === 'fortnightly') ? document.getElementById('recFortnightDate').value
+             : (recFreqState === 'quarterly') ? document.getElementById('recQuarterlyDate').value
+             : undefined,
+    lastAdded: editingRecurringId ? (state.recurringExpenses.find(r=>r.id===editingRecurringId)||{}).lastAdded || '' : '',
+  };
   if (editingRecurringId) {
     const idx = state.recurringExpenses.findIndex(r=>r.id===editingRecurringId);
-    if (idx>=0) state.recurringExpenses[idx] = {...state.recurringExpenses[idx], name, amount, categoryId, dayOfCycle, active};
+    if (idx>=0) state.recurringExpenses[idx] = rec;
   } else {
-    state.recurringExpenses.push({id:uid(), name, amount, categoryId, dayOfCycle, active, lastAddedCycle:''});
+    state.recurringExpenses.push(rec);
   }
   saveState(); closeModal('recurringModal'); openRecurringList();
 }
@@ -4283,6 +4410,44 @@ function deleteRecurring() {
   saveState(); closeModal('recurringModal'); openRecurringList();
 }
 
+function recFreqLabel(r) {
+  if (r.frequency === 'weekly') {
+    const days = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+    return 'Weekly · ' + (days[r.weekday] || 'Mon');
+  }
+  if (r.frequency === 'fortnightly') return 'Fortnightly';
+  if (r.frequency === 'monthly') return 'Monthly · ' + (r.monthDay || '?') + (r.monthDay===1?'st':r.monthDay===2?'nd':r.monthDay===3?'rd':'th');
+  if (r.frequency === 'quarterly') return 'Quarterly';
+  return 'Recurring';
+}
+
+function getRecNextDate(r) {
+  const today = new Date(); today.setHours(0,0,0,0);
+  if (r.frequency === 'weekly') {
+    const wd = r.weekday !== undefined ? r.weekday : 1;
+    const diff = (wd - today.getDay() + 7) % 7;
+    const next = new Date(today);
+    next.setDate(today.getDate() + (diff === 0 ? 0 : diff));
+    return next;
+  }
+  if (r.frequency === 'fortnightly' && r.nextDate) {
+    const base = new Date(r.nextDate + 'T00:00:00');
+    while (base < today) base.setDate(base.getDate() + 14);
+    return base;
+  }
+  if (r.frequency === 'monthly' && r.monthDay) {
+    const next = new Date(today.getFullYear(), today.getMonth(), r.monthDay);
+    if (next < today) next.setMonth(next.getMonth() + 1);
+    return next;
+  }
+  if (r.frequency === 'quarterly' && r.nextDate) {
+    const base = new Date(r.nextDate + 'T00:00:00');
+    while (base < today) base.setMonth(base.getMonth() + 3);
+    return base;
+  }
+  return null;
+}
+
 function openRecurringList() {
   const content = document.getElementById('recurringListContent');
   const recs = state.recurringExpenses || [];
@@ -4291,13 +4456,13 @@ function openRecurringList() {
   } else {
     content.innerHTML = recs.map(r => {
       const cat = catById(r.categoryId);
-      const date = getCycleDateForDay(r.dayOfCycle);
-      const dateStr = date.toLocaleDateString('en-AU',{weekday:'short',day:'numeric',month:'short'});
-      return '<div style="display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid var(--surface2);cursor:pointer" onclick="openEditRecurring(\''+r.id+'\')">' +
+      const next = getRecNextDate(r);
+      const nextStr = next ? next.toLocaleDateString('en-AU',{weekday:'short',day:'numeric',month:'short'}) : '—';
+      return '<div style="display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid var(--surface2);cursor:pointer" onclick="openEditRecurring('" + r.id + "')">' +
         '<div style="width:38px;height:38px;border-radius:10px;background:'+(cat?cat.color:'#888')+'22;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">'+(cat?cat.icon:'❓')+'</div>' +
         '<div style="flex:1;min-width:0">' +
-          '<div style="font-size:13px;font-weight:600">' + r.name + '</div>' +
-          '<div style="font-size:11px;color:var(--muted)">Day '+ r.dayOfCycle +' · ' + dateStr + (r.active===false?' · <span style="color:var(--orange)">Paused</span>':'') + '</div>' +
+          '<div style="font-size:13px;font-weight:600">' + r.name + (r.active===false?' <span style="font-size:10px;color:var(--orange);font-weight:400">Paused</span>':'') + '</div>' +
+          '<div style="font-size:11px;color:var(--muted)">' + recFreqLabel(r) + ' · Next: ' + nextStr + '</div>' +
         '</div>' +
         '<div style="text-align:right;flex-shrink:0">' +
           '<div style="font-size:13px;font-weight:600">' + fmt(r.amount) + '</div>' +
@@ -4310,362 +4475,28 @@ function openRecurringList() {
 }
 
 function applyRecurringExpenses() {
-  // Called on boot — adds any recurring expenses that are due today
   const recs = (state.recurringExpenses||[]).filter(r=>r.active!==false);
   if (!recs.length) return;
-  const { cycleStart } = getCycleRange(0);
-  const cycleKey = cycleStart.toISOString().split('T')[0];
   const today = new Date(); today.setHours(0,0,0,0);
+  const todayStr = today.toISOString().split('T')[0];
   let added = false;
   recs.forEach(r => {
-    // Check if already added this cycle
-    if (r.lastAddedCycle === cycleKey) return;
-    // Check if today is the due date
-    const dueDate = getCycleDateForDay(r.dayOfCycle);
-    dueDate.setHours(0,0,0,0);
-    if (today.getTime() !== dueDate.getTime()) return;
+    // Don't add twice on same day
+    if (r.lastAdded === todayStr) return;
+    const next = getRecNextDate(r);
+    if (!next) return;
+    next.setHours(0,0,0,0);
+    if (next.getTime() !== today.getTime()) return;
     // Add the expense dated today
     state.expenses.push({
       id: uid(),
       amount: r.amount,
       name: r.name,
       categoryId: r.categoryId,
-      date: today.toISOString().split('T')[0],
+      date: todayStr,
     });
-    r.lastAddedCycle = cycleKey;
+    r.lastAdded = todayStr;
     added = true;
   });
   if (added) saveState();
 }
-
-// ── Offset Daily Savings Log ──────────────────────────────────────────────────
-function recordTodayOffsetSaving() {
-  const mg = state.mortgage || {};
-  if (!mg.interestRate) return;
-  const today = todayStr();
-  if (!state.offsetDailyLog) state.offsetDailyLog = [];
-  // Don't double-record same day
-  if (state.offsetDailyLog.find(e=>e.date===today)) return;
-  const balance = getOffsetBalance();
-  if (balance <= 0) return;
-  const rate = mg.interestRate / 100;
-  const dailySaving = balance * (rate / 365);
-  state.offsetDailyLog.push({ date: today, balance, dailySaving, rate: mg.interestRate });
-
-  // Check if we need to roll up last month into monthly history
-  rollupOffsetMonthlyHistory();
-  saveState();
-}
-
-function rollupOffsetMonthlyHistory() {
-  if (!state.offsetDailyLog || !state.offsetDailyLog.length) return;
-  if (!state.offsetMonthlyHistory) state.offsetMonthlyHistory = [];
-  const today = new Date();
-  const thisMonth = today.getFullYear() + '-' + String(today.getMonth()+1).padStart(2,'0');
-
-  // Group daily logs by month, exclude current month
-  const byMonth = {};
-  state.offsetDailyLog.forEach(e => {
-    const m = e.date.slice(0,7);
-    if (m === thisMonth) return; // don't roll up current month yet
-    if (!byMonth[m]) byMonth[m] = [];
-    byMonth[m].push(e);
-  });
-
-  Object.entries(byMonth).forEach(([month, entries]) => {
-    // Only roll up if not already in history
-    if (state.offsetMonthlyHistory.find(h=>h.month===month)) return;
-    const totalSaving = entries.reduce((s,e)=>s+e.dailySaving,0);
-    const avgBalance = entries.reduce((s,e)=>s+e.balance,0) / entries.length;
-    const rate = entries[entries.length-1].rate;
-    state.offsetMonthlyHistory.push({ month, totalSaving, avgBalance, rate });
-    // Remove rolled-up daily entries to save space
-    state.offsetDailyLog = state.offsetDailyLog.filter(e=>e.date.slice(0,7)!==month);
-  });
-  state.offsetMonthlyHistory.sort((a,b)=>b.month.localeCompare(a.month));
-}
-
-function getOffsetCurrentMonthSaving() {
-  if (!state.offsetDailyLog) return 0;
-  const today = new Date();
-  const thisMonth = today.getFullYear() + '-' + String(today.getMonth()+1).padStart(2,'0');
-  return state.offsetDailyLog.filter(e=>e.date.slice(0,7)===thisMonth).reduce((s,e)=>s+e.dailySaving,0);
-}
-
-// ── Savings transaction history per category ──────────────────────────────────
-function openSavingsHistory(catId, subId) {
-  const cat = (state.savingsCategories||[]).find(c=>c.id===catId);
-  const sub = subId ? (state.savingsSubcategories||[]).find(s=>s.id===subId) : null;
-  const title = sub ? sub.icon+' '+sub.name+' — History' : (cat?cat.icon+' '+cat.name+' — History':'History');
-  const deps = subId ? depositsForTarget(subId) : depositsForCat(catId);
-  const sorted = deps.slice().sort((a,b)=>b.date.localeCompare(a.date)||b.id.localeCompare(a.id));
-
-  let runningBal = deps.reduce((s,d)=>s+(d.type==='withdrawal'?-d.amount:d.amount),0);
-  let rows = '';
-  sorted.forEach((d,i) => {
-    const isW = d.type==='withdrawal';
-    rows += '<div style="display:flex;align-items:center;gap:10px;padding:11px 14px;'+(i>0?'border-top:1px solid var(--surface2)':'')+';cursor:pointer" onclick="openEditDeposit(\''+d.id+'\')">' +
-      '<div style="flex:1;min-width:0">' +
-        '<div style="font-size:13px;font-weight:500">'+(isW?'💸 ':' 💰 ')+(d.note||(isW?'Withdrawal':'Deposit'))+'</div>' +
-        '<div style="font-size:11px;color:var(--muted)">'+new Date(d.date+'T00:00:00').toLocaleDateString('en-AU',{day:'numeric',month:'short',year:'numeric'})+'</div>' +
-      '</div>' +
-      '<div style="text-align:right;flex-shrink:0">' +
-        '<div style="font-size:13px;font-weight:600;color:'+(isW?'var(--red)':'var(--accent)')+'">'+( isW?'-':'+')+fmt(d.amount)+'</div>' +
-      '</div>' +
-    '</div>';
-  });
-
-  // Build and show modal dynamically
-  let modal = document.getElementById('savingsHistoryModal');
-  if (!modal) {
-    modal = document.createElement('div');
-    modal.className = 'modal-overlay';
-    modal.id = 'savingsHistoryModal';
-    modal.innerHTML = '<div class="modal"><div class="modal-handle"></div><div class="modal-title" id="savingsHistoryTitle"></div><div id="savingsHistoryBody" style="max-height:60vh;overflow-y:auto"></div><button class="btn-ghost" onclick="closeModal(\'savingsHistoryModal\')">Close</button></div>';
-    document.body.appendChild(modal);
-    modal.addEventListener('click', e => { if (e.target===modal) modal.classList.remove('open'); });
-  }
-  document.getElementById('savingsHistoryTitle').textContent = title;
-  document.getElementById('savingsHistoryBody').innerHTML = sorted.length
-    ? '<div style="background:var(--surface);border-radius:var(--r);overflow:hidden;margin-bottom:12px">'+rows+'</div>'
-    : '<div style="text-align:center;padding:20px;color:var(--muted);font-size:13px">No transactions yet</div>';
-  modal.classList.add('open');
-}
-
-// ── Investor / Money Allocation Tab ───────────────────────────────────────────
-function switchToInvestor() { switchTab('investor'); }
-
-function renderInvestor() {
-  const el = document.getElementById('content');
-  const income = state.budget || 0;
-  const fmtI = n => '$' + Math.round(n).toLocaleString('en-AU');
-
-  // 50/30/20 Rule
-  const needs = income * 0.50;
-  const wants = income * 0.30;
-  const savings = income * 0.20;
-
-  // Barefoot Investor buckets
-  const blowAcct = income * 0.60;
-  const smileAcct = income * 0.10;
-  const fireAcct = income * 0.20;
-  const splurgeAcct = income * 0.10;
-
-  let html = '<div style="font-size:16px;font-weight:700;margin:8px 0 4px">💡 Money allocation</div>' +
-    '<div style="font-size:12px;color:var(--muted);margin-bottom:16px;line-height:1.5">Two popular frameworks for dividing your money. Based on your monthly budget of <strong style="color:var(--text)">' + fmtI(income) + '</strong>.</div>';
-
-  // ── 50/30/20 ──────────────────────────────────────────────────────────────
-  html += '<div style="background:var(--surface);border-radius:var(--r);padding:14px;margin-bottom:12px">' +
-    '<div style="font-size:14px;font-weight:700;margin-bottom:4px">The 50/30/20 Rule</div>' +
-    '<div style="font-size:12px;color:var(--muted);margin-bottom:14px;line-height:1.5">A simple framework popularised by US Senator Elizabeth Warren. Split your after-tax income into three buckets.</div>' +
-    // Stacked bar
-    '<div style="display:flex;border-radius:8px;overflow:hidden;height:12px;margin-bottom:12px">' +
-      '<div style="width:50%;background:#4F8EF7"></div>' +
-      '<div style="width:30%;background:#f0a860"></div>' +
-      '<div style="width:20%;background:#60f0d0"></div>' +
-    '</div>' +
-    '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">' +
-      _allocCard('50% Needs', fmtI(needs), '#4F8EF7', 'Rent, groceries, utilities, transport — essentials you can\'t avoid') +
-      _allocCard('30% Wants', fmtI(wants), '#f0a860', 'Dining out, subscriptions, shopping, holidays — things you enjoy') +
-      _allocCard('20% Savings', fmtI(savings), '#60f0d0', 'Emergency fund, super top-ups, investments, debt repayment') +
-    '</div>' +
-  '</div>';
-
-  // ── Barefoot Investor ─────────────────────────────────────────────────────
-  html += '<div style="background:var(--surface);border-radius:var(--r);padding:14px;margin-bottom:12px">' +
-    '<div style="font-size:14px;font-weight:700;margin-bottom:4px">The Barefoot Investor Buckets</div>' +
-    '<div style="font-size:12px;color:var(--muted);margin-bottom:14px;line-height:1.5">Scott Pape\'s system from the bestselling Australian personal finance book. Four accounts, each with a purpose — automate transfers and forget about it.</div>' +
-    '<div style="display:flex;border-radius:8px;overflow:hidden;height:12px;margin-bottom:12px">' +
-      '<div style="width:60%;background:#4F8EF7"></div>' +
-      '<div style="width:10%;background:#f060b0"></div>' +
-      '<div style="width:20%;background:#60f0d0"></div>' +
-      '<div style="width:10%;background:#f0d860"></div>' +
-    '</div>' +
-    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">' +
-      _allocCard('60% Blow', fmtI(blowAcct), '#4F8EF7', 'Everyday spending — bills, groceries, regular expenses') +
-      _allocCard('10% Splurge', fmtI(splurgeAcct), '#f060b0', 'Guilt-free fun — spend this however you like, no questions asked') +
-      _allocCard('20% Fire Extinguisher', fmtI(fireAcct), '#60f0d0', 'Pay off debt first, then build your emergency fund (3 months expenses)') +
-      _allocCard('10% Smile', fmtI(smileAcct), '#f0d860', 'Save for things that make you smile — holidays, car, home deposit') +
-    '</div>' +
-    '<div style="background:var(--surface2);border-radius:10px;padding:12px;font-size:12px;color:var(--muted);line-height:1.6">' +
-      '📖 <strong style="color:var(--text)">The Barefoot Investor</strong> by Scott Pape is Australia\'s best-selling personal finance book. The system is designed to be automated — set up separate bank accounts for each bucket and transfer automatically on payday.' +
-    '</div>' +
-  '</div>';
-
-  // ── How Spendly helps ─────────────────────────────────────────────────────
-  html += '<div style="background:var(--surface);border-radius:var(--r);padding:14px;margin-bottom:12px">' +
-    '<div style="font-size:14px;font-weight:700;margin-bottom:10px">How Spendly maps to these frameworks</div>' +
-    '<div style="font-size:12px;color:var(--muted);line-height:1.8">' +
-      '💳 <strong style="color:var(--text)">Expenses tab</strong> — track your Blow / Needs & Wants spending<br>' +
-      '🎯 <strong style="color:var(--text)">Budget tab</strong> — set limits per category to stay in your buckets<br>' +
-      '💰 <strong style="color:var(--text)">Savings tab</strong> — track your Smile / 20% savings goals<br>' +
-      '🏠 <strong style="color:var(--text)">Mortgage tab</strong> — Fire Extinguisher in action — paying down debt<br>' +
-      '🎉 <strong style="color:var(--text)">End of cycle</strong> — Spendly suggests how to split any leftover budget across your savings goals' +
-    '</div>' +
-  '</div>';
-
-  el.innerHTML = html;
-}
-
-function _allocCard(label, amount, color, desc) {
-  return '<div style="background:var(--surface2);border-radius:10px;padding:10px">' +
-    '<div style="width:8px;height:8px;border-radius:2px;background:'+color+';margin-bottom:6px"></div>' +
-    '<div style="font-size:11px;font-weight:700;color:var(--text);margin-bottom:2px">'+label+'</div>' +
-    '<div style="font-size:16px;font-weight:700;color:'+color+';margin-bottom:4px">'+amount+'</div>' +
-    '<div style="font-size:10px;color:var(--muted);line-height:1.4">'+desc+'</div>' +
-  '</div>';
-}
-
-// ── Version & Update ──────────────────────────────────────────────────────────
-function initVersionDisplay() {
-  // Header tiny version
-  const hv = document.getElementById('headerVersion');
-  if (hv) hv.textContent = 'v' + APP_VERSION;
-  // Settings modal
-  const av = document.getElementById('appVersionDisplay');
-  if (av) av.textContent = APP_VERSION;
-  const bd = document.getElementById('appBuildDate');
-  if (bd) bd.textContent = BUILD_DATE;
-}
-
-async function forceAppUpdate() {
-  await applyUpdate();
-}
-
-// ── Boot ──────────────────────────────────────────────────────────────────────
-function hideLaunchScreen(callback) {
-  const ls = document.getElementById('launchScreen');
-  if (!ls) { if (callback) callback(); return; }
-  ls.style.opacity = '0';
-  setTimeout(() => {
-    ls.style.display = 'none';
-    if (callback) callback();
-  }, 500);
-}
-
-async function init() {
-  // Launch screen is already visible — load data first
-  state.currentTab = 'expenses';
-  await loadState();
-  state.currentTab = 'expenses';
-  updateHeader();
-  renderContent();
-  initVersionDisplay();
-  // Hide launch screen THEN show next screen
-  hideLaunchScreen(() => {
-    if (!initWelcome()) {
-      showApp();
-      initLock();
-    }
-  });
-  // Apply recurring expenses for today
-  applyRecurringExpenses();
-  // Record today's offset saving
-  recordTodayOffsetSaving();
-  setTimeout(checkCycleComplete, 2000);
-}
-init();
-
-// ── Data protection ───────────────────────────────────────────────────────────
-function checkDataLoss() {
-  // Don't show if Supabase already loaded data (syncStatus is 'saved') 
-  // or if state has data (cloud sync may have just loaded it)
-  const hasData = state.budget > 0 || (state.categories && state.categories.length > 0) || (state.expenses && state.expenses.length > 0) || (state.savingsCategories && state.savingsCategories.length > 0);
-  if (hasData) return; // data is present, all good
-  if (syncStatus === 'saved' || syncStatus === 'saving') return; // cloud just loaded/loading
-  const lastSaved = localStorage.getItem(BACKUP_TS_KEY);
-  if (!lastSaved) return; // never had data, first time user
-  // Only show if localStorage timestamp exists but state is empty — genuine loss
-  const lastDate = new Date(lastSaved).toLocaleDateString('en-AU',{day:'numeric',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'});
-  document.getElementById('dataLossBanner').style.display = 'flex';
-  document.getElementById('dataLossDate').textContent = 'Your data was last seen: ' + lastDate;
-}
-setTimeout(checkDataLoss, 4000); // wait longer so Supabase has time to load
-
-function autoBackup() {
-  const hasData = state.budget > 0 || (state.categories && state.categories.length > 0) || (state.expenses && state.expenses.length > 0);
-  if (hasData) saveState();
-}
-document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') autoBackup(); });
-window.addEventListener('pagehide', autoBackup);
-window.addEventListener('beforeunload', autoBackup);
-
-// ── Swipe to delete ───────────────────────────────────────────────────────────
-let activeSwipeEl = null;
-function initSwipeToDelete() {
-  // Reset any previously swiped item when tapping elsewhere
-  document.addEventListener('touchstart', function(e) {
-    if (activeSwipeEl && !activeSwipeEl.contains(e.target) && !e.target.closest('.delete-bg')) {
-      resetSwipe(activeSwipeEl);
-    }
-  }, { passive: true });
-}
-function resetSwipe(itemEl) {
-  if (!itemEl) return;
-  itemEl.style.transform = '';
-  itemEl.style.transition = '';
-  itemEl.classList.remove('swiped');
-  const wrapper = itemEl.closest('.swipe-wrapper');
-  if (wrapper) wrapper.classList.remove('swiped-open');
-  activeSwipeEl = null;
-}
-function attachSwipeDelete(wrapperEl, deleteId) {
-  const item = wrapperEl.querySelector('.expense-item, .list-item');
-  if (!item) return;
-  let startX = 0, startY = 0, dx = 0, tracking = false, didSwipe = false;
-
-  item.addEventListener('touchstart', function(e) {
-    if (activeSwipeEl && activeSwipeEl !== item) resetSwipe(activeSwipeEl);
-    startX = e.touches[0].clientX;
-    startY = e.touches[0].clientY;
-    dx = 0; tracking = true; didSwipe = false;
-    item.style.transition = 'none';
-  }, { passive: true });
-
-  item.addEventListener('touchmove', function(e) {
-    if (!tracking) return;
-    dx = e.touches[0].clientX - startX;
-    const dy = Math.abs(e.touches[0].clientY - startY);
-    // Only handle horizontal swipes
-    if (dy > Math.abs(dx) && Math.abs(dx) < 10) { tracking = false; return; }
-    if (dx > 0) return; // ignore right swipe
-    const clamped = Math.max(dx, -80);
-    item.style.transform = 'translateX(' + clamped + 'px)';
-    if (e.cancelable) e.preventDefault();
-  }, { passive: false });
-
-  item.addEventListener('touchend', function() {
-    if (!tracking) return;
-    tracking = false;
-    item.style.transition = '';
-    if (dx < -40) {
-      item.style.transform = 'translateX(-80px)';
-      item.classList.add('swiped');
-      wrapperEl.classList.add('swiped-open');
-      activeSwipeEl = item;
-      didSwipe = true;
-    } else {
-      item.style.transform = '';
-      item.classList.remove('swiped');
-      wrapperEl.classList.remove('swiped-open');
-      activeSwipeEl = null;
-    }
-  });
-
-  // Prevent tap-to-edit while swiped
-  item.addEventListener('click', function(e) {
-    if (didSwipe) { e.stopImmediatePropagation(); didSwipe = false; }
-  }, true);
-}
-
-// ── Date input: tap anywhere to open calendar ─────────────────────────────────
-document.addEventListener('click', function(e) {
-  if (e.target && e.target.type === 'date') {
-    try { e.target.showPicker(); } catch(err) {}
-  }
-}, true);
-
-initSwipeToDelete();
-</script>
-</body>
-</html>
