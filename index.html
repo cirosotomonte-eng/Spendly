@@ -17,7 +17,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '1.2.0-202603200700';
+  const APP_VER = '1.2.0-202603200711';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -568,7 +568,7 @@ async function applyUpdate() {
   <div style="font-size:12px;opacity:0.9" id="dataLossDate"></div>
   <div style="font-size:12px;opacity:0.9">Safari may have cleared your storage. Restore from a backup file if you have one.</div>
   <div style="display:flex;gap:8px;margin-top:4px">
-    <button onclick="document.getElementById('importFile').click();document.getElementById('backupModal').classList.add('open');document.getElementById('dataLossBanner').style.display='none'" style="background:#fff;color:#ff5c5c;border:none;border-radius:8px;padding:8px 14px;font-size:13px;font-weight:700;font-family:var(--font);cursor:pointer">Restore backup</button>
+    <button onclick="document.getElementById('importFile').click();openModal('backupModal');document.getElementById('dataLossBanner').style.display='none'" style="background:#fff;color:#ff5c5c;border:none;border-radius:8px;padding:8px 14px;font-size:13px;font-weight:700;font-family:var(--font);cursor:pointer">Restore backup</button>
     <button onclick="document.getElementById('dataLossBanner').style.display='none'" style="background:rgba(255,255,255,0.2);color:#fff;border:none;border-radius:8px;padding:8px 14px;font-size:13px;font-family:var(--font);cursor:pointer">Dismiss</button>
   </div>
 </div>
@@ -1227,7 +1227,7 @@ const PALETTE = [
 // ── State ─────────────────────────────────────────────────────────────────────
 const APP_VERSION = '1.2.0';
 const BUILD_DATE = '2026-03-20';
-const BUILD_TIME = '20 Mar 2026 7:00 AM AEDT';
+const BUILD_TIME = '20 Mar 2026 7:11 AM AEDT';
 const STORAGE_KEY = 'spendly_generic_v1';
 const LOCK_KEY = 'spendly_pin_hash';
 const BIOM_KEY = 'spendly_biometric';
@@ -2153,7 +2153,7 @@ function openSettings() {
   if (tzEl) tzEl.textContent = '🌏 Detected timezone: ' + tz;
   initVersionDisplay();
   buildSpendColorRows();
-  document.getElementById('settingsModal').classList.add('open');
+  openModal('settingsModal');
 }
 
 function buildSpendColorRows() {
@@ -2262,7 +2262,7 @@ function openAddCategory() {
   buildColorGrid(randomColor);
   buildEmojiGrid('');
   document.getElementById('catIconPreview').textContent = '📌';
-  document.getElementById('catModal').classList.add('open');
+  openModal('catModal');
   setTimeout(()=>document.getElementById('catName').focus(), 350);
 }
 function openEditCategory(id) {
@@ -2278,7 +2278,7 @@ function openEditCategory(id) {
   buildColorGrid(cat.color);
   buildEmojiGrid(cat.icon);
   document.getElementById('catIconPreview').textContent = cat.icon || '📌';
-  document.getElementById('catModal').classList.add('open');
+  openModal('catModal');
 }
 function saveCategory() {
   const name = document.getElementById('catName').value.trim();
@@ -2341,7 +2341,7 @@ function openAddExpense() {
   document.getElementById('expDeleteBtn').style.display = 'none';
   document.getElementById('expSaveBtn').textContent = 'Save expense';
   populateCatSelect();
-  document.getElementById('expenseModal').classList.add('open');
+  openModal('expenseModal');
   setTimeout(()=>document.getElementById('expAmount').focus(), 350);
 }
 function openEditExpense(id) {
@@ -2355,7 +2355,7 @@ function openEditExpense(id) {
   document.getElementById('expSaveBtn').textContent = 'Update expense';
   populateCatSelect();
   document.getElementById('expCat').value = e.categoryId;
-  document.getElementById('expenseModal').classList.add('open');
+  openModal('expenseModal');
 }
 function saveExpense() {
   const amount = parseFloat(document.getElementById('expAmount').value);
@@ -2402,7 +2402,7 @@ function deleteExpense() {
 }
 
 // ── Backup / Restore ──────────────────────────────────────────────────────────
-function openBackup() { document.getElementById('backupModal').classList.add('open'); }
+function openBackup() { openModal('backupModal'); }
 function exportData() {
   const data = { version:1, exportedAt:new Date().toISOString(), ...state };
   const blob = new Blob([JSON.stringify(data,null,2)], {type:'application/json'});
@@ -2439,6 +2439,10 @@ function importData(evt) {
 
 // ── Modals ────────────────────────────────────────────────────────────────────
 function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+function openModal(id) {
+  document.getElementById(id).classList.add('open');
+  setTimeout(initModalSwipeDown, 50);
+}
 document.querySelectorAll('.modal-overlay').forEach(o => {
   o.addEventListener('click', e => { if (e.target===o) o.classList.remove('open'); });
 });
@@ -2949,7 +2953,7 @@ function openAddRecycleTrip() {
   document.getElementById('recycleDate').value = todayStr();
   document.getElementById('recycleNote').value = '';
   document.getElementById('recycleDeleteBtn').style.display = 'none';
-  document.getElementById('recycleModal').classList.add('open');
+  openModal('recycleModal');
   setTimeout(() => document.getElementById('recycleAmt').focus(), 350);
 }
 
@@ -2962,7 +2966,7 @@ function openEditRecycleTrip(id) {
   document.getElementById('recycleDate').value = trip.date;
   document.getElementById('recycleNote').value = trip.note || '';
   document.getElementById('recycleDeleteBtn').style.display = 'block';
-  document.getElementById('recycleModal').classList.add('open');
+  openModal('recycleModal');
 }
 
 function saveRecycleTrip() {
@@ -2993,7 +2997,7 @@ function deleteRecycleTrip() {
 function openRecycleSettings() {
   document.getElementById('recycleStartDate').value = state.recyclingStartDate || '';
   document.getElementById('recycleManualTrips').value = state.recyclingManualTrips || '';
-  document.getElementById('recycleSettingsModal').classList.add('open');
+  openModal('recycleSettingsModal');
 }
 
 function saveRecycleSettings() {
@@ -3072,7 +3076,7 @@ function openAddSavingsCat() {
   const col = PALETTE[Math.floor(Math.random()*PALETTE.length)];
   buildColorGridFor('scColorGrid', col);
   buildSavingsEmojiGrid('scEmojiGrid','scIconPreview','scIcon','');
-  document.getElementById('savingsCatModal').classList.add('open');
+  openModal('savingsCatModal');
   setTimeout(()=>document.getElementById('scName').focus(),350);
 }
 function openEditSavingsCat(id) {
@@ -3087,7 +3091,7 @@ function openEditSavingsCat(id) {
   document.getElementById('scSaveBtn').textContent = 'Update category';
   buildColorGridFor('scColorGrid', cat.color);
   buildSavingsEmojiGrid('scEmojiGrid','scIconPreview','scIcon',cat.icon||'');
-  document.getElementById('savingsCatModal').classList.add('open');
+  openModal('savingsCatModal');
 }
 function saveSavingsCat() {
   const name = document.getElementById('scName').value.trim();
@@ -3128,7 +3132,7 @@ function openAddSavingsSub(catId) {
   document.getElementById('ssSaveBtn').textContent = 'Save goal';
   document.getElementById('ssSaveBtn').onclick = () => saveSavingsSub(catId);
   buildSavingsEmojiGrid('ssEmojiGrid','ssIconPreview','ssIcon','');
-  document.getElementById('savingsSubModal').classList.add('open');
+  openModal('savingsSubModal');
   setTimeout(()=>document.getElementById('ssName').focus(),350);
 }
 function openEditSavingsSub(id) {
@@ -3146,7 +3150,7 @@ function openEditSavingsSub(id) {
   document.getElementById('ssSaveBtn').textContent = 'Update goal';
   document.getElementById('ssSaveBtn').onclick = () => saveSavingsSub(sub.catId);
   buildSavingsEmojiGrid('ssEmojiGrid','ssIconPreview','ssIcon',sub.icon||'');
-  document.getElementById('savingsSubModal').classList.add('open');
+  openModal('savingsSubModal');
 }
 function saveSavingsSub(catId) {
   const name = document.getElementById('ssName').value.trim(); if (!name) return;
@@ -3823,7 +3827,7 @@ function openMortgageSettings() {
   document.getElementById('mgWeekly').value = mg.weeklyRepayment || '';
   document.getElementById('mgOffset') && (document.getElementById('mgOffset').value = mg.offsetBalance || '');
   document.getElementById('mgRedraw').value = mg.redrawAvailable || '';
-  document.getElementById('mortgageSettingsModal').classList.add('open');
+  openModal('mortgageSettingsModal');
 }
 function saveMortgageSettings() {
   if (!state.mortgage) state.mortgage = {};
@@ -3858,8 +3862,13 @@ function checkRateChanged() {
 }
 function openMortgageRateModal() {
   document.getElementById('mgNewRate').value = (state.mortgage && state.mortgage.interestRate) || '';
-  document.getElementById('mgRateFromDate').value = todayStr();
-  document.getElementById('mortgageRateModal').classList.add('open');
+  const today = todayStr();
+  const dateField = document.getElementById('mgRateFromDate');
+  dateField.value = today;
+  dateField.min = today; // prevent selecting past dates
+  document.getElementById('mgRateSaveBtn').disabled = true;
+  document.getElementById('mgRateSaveBtn').style.opacity = '0.4';
+  openModal('mortgageRateModal');
   setTimeout(() => document.getElementById('mgNewRate').focus(), 350);
 }
 function saveMortgageRate() {
@@ -3883,7 +3892,7 @@ function openAddMortgageExtra() {
   document.getElementById('mgExtraNote').value = '';
   document.getElementById('mgExtraDeleteBtn').style.display = 'none';
   document.getElementById('mgExtraSaveBtn').textContent = 'Save';
-  document.getElementById('mortgageExtraModal').classList.add('open');
+  openModal('mortgageExtraModal');
   setTimeout(() => document.getElementById('mgExtraAmt').focus(), 350);
 }
 function openEditMortgageExtra(id) {
@@ -3895,7 +3904,7 @@ function openEditMortgageExtra(id) {
   document.getElementById('mgExtraNote').value = ex.note || '';
   document.getElementById('mgExtraDeleteBtn').style.display = 'block';
   document.getElementById('mgExtraSaveBtn').textContent = 'Update';
-  document.getElementById('mortgageExtraModal').classList.add('open');
+  openModal('mortgageExtraModal');
 }
 function saveMortgageExtra() {
   const amount = parseFloat(document.getElementById('mgExtraAmt').value);
@@ -3976,7 +3985,7 @@ function openAddOffsetTx() {
   document.getElementById('offsetTxDeleteBtn').style.display = 'none';
   document.getElementById('offsetTxSaveBtn').textContent = 'Save';
   setOffsetTxType('deposit');
-  document.getElementById('offsetTxModal').classList.add('open');
+  openModal('offsetTxModal');
   setTimeout(() => document.getElementById('offsetTxAmt').focus(), 350);
 }
 function openEditOffsetTx(id) {
@@ -3988,7 +3997,7 @@ function openEditOffsetTx(id) {
   document.getElementById('offsetTxNote').value = tx.note || '';
   document.getElementById('offsetTxDeleteBtn').style.display = 'block';
   setOffsetTxType(tx.type || 'deposit');
-  document.getElementById('offsetTxModal').classList.add('open');
+  openModal('offsetTxModal');
 }
 function saveOffsetTx() {
   const amount = parseFloat(document.getElementById('offsetTxAmt').value);
@@ -4029,7 +4038,7 @@ function openAddMortgageInterest() {
   document.getElementById('mgIntNote').value = '';
   document.getElementById('mgIntDeleteBtn').style.display = 'none';
   document.getElementById('mgIntSaveBtn').textContent = 'Save';
-  document.getElementById('mortgageInterestModal').classList.add('open');
+  openModal('mortgageInterestModal');
   setTimeout(() => document.getElementById('mgIntAmount').focus(), 350);
 }
 function openEditMortgageInterest(id) {
@@ -4042,7 +4051,7 @@ function openEditMortgageInterest(id) {
   document.getElementById('mgIntNote').value = entry.note || '';
   document.getElementById('mgIntDeleteBtn').style.display = 'block';
   document.getElementById('mgIntSaveBtn').textContent = 'Update';
-  document.getElementById('mortgageInterestModal').classList.add('open');
+  openModal('mortgageInterestModal');
 }
 function saveMortgageInterest() {
   const month = document.getElementById('mgIntMonth').value;
@@ -4579,7 +4588,7 @@ function openAddTaxCat() {
   document.getElementById('txCatDeleteBtn').style.display = 'none';
   buildColorGridFor('txCatColorGrid', PALETTE[Math.floor(Math.random()*PALETTE.length)]);
   buildTaxEmojiGrid('');
-  document.getElementById('taxCatModal').classList.add('open');
+  openModal('taxCatModal');
   setTimeout(()=>document.getElementById('txCatName').focus(),350);
 }
 function openEditTaxCat(id) {
@@ -4593,7 +4602,7 @@ function openEditTaxCat(id) {
   document.getElementById('txCatDeleteBtn').style.display = 'block';
   buildColorGridFor('txCatColorGrid', cat.color);
   buildTaxEmojiGrid(cat.icon||'');
-  document.getElementById('taxCatModal').classList.add('open');
+  openModal('taxCatModal');
 }
 function saveTaxCat() {
   const name = document.getElementById('txCatName').value.trim(); if (!name) return;
@@ -4641,7 +4650,7 @@ function openAddTaxTx(catId) {
   check.textContent = ''; check.style.background = 'var(--surface3)'; check.style.border = '2px solid var(--border)';
   populateTaxCatSelect();
   if (catId) document.getElementById('txCat').value = catId;
-  document.getElementById('taxTxModal').classList.add('open');
+  openModal('taxTxModal');
   setTimeout(()=>document.getElementById('txAmt').focus(),350);
 }
 function openEditTaxTx(id) {
@@ -4660,7 +4669,7 @@ function openEditTaxTx(id) {
   check.style.color = '#fff';
   populateTaxCatSelect();
   document.getElementById('txCat').value = tx.catId;
-  document.getElementById('taxTxModal').classList.add('open');
+  openModal('taxTxModal');
 }
 function saveTaxTx() {
   const amount = parseFloat(document.getElementById('txAmt').value);
@@ -4951,7 +4960,7 @@ function openAddRecurring() {
   document.getElementById('recMonthDay').value = '';
   document.getElementById('recQuarterlyDate').value = '';
   closeModal('recurringListModal');
-  document.getElementById('recurringModal').classList.add('open');
+  openModal('recurringModal');
   setTimeout(()=>document.getElementById('recName').focus(),350);
 }
 
@@ -4994,7 +5003,7 @@ function openEditRecurring(id) {
   }
   updateRecPreview();
   closeModal('recurringListModal');
-  document.getElementById('recurringModal').classList.add('open');
+  openModal('recurringModal');
 }
 
 function saveRecurring() {
@@ -5120,7 +5129,7 @@ function openRecurringList() {
       '</div>';
     }).join('');
   }
-  document.getElementById('recurringListModal').classList.add('open');
+  openModal('recurringListModal');
 }
 
 function applyRecurringExpenses() {
@@ -5340,7 +5349,7 @@ function openAddGiftCard() {
   buildColorGridFor('gcColorGrid', GC_COLORS[Math.floor(Math.random()*GC_COLORS.length)]);
   setGcType('giftcard');
   setGcUsage('both');
-  document.getElementById('giftCardModal').classList.add('open');
+  openModal('giftCardModal');
   setTimeout(() => document.getElementById('gcName').focus(), 350);
 }
 
@@ -5369,7 +5378,7 @@ function openEditGiftCard(id) {
     preview.dataset.src = '';
   }
   document.getElementById('gcImageFile').value = '';
-  document.getElementById('giftCardModal').classList.add('open');
+  openModal('giftCardModal');
 }
 
 function saveGiftCard() {
@@ -5418,7 +5427,7 @@ function openAddGcTx(cardId) {
   document.getElementById('gcTxDate').value = todayStr();
   document.getElementById('gcTxDeleteBtn').style.display = 'none';
   document.getElementById('gcTxSaveBtn').textContent = 'Save';
-  document.getElementById('gcTxModal').classList.add('open');
+  openModal('gcTxModal');
   setTimeout(() => document.getElementById('gcTxAmt').focus(), 350);
 }
 
@@ -5433,7 +5442,7 @@ function openEditGcTx(cardId, txId) {
   document.getElementById('gcTxDate').value = tx.date;
   document.getElementById('gcTxDeleteBtn').style.display = 'block';
   document.getElementById('gcTxSaveBtn').textContent = 'Update';
-  document.getElementById('gcTxModal').classList.add('open');
+  openModal('gcTxModal');
 }
 
 function saveGcTx() {
@@ -5738,25 +5747,31 @@ function initModalSwipeDown() {
     const modal = overlay.querySelector('.modal');
     if (!modal || modal.dataset.swipeInit) return;
     modal.dataset.swipeInit = '1';
-    let startY = 0, dragging = false;
-    const handle = modal.querySelector('.modal-handle');
-    const dragTarget = handle || modal;
-    dragTarget.addEventListener('touchstart', e => {
+    let startY = 0, dragging = false, scrolled = false;
+    modal.addEventListener('touchstart', e => {
       startY = e.touches[0].clientY;
       dragging = true;
+      scrolled = false;
       modal.style.transition = 'none';
     }, { passive: true });
-    dragTarget.addEventListener('touchmove', e => {
+    modal.addEventListener('touchmove', e => {
       if (!dragging) return;
       const dy = e.touches[0].clientY - startY;
-      if (dy > 0) modal.style.transform = 'translateY(' + dy + 'px)';
+      // Only drag if swiping down from top (not scrolling content)
+      const scrollable = modal.querySelector('[style*="overflow-y:auto"], [style*="overflow-y: auto"]');
+      const atTop = !scrollable || scrollable.scrollTop === 0;
+      if (dy > 8 && atTop) {
+        modal.style.transform = 'translateY(' + dy + 'px)';
+      } else if (dy < -8) {
+        scrolled = true;
+      }
     }, { passive: true });
-    dragTarget.addEventListener('touchend', e => {
+    modal.addEventListener('touchend', e => {
       if (!dragging) return;
       dragging = false;
       modal.style.transition = '';
       const dy = e.changedTouches[0].clientY - startY;
-      if (dy > 80) {
+      if (dy > 80 && !scrolled) {
         modal.style.transform = '';
         overlay.classList.remove('open');
       } else {
@@ -5866,6 +5881,7 @@ async function init() {
     applyRecurringExpenses();
     recordTodayOffsetSaving();
     setTimeout(checkCycleComplete, 2000);
+    setTimeout(initModalSwipeDown, 600);
   } catch(e) {
     console.error('Init error:', e);
     hideLaunchScreen(() => { showApp(); });
