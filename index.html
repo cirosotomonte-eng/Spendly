@@ -4771,20 +4771,35 @@ function hideLaunchScreen(callback) {
 
 async function init() {
   state.currentTab = 'expenses';
-  await loadState();
-  state.currentTab = 'expenses';
-  updateHeader();
-  renderContent();
-  initVersionDisplay();
-  hideLaunchScreen(() => {
-    if (!initWelcome()) {
+  // Safety net — if init crashes, hide launch screen after 4s so app isn't stuck
+  const safetyTimer = setTimeout(() => {
+    const ls = document.getElementById('launchScreen');
+    if (ls && ls.style.display !== 'none') {
+      ls.style.display = 'none';
       showApp();
-      initLock();
     }
-  });
-  applyRecurringExpenses();
-  recordTodayOffsetSaving();
-  setTimeout(checkCycleComplete, 2000);
+  }, 4000);
+  try {
+    await loadState();
+    state.currentTab = 'expenses';
+    updateHeader();
+    renderContent();
+    initVersionDisplay();
+    hideLaunchScreen(() => {
+      if (!initWelcome()) {
+        showApp();
+        initLock();
+      }
+    });
+    applyRecurringExpenses();
+    recordTodayOffsetSaving();
+    setTimeout(checkCycleComplete, 2000);
+  } catch(e) {
+    console.error('Init error:', e);
+    hideLaunchScreen(() => { showApp(); });
+  } finally {
+    clearTimeout(safetyTimer);
+  }
 }
 init();
 
