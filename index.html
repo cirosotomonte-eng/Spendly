@@ -17,7 +17,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '1.2.0-202603200711';
+  const APP_VER = '1.2.0-202603200850';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -1227,7 +1227,7 @@ const PALETTE = [
 // ── State ─────────────────────────────────────────────────────────────────────
 const APP_VERSION = '1.2.0';
 const BUILD_DATE = '2026-03-20';
-const BUILD_TIME = '20 Mar 2026 7:11 AM AEDT';
+const BUILD_TIME = '20 Mar 2026 8:50 AM AEDT';
 const STORAGE_KEY = 'spendly_generic_v1';
 const LOCK_KEY = 'spendly_pin_hash';
 const BIOM_KEY = 'spendly_biometric';
@@ -4319,7 +4319,6 @@ function renderMortgage() {
         '<div><div style="font-size:10px;color:var(--muted)">Per $1k</div><div style="font-size:12px;font-weight:600">$'+savingPerK.toFixed(2)+'/mo</div></div>' +
       '</div>';
     });
-    } // end if(false)
     html += '</div>'; // close interest log card
     if (monthlyHistory.length > 0) {
       const latest = monthlyHistory[0];
@@ -4389,56 +4388,8 @@ function renderMortgage() {
     html += '<button onclick="openInterestLogSheet()" style="width:100%;background:var(--surface2);color:var(--text);border:none;border-radius:10px;padding:10px;font-size:12px;font-weight:600;font-family:var(--font);cursor:pointer;margin-bottom:10px">' +
       '📋 View all ' + intLog.length + ' entries</button>';
 
-    // Store for sheet rendering
-    window._mgIntLog = intLog;
-    window._mgFmtF = fmtF;
-    window._mgAnnualRate = annualRateNow;
-    window._mgCurrentOffset = currentOffset;
-    if (false) { // kept for reference only, now in sheet
-    intLog.forEach((entry, i) => {
-      const [yr, mo] = entry.month.split('-');
-      const monthLabel = new Date(+yr, +mo-1, 1).toLocaleDateString('en-AU',{month:'long',year:'numeric'});
-      // Compare offset benefit to our calculation for that month
-      const calcMonthly = currentOffset > 0 ? Math.round(currentOffset * (annualRateNow / 12) * 100) / 100 : 0;
-      const diff = entry.offsetBenefit > 0 && calcMonthly > 0 ? entry.offsetBenefit - calcMonthly : null;
-      html += '<div style="padding:11px 14px;'+(i>0?'border-top:1px solid var(--surface2)':'')+';cursor:pointer" onclick="openEditMortgageInterest(\''+entry.id+'\')">' +
-        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">' +
-          '<div style="font-size:13px;font-weight:600">' + monthLabel + (entry.note ? ' <span style="font-size:11px;color:var(--muted);font-weight:400">· '+entry.note+'</span>' : '') + '</div>' +
-          '<div style="font-size:13px;font-weight:700;color:var(--red)">-' + fmtF(entry.interest) + '</div>' +
-        '</div>' +
-        '<div style="display:flex;justify-content:space-between;align-items:center">' +
-          '<div style="font-size:11px;color:var(--muted)">Offset benefit: <span style="color:var(--accent);font-weight:600">+' + fmtF(entry.offsetBenefit||0) + '</span>' +
-            (diff !== null ? ' <span style="color:'+(Math.abs(diff)<5?'var(--muted)':diff>0?'var(--accent)':'var(--orange)')+'">('+(diff>0?'+':'')+diff.toFixed(2)+' vs calc)</span>' : '') +
-          '</div>' +
-          '<div style="font-size:11px;color:var(--muted)">Net: <strong style="color:var(--text)">-' + fmtF(entry.interest - (entry.offsetBenefit||0)) + '</strong></div>' +
-        '</div>' +
-      '</div>';
-    });
-    html += '</div>';
-  } else {
-    html += '<div style="background:var(--surface);border-radius:var(--r);padding:14px;margin-bottom:12px;text-align:center;font-size:13px;color:var(--muted)">Tap + Log to record your bank\'s monthly interest charges</div>';
-  }
-
-  // ── Extra repayments ──────────────────────────────────────────────────────
-  const extras = (state.mortgageExtras||[]).slice().sort((a,b)=>b.date.localeCompare(a.date));
-  html += '<div style="display:flex;justify-content:space-between;align-items:center;margin:12px 0 8px">' +
-    '<div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em">One-off extra repayments</div>' +
-    '<div style="font-size:13px;font-weight:700">' + fmtD(c.extras) + ' total</div>' +
-  '</div>';
-  html += '<button onclick="openAddMortgageExtra()" style="width:100%;background:var(--accent-dim);color:var(--accent);border:2px dashed rgba(79,142,247,0.3);border-radius:var(--r);padding:12px;font-size:13px;font-weight:600;font-family:var(--font);cursor:pointer;margin-bottom:10px">+ Log extra repayment</button>';
-
-  if (extras.length > 0) {
-    html += '<div style="background:var(--surface);border-radius:var(--r);overflow:hidden">';
-    extras.forEach((ex, i) => {
-      html += '<div style="display:flex;align-items:center;gap:12px;padding:12px 14px;'+(i>0?'border-top:1px solid var(--surface2)':'')+';cursor:pointer" onclick="openEditMortgageExtra(\''+ex.id+'\')">' +
-        '<div style="width:36px;height:36px;border-radius:10px;background:var(--accent-dim);display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">💸</div>' +
-        '<div style="flex:1;min-width:0">' +
-          '<div style="font-size:13px;font-weight:500">' + (ex.note || 'Extra repayment') + '</div>' +
-          '<div style="font-size:11px;color:var(--muted)">' + new Date(ex.date+'T00:00:00').toLocaleDateString('en-AU',{day:'numeric',month:'short',year:'numeric'}) + '</div>' +
-        '</div>' +
-        '<div style="font-size:14px;font-weight:700;color:var(--accent)">-' + fmtF(ex.amount) + '</div>' +
-      '</div>';
-    });
+    // Show entries via bottom sheet - just show the button here
+    html += '<button onclick="openInterestLogSheet()" style="width:100%;background:var(--surface2);color:var(--text);border:none;border-radius:10px;padding:10px;font-size:12px;font-weight:600;font-family:var(--font);cursor:pointer;margin-bottom:10px">📋 View all ' + intLog.length + ' entries</button>';
     html += '</div>';
   } else {
     html += '<div style="text-align:center;font-size:13px;color:var(--muted);padding:12px">No one-off extras yet — these are on top of your scheduled overpayment</div>';
