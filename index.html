@@ -17,7 +17,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '1.2.0-202603192222';
+  const APP_VER = '1.2.0-202603192232';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -1227,7 +1227,7 @@ const PALETTE = [
 // ── State ─────────────────────────────────────────────────────────────────────
 const APP_VERSION = '1.2.0';
 const BUILD_DATE = '2026-03-19';
-const BUILD_TIME = '19 Mar 2026 10:22 PM AEDT';
+const BUILD_TIME = '19 Mar 2026 10:32 PM AEDT';
 const STORAGE_KEY = 'spendly_generic_v1';
 const LOCK_KEY = 'spendly_pin_hash';
 const BIOM_KEY = 'spendly_biometric';
@@ -5016,13 +5016,21 @@ function saveRecurring() {
   } else {
     state.recurringExpenses.push(rec);
   }
-  saveState(); closeModal('recurringModal'); openRecurringList();
+  saveState();
+  closeModal('recurringModal');
+  updateHeader();
+  renderContent();
+  openRecurringList();
 }
 
 function deleteRecurring() {
   if (!editingRecurringId) return;
   state.recurringExpenses = (state.recurringExpenses||[]).filter(r=>r.id!==editingRecurringId);
-  saveState(); closeModal('recurringModal'); openRecurringList();
+  saveState();
+  closeModal('recurringModal');
+  updateHeader();
+  renderContent();
+  openRecurringList();
 }
 
 function recFreqLabel(r) {
