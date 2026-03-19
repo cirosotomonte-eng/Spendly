@@ -3348,6 +3348,41 @@ function renderSavings() {
         const cycleNet = cycleNetForTarget(sub.id);
         const pct = sub.target > 0 ? Math.min((saved/sub.target)*100,100) : 0;
         const subDays = sub.goalDate ? daysUntil(sub.goalDate) : null;
+
+        // ETA calculation
+        let etaHtml = '';
+        if (sub.target > 0 && saved < sub.target) {
+          const remaining = sub.target - saved;
+          // Average monthly contribution from deposit history
+          const deps = depositsForTarget(sub.id);
+          if (deps.length > 0) {
+            const firstDate = new Date(deps.reduce((a,b)=>a.date<b.date?a:b).date+'T00:00:00');
+            const monthsActive = Math.max((new Date()-firstDate)/(1000*60*60*24*30.44), 1);
+            const netTotal = deps.reduce((s,d)=>s+(d.type==='withdrawal'?-d.amount:d.amount),0);
+            const avgMonthly = netTotal / monthsActive;
+            if (avgMonthly > 0) {
+              const monthsToGo = remaining / avgMonthly;
+              const etaDate = new Date();
+              etaDate.setMonth(etaDate.getMonth() + Math.ceil(monthsToGo));
+              const etaStr = etaDate.toLocaleDateString('en-AU',{month:'short',year:'numeric'});
+              const onTrack = sub.goalDate ? (etaDate <= new Date(sub.goalDate+'T00:00:00')) : null;
+              const requiredMonthly = sub.goalDate ? remaining / Math.max(Math.ceil((new Date(sub.goalDate+'T00:00:00')-new Date())/(1000*60*60*24*30.44)),1) : null;
+              const shortfall = requiredMonthly ? Math.max(requiredMonthly - avgMonthly, 0) : null;
+              etaHtml = '<div style="background:var(--surface3);border-radius:8px;padding:7px 10px;margin-top:6px;font-size:11px">' +
+                '<div style="display:flex;justify-content:space-between;align-items:center">' +
+                  '<span style="color:var(--muted)">At current pace · ' + ('$'+Math.round(avgMonthly).toLocaleString('en-AU')+'/mo') + '</span>' +
+                  '<span style="font-weight:600;color:' + (onTrack===true?'var(--accent)':onTrack===false?'var(--red)':'var(--text)') + '">' +
+                    (onTrack===true?'✓ On track':onTrack===false?'⚠ Behind':'ETA ' + etaStr) +
+                  '</span>' +
+                '</div>' +
+                (onTrack===false && shortfall ? '<div style="color:var(--red);margin-top:3px">Need +$' + Math.round(shortfall).toLocaleString('en-AU') + '/mo to hit goal date</div>' : '') +
+                (onTrack===null ? '<div style="color:var(--muted);margin-top:2px">Projected: ' + etaStr + '</div>' : '') +
+              '</div>';
+            }
+          }
+        } else if (sub.target > 0 && saved >= sub.target) {
+          etaHtml = '<div style="font-size:11px;color:var(--accent);font-weight:600;margin-top:4px">🎉 Goal reached!</div>';
+        }
         html += '<div style="border-top:1px solid var(--surface2);padding:12px 14px">' +
           '<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">' +
             '<div style="width:32px;height:32px;border-radius:8px;background:'+cat.color+'22;display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0">'+sub.icon+'</div>' +
@@ -3367,6 +3402,7 @@ function renderSavings() {
           '</div>' +
           (sub.target>0 ? '<div style="background:var(--surface2);border-radius:100px;height:5px;overflow:hidden"><div style="width:'+pct+'%;height:100%;background:'+cat.color+';border-radius:100px;transition:width 0.4s"></div></div>' +
             '<div style="font-size:10px;color:var(--muted);margin-top:4px">'+Math.round(pct)+'% · '+(sub.target-saved>0?fmt(Math.max(sub.target-saved,0))+' to go':'Goal reached! 🎉')+'</div>' : '') +
+          etaHtml +
         (() => {
           const subDeps = depositsForTarget(sub.id).sort((a,b)=>b.date.localeCompare(a.date)||b.id.localeCompare(a.id));
           if (subDeps.length === 0) return '';
@@ -3998,6 +4034,89 @@ function deleteMortgageInterest() {
   saveState(); closeModal('mortgageInterestModal'); renderContent();
 }
 
+// ── Mortgage Projection Helpers ───────────────────────────────────────────────
+function mortgageProjectionData(extraWeeklyOffset) {
+  const mg = state.mortgage || {};
+  if (!mg.loanAmount || !mg.interestRate || !mg.termYears) return null;
+  const startBalance = mg.currentBalance > 0 ? mg.currentBalance : mg.loanAmount;
+  const annualRate = mg.interestRate / 100;
+  const weeklyRate = annualRate / 52;
+  const totalWeeks = mg.termYears * 52;
+  const minPmt = mg.minimumRepayment > 0 ? mg.minimumRepayment
+    : (startBalance * weeklyRate / (1 - Math.pow(1 + weeklyRate, -totalWeeks)));
+  const actualPmt = (mg.weeklyRepayment > 0 ? mg.weeklyRepayment : minPmt);
+  const baseOffset = getOffsetBalance();
+  const totalOffset = baseOffset + (extraWeeklyOffset || 0) * 52 / 12; // rough monthly equiv
+
+  // Path A: minimum only, no offset
+  const pathA = []; let balA = startBalance;
+  for (let w = 0; w < totalWeeks * 2; w++) {
+    if (w % 52 === 0) pathA.push(Math.max(balA, 0));
+    if (balA <= 0) break;
+    const intW = balA * weeklyRate;
+    const prinW = Math.min(minPmt - intW, balA);
+    balA -= Math.max(prinW, 0);
+  }
+  if (balA > 0) pathA.push(0);
+
+  // Path B: actual payments + offset + extras
+  const pathB = []; let balB = startBalance;
+  const sortedExtras = (state.mortgageExtras || []).slice().sort((a,b)=>a.date.localeCompare(b.date));
+  let extraIdx = 0;
+  const today = new Date(); today.setHours(0,0,0,0);
+  const weekMs = 7*24*60*60*1000;
+  let weekDate = new Date(today);
+  let weeksB = 0, totalIntA2 = 0, totalIntB = 0, paidOffDate = null;
+
+  // Also compute no-offset total interest
+  let balC = startBalance, totalIntC = 0;
+  for (let w = 0; w < totalWeeks * 2; w++) {
+    if (balC <= 0) break;
+    const intW = balC * weeklyRate;
+    totalIntC += intW;
+    balC -= Math.max(Math.min(actualPmt - intW, balC), 0);
+  }
+
+  for (let w = 0; w < totalWeeks * 2; w++) {
+    if (w % 52 === 0) pathB.push(Math.max(balB, 0));
+    if (balB <= 0) { if (!paidOffDate) paidOffDate = new Date(weekDate); break; }
+    while (extraIdx < sortedExtras.length) {
+      const eDate = new Date(sortedExtras[extraIdx].date+'T00:00:00');
+      if (eDate <= weekDate) { balB -= sortedExtras[extraIdx].amount; extraIdx++; if (balB <= 0) { balB = 0; break; } }
+      else break;
+    }
+    if (balB <= 0) { if (!paidOffDate) paidOffDate = new Date(weekDate); break; }
+    const effBal = Math.max(balB - totalOffset, 0);
+    const intW = effBal * weeklyRate;
+    totalIntB += intW;
+    balB -= Math.max(Math.min(actualPmt - intW, balB), 0);
+    weeksB++;
+    weekDate = new Date(weekDate.getTime() + weekMs);
+    if (balB <= 0 && !paidOffDate) paidOffDate = new Date(weekDate);
+  }
+  if (balB > 0) pathB.push(0);
+
+  const interestSaved = Math.max(totalIntC - totalIntB, 0);
+  const weeksSaved = Math.max(pathA.length - pathB.length, 0) * 52;
+  const yearsSaved = Math.floor(weeksSaved / 52);
+  const monthsSaved = Math.floor((weeksSaved % 52) / 4.33);
+  const yearsLeft = Math.floor(weeksB / 52);
+  const monthsLeft = Math.floor((weeksB % 52) / 4.33);
+
+  // Snowball: cumulative interest saved at 5, 10, 20 years
+  const snowball = [5,10,20].map(yrs => {
+    const wks = yrs * 52;
+    let bA = startBalance, bB = startBalance, intA = 0, intB2 = 0;
+    for (let w = 0; w < wks; w++) {
+      if (bA > 0) { const i = bA*weeklyRate; intA+=i; bA-=Math.max(Math.min(actualPmt-i,bA),0); }
+      if (bB > 0) { const i = Math.max(bB-totalOffset,0)*weeklyRate; intB2+=i; bB-=Math.max(Math.min(actualPmt-i,bB),0); }
+    }
+    return { years: yrs, saved: Math.max(intA-intB2, 0) };
+  });
+
+  return { pathA, pathB, interestSaved, yearsSaved, monthsSaved, yearsLeft, monthsLeft, paidOffDate, snowball, totalIntC, totalIntB, baseOffset };
+}
+
 function renderMortgage() {
   const el = document.getElementById('content');
   const mg = state.mortgage || {};
@@ -4291,9 +4410,109 @@ function renderMortgage() {
     html += '<div style="text-align:center;font-size:13px;color:var(--muted);padding:12px">No one-off extras yet — these are on top of your scheduled overpayment</div>';
   }
 
+  // ── Projections ───────────────────────────────────────────────────────────
+  const proj = mortgageProjectionData(0);
+  if (proj) {
+    const timeSavedStr = proj.yearsSaved > 0 || proj.monthsSaved > 0
+      ? (proj.yearsSaved > 0 ? proj.yearsSaved + ' yr ' : '') + (proj.monthsSaved > 0 ? proj.monthsSaved + ' mo' : '')
+      : '< 1 month';
+    const paidOffStr2 = proj.paidOffDate ? proj.paidOffDate.toLocaleDateString('en-AU',{month:'short',year:'numeric'}) : '—';
+
+    html += '<div style="background:var(--surface);border-radius:var(--r);padding:14px;margin-bottom:8px">' +
+      '<div style="font-size:13px;font-weight:700;margin-bottom:14px">📈 Projections</div>';
+
+    // ── Balance chart: Path A vs Path B ──────────────────────────────────────
+    html += '<div style="font-size:11px;color:var(--muted);margin-bottom:8px">Loan balance over time</div>';
+    html += '<div style="position:relative;height:160px;margin-bottom:6px"><canvas id="mgBalanceChart"></canvas></div>';
+    html += '<div style="display:flex;gap:14px;font-size:11px;margin-bottom:16px">' +
+      '<div style="display:flex;align-items:center;gap:5px"><div style="width:12px;height:3px;background:#888;border-radius:2px"></div><span style="color:var(--muted)">Min repayment only</span></div>' +
+      '<div style="display:flex;align-items:center;gap:5px"><div style="width:12px;height:3px;background:var(--accent);border-radius:2px"></div><span style="color:var(--muted)">Your current path</span></div>' +
+    '</div>';
+
+    // ── Interest snowball ─────────────────────────────────────────────────────
+    html += '<div style="font-size:11px;font-weight:600;color:var(--text);margin-bottom:8px">Interest saved with your offset</div>';
+    html += '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:16px">';
+    proj.snowball.forEach(s => {
+      html += '<div style="background:var(--surface2);border-radius:10px;padding:10px;text-align:center">' +
+        '<div style="font-size:10px;color:var(--muted);margin-bottom:4px">' + s.years + ' years</div>' +
+        '<div style="font-size:14px;font-weight:700;color:var(--accent)">$' + Math.round(s.saved).toLocaleString('en-AU') + '</div>' +
+        '<div style="font-size:9px;color:var(--muted)">saved</div>' +
+      '</div>';
+    });
+    html += '</div>';
+
+    // ── What-if slider ────────────────────────────────────────────────────────
+    html += '<div style="border-top:1px solid var(--surface2);padding-top:14px">';
+    html += '<div style="font-size:11px;font-weight:600;color:var(--text);margin-bottom:6px">💡 What if I add more to my offset?</div>';
+    html += '<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">' +
+      '<span style="font-size:12px;color:var(--muted)">+$</span>' +
+      '<input type="range" id="mgWhatIfSlider" min="0" max="50000" step="1000" value="0" oninput="updateMgWhatIf(this.value)" style="flex:1;accent-color:var(--accent)">' +
+      '<span style="font-size:13px;font-weight:700;min-width:60px;text-align:right" id="mgWhatIfAmt">$0</span>' +
+    '</div>';
+    html += '<div id="mgWhatIfResult" style="font-size:12px;color:var(--muted);background:var(--surface2);border-radius:8px;padding:8px 12px;line-height:1.6">Move the slider to see the impact of adding more to your offset account.</div>';
+    html += '</div>';
+
+    html += '</div>';
+  }
+
   el.innerHTML = html;
+
+  // ── Render balance chart ──────────────────────────────────────────────────
+  if (proj) {
+    const isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    const textColor = isDark ? '#888' : '#999';
+    const gridColor = isDark ? '#2a2a2a' : '#e8e8e0';
+    const ctx = document.getElementById('mgBalanceChart');
+    if (ctx) {
+      const maxLen = Math.max(proj.pathA.length, proj.pathB.length);
+      const labels = Array.from({length: maxLen}, (_,i) => i === 0 ? 'Now' : 'Yr ' + i);
+      // Pad shorter path with zeros
+      const padA = [...proj.pathA, ...Array(Math.max(0, maxLen - proj.pathA.length)).fill(0)];
+      const padB = [...proj.pathB, ...Array(Math.max(0, maxLen - proj.pathB.length)).fill(0)];
+      new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels,
+          datasets: [
+            { label: 'Min only', data: padA, borderColor: '#888', backgroundColor: 'transparent', borderWidth: 1.5, borderDash: [4,3], pointRadius: 0 },
+            { label: 'Your path', data: padB, borderColor: '#4F8EF7', backgroundColor: 'rgba(79,142,247,0.08)', borderWidth: 2, fill: true, pointRadius: 0 },
+          ]
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false, animation: false,
+          plugins: { legend: { display: false } },
+          scales: {
+            x: { ticks: { color: textColor, font: { size: 10 }, maxTicksLimit: 8 }, grid: { display: false }, border: { display: false } },
+            y: { ticks: { color: textColor, font: { size: 10 }, callback: v => '$' + Math.round(v/1000) + 'k' }, grid: { color: gridColor }, border: { display: false } }
+          }
+        }
+      });
+    }
+  }
 }
 
+function updateMgWhatIf(extraAmt) {
+  const amt = parseInt(extraAmt) || 0;
+  document.getElementById('mgWhatIfAmt').textContent = '$' + amt.toLocaleString('en-AU');
+  if (amt === 0) {
+    document.getElementById('mgWhatIfResult').innerHTML = 'Move the slider to see the impact of adding more to your offset account.';
+    return;
+  }
+  const base = mortgageProjectionData(0);
+  const proj = mortgageProjectionData(amt / 52 * 52); // pass as annual
+  if (!base || !proj) return;
+  const extraSaved = Math.max(base.totalIntC - proj.totalIntB, 0);
+  const wksSaved = Math.max(base.pathA.length*52 - proj.pathB.length*52, 0);
+  const yrsSaved = Math.floor(wksSaved / 52);
+  const mosSaved = Math.floor((wksSaved % 52) / 4.33);
+  const timeStr = yrsSaved > 0 || mosSaved > 0
+    ? (yrsSaved > 0 ? yrsSaved + ' yr ' : '') + (mosSaved > 0 ? mosSaved + ' mo' : '')
+    : 'a little sooner';
+  document.getElementById('mgWhatIfResult').innerHTML =
+    'Adding <strong style="color:var(--text)">$' + amt.toLocaleString('en-AU') + '</strong> to your offset would save you approximately ' +
+    '<strong style="color:var(--accent)">$' + Math.round(extraSaved).toLocaleString('en-AU') + '</strong> in interest ' +
+    'and pay off your loan <strong style="color:var(--accent)">' + timeStr + '</strong> earlier.';
+}
 
 // ── Tax tab ───────────────────────────────────────────────────────────────────
 const TAX_EMOJIS = ['🏠','🚗','💻','📱','📚','✈️','🩺','💼','📋','🖨️','📡','🔧','🎓','☕','📞','⚡','🌐','🖥️','🧾','💊'];
