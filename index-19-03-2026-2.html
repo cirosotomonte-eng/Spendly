@@ -1027,7 +1027,7 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '1.0.0';
+const APP_VERSION = '1.1.0';
 const BUILD_DATE = '2026-03-19';
 const STORAGE_KEY = 'spendly_generic_v1';
 const LOCK_KEY = 'spendly_pin_hash';
@@ -4449,6 +4449,41 @@ function _allocCard(label, amount, color, desc) {
   '</div>';
 }
 
+// ── Version & Update ──────────────────────────────────────────────────────────
+function initVersionDisplay() {
+  // Header tiny version
+  const hv = document.getElementById('headerVersion');
+  if (hv) hv.textContent = 'v' + APP_VERSION;
+  // Settings modal
+  const av = document.getElementById('appVersionDisplay');
+  if (av) av.textContent = APP_VERSION;
+  const bd = document.getElementById('appBuildDate');
+  if (bd) bd.textContent = BUILD_DATE;
+}
+
+async function forceAppUpdate() {
+  const btn = document.querySelector('[onclick="forceAppUpdate()"]');
+  if (btn) { btn.textContent = '⏳ Clearing cache…'; btn.disabled = true; }
+  try {
+    // Clear all service worker caches
+    if ('caches' in window) {
+      const keys = await caches.keys();
+      await Promise.all(keys.map(k => caches.delete(k)));
+    }
+    // Unregister service workers
+    if ('serviceWorker' in navigator) {
+      const regs = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(regs.map(r => r.unregister()));
+    }
+    if (btn) btn.textContent = '✅ Done! Reloading…';
+    setTimeout(() => window.location.reload(true), 800);
+  } catch(e) {
+    if (btn) { btn.textContent = '🔄 Check for update'; btn.disabled = false; }
+    // Fallback — just hard reload
+    window.location.reload(true);
+  }
+}
+
 // ── Boot ──────────────────────────────────────────────────────────────────────
 function hideLaunchScreen(callback) {
   const ls = document.getElementById('launchScreen');
@@ -4467,6 +4502,7 @@ async function init() {
   state.currentTab = 'expenses';
   updateHeader();
   renderContent();
+  initVersionDisplay();
   populateVersionUI();
   // Hide launch screen THEN show next screen
   hideLaunchScreen(() => {
