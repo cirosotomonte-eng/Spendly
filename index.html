@@ -4458,7 +4458,7 @@ function openRecurringList() {
       const cat = catById(r.categoryId);
       const next = getRecNextDate(r);
       const nextStr = next ? next.toLocaleDateString('en-AU',{weekday:'short',day:'numeric',month:'short'}) : '—';
-      return '<div style="display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid var(--surface2);cursor:pointer" onclick="openEditRecurring('" + r.id + "')">' +
+      return '<div style="display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid var(--surface2);cursor:pointer" onclick="openEditRecurring(\'" + r.id + "\')">' +
         '<div style="width:38px;height:38px;border-radius:10px;background:'+(cat?cat.color:'#888')+'22;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">'+(cat?cat.icon:'❓')+'</div>' +
         '<div style="flex:1;min-width:0">' +
           '<div style="font-size:13px;font-weight:600">' + r.name + (r.active===false?' <span style="font-size:10px;color:var(--orange);font-weight:400">Paused</span>':'') + '</div>' +
@@ -4500,3 +4500,111 @@ function applyRecurringExpenses() {
   });
   if (added) saveState();
 }
+// ── Version & Update ──────────────────────────────────────────────────────────
+function initVersionDisplay() {
+  const hv = document.getElementById('headerVersion');
+  if (hv) hv.textContent = 'v' + APP_VERSION;
+  const av = document.getElementById('appVersionDisplay');
+  if (av) av.textContent = APP_VERSION;
+  const bd = document.getElementById('appBuildDate');
+  if (bd) bd.textContent = BUILD_DATE;
+}
+
+async function forceAppUpdate() { await applyUpdate(); }
+
+// ── Offset Daily Savings Log ──────────────────────────────────────────────────
+function recordTodayOffsetSaving() {
+  const mg = state.mortgage || {};
+  if (!mg.interestRate) return;
+  const today = todayStr();
+  if (!state.offsetDailyLog) state.offsetDailyLog = [];
+  if (state.offsetDailyLog.find(e=>e.date===today)) return;
+  const balance = getOffsetBalance();
+  if (balance <= 0) return;
+  const rate = mg.interestRate / 100;
+  const dailySaving = balance * (rate / 365);
+  state.offsetDailyLog.push({ date: today, balance, dailySaving, rate: mg.interestRate });
+  rollupOffsetMonthlyHistory();
+  saveState();
+}
+
+function rollupOffsetMonthlyHistory() {
+  if (!state.offsetDailyLog || !state.offsetDailyLog.length) return;
+  if (!state.offsetMonthlyHistory) state.offsetMonthlyHistory = [];
+  const now = new Date();
+  const thisMonth = now.getFullYear() + '-' + String(now.getMonth()+1).padStart(2,'0');
+  const byMonth = {};
+  state.offsetDailyLog.forEach(e => {
+    const m = e.date.slice(0,7);
+    if (m === thisMonth) return;
+    if (!byMonth[m]) byMonth[m] = [];
+    byMonth[m].push(e);
+  });
+  Object.entries(byMonth).forEach(([month, entries]) => {
+    if (state.offsetMonthlyHistory.find(h=>h.month===month)) return;
+    const totalSaving = entries.reduce((s,e)=>s+e.dailySaving,0);
+    const avgBalance = entries.reduce((s,e)=>s+e.balance,0) / entries.length;
+    const rate = entries[entries.length-1].rate;
+    state.offsetMonthlyHistory.push({ month, totalSaving, avgBalance, rate });
+    state.offsetDailyLog = state.offsetDailyLog.filter(e=>e.date.slice(0,7)!==month);
+  });
+  state.offsetMonthlyHistory.sort((a,b)=>b.month.localeCompare(a.month));
+}
+
+function getOffsetCurrentMonthSaving() {
+  if (!state.offsetDailyLog) return 0;
+  const now = new Date();
+  const thisMonth = now.getFullYear() + '-' + String(now.getMonth()+1).padStart(2,'0');
+  return state.offsetDailyLog.filter(e=>e.date.slice(0,7)===thisMonth).reduce((s,e)=>s+e.dailySaving,0);
+}
+
+// ── Boot ──────────────────────────────────────────────────────────────────────
+function hideLaunchScreen(callback) {
+  const ls = document.getElementById('launchScreen');
+  if (!ls) { if (callback) callback(); return; }
+  ls.style.opacity = '0';
+  setTimeout(() => { ls.style.display = 'none'; if (callback) callback(); }, 500);
+}
+
+async function init() {
+  state.currentTab = 'expenses';
+  await loadState();
+  state.currentTab = 'expenses';
+  updateHeader();
+  renderContent();
+  initVersionDisplay();
+  hideLaunchScreen(() => {
+    if (!initWelcome()) {
+      showApp();
+      initLock();
+    }
+  });
+  applyRecurringExpenses();
+  recordTodayOffsetSaving();
+  setTimeout(checkCycleComplete, 2000);
+}
+init();
+
+// ── Data protection ───────────────────────────────────────────────────────────
+function checkDataLoss() {
+  const hasData = state.budget > 0 || (state.categories && state.categories.length > 0) || (state.expenses && state.expenses.length > 0);
+  if (hasData) return;
+  if (syncStatus === 'saved' || syncStatus === 'saving') return;
+  const lastSaved = localStorage.getItem(BACKUP_TS_KEY);
+  if (!lastSaved) return;
+}
+setTimeout(checkDataLoss, 4000);
+
+// ── Auto backup on hide ───────────────────────────────────────────────────────
+function autoBackup() {
+  try {
+    const { currentTab, viewingCycleOffset, mortgageCycleOffset, editingExpenseId, editingCatId, ...persistState } = state;
+    const data = JSON.stringify(persistState);
+    localStorage.setItem(BACKUP_KEY, data);
+    sessionStorage.setItem(BACKUP_KEY2, data);
+  } catch(e) {}
+}
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') autoBackup(); });
+</script>
+</body>
+</html>
