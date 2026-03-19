@@ -17,9 +17,9 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '1.2.0-202603191810';
+  const APP_VER = '1.2.0-202603192056';
   const swCode = `
-const CACHE = 'spendly-${APP_VER}-202603191810';
+const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
 
 self.addEventListener('install', e => {
@@ -1207,7 +1207,7 @@ const PALETTE = [
 // ── State ─────────────────────────────────────────────────────────────────────
 const APP_VERSION = '1.2.0';
 const BUILD_DATE = '2026-03-19';
-const BUILD_TIME = '19 Mar 2026 5:58 PM AEDT';
+const BUILD_TIME = '19 Mar 2026 8:56 PM AEDT';
 const STORAGE_KEY = 'spendly_generic_v1';
 const LOCK_KEY = 'spendly_pin_hash';
 const BIOM_KEY = 'spendly_biometric';
@@ -1751,7 +1751,7 @@ function renderExpenses() {
           '<div style="font-size:13px;font-weight:500">' + e.name + '</div>' +
           '<div style="font-size:11px;color:var(--muted)">' + cat.name + ' \u00b7 ' + dueStr + '</div>' +
         '</div>' +
-        '<div style="font-size:13px;font-weight:600;color:var(--muted)">-' + fmt(e.amount) + '</div>' +
+        '<div style="font-size:13px;font-weight:600;color:' + getSpendColor(e.categoryId) + '">-' + fmt(e.amount) + '</div>' +
       '</div>';
     });
     upcomingHTML += '</div>';
@@ -2148,7 +2148,7 @@ function buildSpendColorRows() {
         ? '<div style="flex:1;font-size:13px;font-weight:600;color:'+color+'" id="sc_'+t.key+'_label">100%+ · Over budget</div>'
         : '<div style="flex:1;display:flex;align-items:center;gap:6px">' +
             (prevMax!==null ? '<span style="font-size:12px;color:var(--muted)">'+(sc[t.prevKey]??prevMax)+'% –</span>' : '<span style="font-size:12px;color:var(--muted)">0% –</span>') +
-            '<input type="number" id="sc_'+t.key+'_max" value="'+max+'" min="'+(prevMax||1)+'" max="100" style="width:54px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:14px;font-family:var(--font);padding:6px 8px;outline:none;text-align:center" onchange="updateSpendColorPreview()">'+
+            '<input type="text" inputmode="numeric" id="sc_'+t.key+'_max" value="'+max+'" style="width:54px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:14px;font-family:var(--font);padding:6px 8px;outline:none;text-align:center" onchange="updateSpendColorPreview()">'+
             '<span style="font-size:12px;color:var(--muted)">%</span>' +
           '</div>'
       ) +
