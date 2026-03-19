@@ -702,6 +702,11 @@ async function applyUpdate() {
     <label>Country</label>
     <input type="text" id="setCountry" placeholder="e.g. Australia">
     <div id="setTimezoneDisplay" style="font-size:11px;color:var(--muted);margin-top:-8px;margin-bottom:14px"></div>
+    <div style="margin-top:4px;padding-top:16px;border-top:1px solid var(--surface2)">
+      <div style="font-size:13px;font-weight:700;margin-bottom:12px">Expense amount colours</div>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:12px;line-height:1.5">Colours shown on expense amounts based on how much of the category budget has been spent.</div>
+      <div id="spendColorRows"></div>
+    </div>
     <button class="btn-primary" onclick="saveSettings()">Save settings</button>
     <button class="btn-ghost" onclick="closeModal('settingsModal')">Cancel</button>
     <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--surface2);text-align:center">
@@ -1210,6 +1215,12 @@ const LOCK_SKIPPED = 'spendly_lock_skipped';
 
 let state = {
   appName: 'Spendly',
+  spendingColors: {
+    t1Color: '#34C759', t1Max: 50,   // 0–50% → green
+    t2Color: '#f0d860', t2Max: 70,   // 50–70% → yellow
+    t3Color: '#f0a860', t3Max: 100,  // 70–100% → orange
+    t4Color: '#ff5c5c',              // 100%+ → red
+  },
   timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
   city: '',
   country: 'Australia',
@@ -1383,6 +1394,76 @@ function dateToStr(d) {
 }
 function catById(id) { return state.categories.find(c => c.id === id); }
 function uid() { return Date.now() + Math.random().toString(36).slice(2,6); }
+
+function buildSpendLegend() {
+  const sc = state.spendingColors || {};
+  const t1Color = sc.t1Color || '#34C759';
+  const t2Color = sc.t2Color || '#f0d860';
+  const t3Color = sc.t3Color || '#f0a860';
+  const t4Color = sc.t4Color || '#ff5c5c';
+  const t1Max   = sc.t1Max ?? 50;
+  const t2Max   = sc.t2Max ?? 70;
+  const legendKey = 'spendly_legend_collapsed';
+  const collapsed = localStorage.getItem(legendKey) === '1';
+  return '<div style="margin-bottom:12px">' +
+    '<div onclick="toggleSpendLegend()" style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;padding:6px 0">' +
+      '<div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.1em;font-weight:600">Amount colour guide</div>' +
+      '<span style="font-size:12px;color:var(--muted)" id="legendToggleIcon">' + (collapsed?'▼':'▲') + '</span>' +
+    '</div>' +
+    '<div id="spendLegendBody" style="display:' + (collapsed?'none':'flex') + ';gap:6px;flex-wrap:wrap">' +
+      '<span style="display:inline-flex;align-items:center;gap:5px;font-size:11px;background:var(--surface);border-radius:6px;padding:4px 8px">' +
+        '<span style="font-weight:700;color:'+t1Color+'">$</span><span style="color:var(--muted)">0–'+t1Max+'% spent</span>' +
+      '</span>' +
+      '<span style="display:inline-flex;align-items:center;gap:5px;font-size:11px;background:var(--surface);border-radius:6px;padding:4px 8px">' +
+        '<span style="font-weight:700;color:'+t2Color+'">$</span><span style="color:var(--muted)">'+t1Max+'–'+t2Max+'%</span>' +
+      '</span>' +
+      '<span style="display:inline-flex;align-items:center;gap:5px;font-size:11px;background:var(--surface);border-radius:6px;padding:4px 8px">' +
+        '<span style="font-weight:700;color:'+t3Color+'">$</span><span style="color:var(--muted)">'+t2Max+'–100%</span>' +
+      '</span>' +
+      '<span style="display:inline-flex;align-items:center;gap:5px;font-size:11px;background:var(--surface);border-radius:6px;padding:4px 8px">' +
+        '<span style="font-weight:700;color:'+t4Color+'">$</span><span style="color:var(--muted)">Over budget</span>' +
+      '</span>' +
+      '<span style="font-size:10px;color:var(--muted);padding:4px 2px;align-self:center">· Tap ⚙️ to customise</span>' +
+    '</div>' +
+  '</div>';
+}
+function toggleSpendLegend() {
+  const key = 'spendly_legend_collapsed';
+  const body = document.getElementById('spendLegendBody');
+  const icon = document.getElementById('legendToggleIcon');
+  if (!body) return;
+  const isHidden = body.style.display === 'none';
+  body.style.display = isHidden ? 'flex' : 'none';
+  if (icon) icon.textContent = isHidden ? '▲' : '▼';
+  localStorage.setItem(key, isHidden ? '0' : '1');
+}
+
+// Returns colour for an expense amount based on category spend %
+function getSpendColor(categoryId) {
+  const sc = state.spendingColors || {};
+  const t1Color = sc.t1Color || '#34C759';
+  const t2Color = sc.t2Color || '#f0d860';
+  const t3Color = sc.t3Color || '#f0a860';
+  const t4Color = sc.t4Color || '#ff5c5c';
+  const t1Max   = sc.t1Max ?? 50;
+  const t2Max   = sc.t2Max ?? 70;
+
+  if (!categoryId || !isCurrentCycle()) return t1Color;
+  const cat = catById(categoryId);
+  if (!cat || !cat.budgetLimit || cat.budgetLimit <= 0) return t1Color;
+
+  // Calculate how much has been spent in this category this cycle (including upcoming)
+  const cycleExp = cycleExpenses();
+  const spent = cycleExp.filter(e=>e.categoryId===categoryId).reduce((s,e)=>s+e.amount,0);
+  const upcoming = getUpcomingRecurring().filter(e=>e.categoryId===categoryId).reduce((s,e)=>s+e.amount,0);
+  const total = spent + upcoming;
+  const pct = (total / cat.budgetLimit) * 100;
+
+  if (pct >= 100) return t4Color;
+  if (pct >= t2Max) return t3Color;
+  if (pct >= t1Max) return t2Color;
+  return t1Color;
+}
 
 // ── Cycle ─────────────────────────────────────────────────────────────────────
 function getCycleRange(offset) {
@@ -1686,7 +1767,7 @@ function renderExpenses() {
   const groups = {};
   expenses.forEach(e => { if (!groups[e.date]) groups[e.date] = []; groups[e.date].push(e); });
 
-  let html = searchBar + upcomingHTML;
+  let html = searchBar + upcomingHTML + buildSpendLegend();
   if (query) {
     html += '<div style="font-size:12px;color:var(--muted);margin-bottom:10px">' + expenses.length + ' result' + (expenses.length !== 1 ? 's' : '') + ' for \"<strong style=\"color:var(--text)\">' + query + '</strong>\"</div>';
   }
@@ -1708,7 +1789,7 @@ function renderExpenses() {
         '<div class="list-item" onclick="openEditExpense(\'' + e.id + '\')">' +
         '<div class="cat-icon" style="background:' + cat.color + '22">' + cat.icon + '</div>' +
         '<div class="item-info"><div class="item-name">' + cat.name + '</div>' + (e.name ? '<div class="item-meta">' + e.name + '</div>' : '') + '</div>' +
-        '<div class="item-amount" style="color:' + cat.color + '">' + fmt(e.amount) + '</div></div></div>';
+        '<div class="item-amount" style="color:' + getSpendColor(e.categoryId) + '">' + fmt(e.amount) + '</div></div></div>';
     });
   });
   el.innerHTML = html;
@@ -2042,8 +2123,48 @@ function openSettings() {
   const tzEl = document.getElementById('setTimezoneDisplay');
   if (tzEl) tzEl.textContent = '🌏 Detected timezone: ' + tz;
   initVersionDisplay();
+  buildSpendColorRows();
   document.getElementById('settingsModal').classList.add('open');
 }
+
+function buildSpendColorRows() {
+  const sc = state.spendingColors || {};
+  const rows = document.getElementById('spendColorRows');
+  if (!rows) return;
+  const tiers = [
+    { key:'t1', label:'0% – ', maxKey:'t1Max', defaultMax:50, defaultColor:'#34C759', suffix:'%' },
+    { key:'t2', label:'', maxKey:'t2Max', defaultMax:70, defaultColor:'#f0d860', suffix:'%', prevKey:'t1Max' },
+    { key:'t3', label:'', maxKey:'t3Max', defaultMax:100, defaultColor:'#f0a860', suffix:'%', prevKey:'t2Max' },
+    { key:'t4', label:'100%+', defaultColor:'#ff5c5c', isOver:true },
+  ];
+  rows.innerHTML = tiers.map((t, i) => {
+    const color = sc[t.key+'Color'] || t.defaultColor;
+    const max = sc[t.maxKey] ?? t.defaultMax;
+    const prevMax = t.prevKey ? (sc[t.prevKey] ?? (i===1?50:70)) : null;
+    const rangeLabel = t.isOver ? '100%+' : (prevMax!==null ? prevMax+'% – '+max+'%' : '0% – '+max+'%');
+    return '<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">' +
+      '<input type="color" id="sc_'+t.key+'_color" value="'+color+'" style="width:38px;height:38px;border-radius:8px;border:2px solid var(--border);cursor:pointer;padding:2px;background:var(--surface2)" onchange="updateSpendColorPreview()">' +
+      (t.isOver
+        ? '<div style="flex:1;font-size:13px;font-weight:600;color:'+color+'" id="sc_'+t.key+'_label">100%+ · Over budget</div>'
+        : '<div style="flex:1;display:flex;align-items:center;gap:6px">' +
+            (prevMax!==null ? '<span style="font-size:12px;color:var(--muted)">'+(sc[t.prevKey]??prevMax)+'% –</span>' : '<span style="font-size:12px;color:var(--muted)">0% –</span>') +
+            '<input type="number" id="sc_'+t.key+'_max" value="'+max+'" min="'+(prevMax||1)+'" max="100" style="width:54px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:14px;font-family:var(--font);padding:6px 8px;outline:none;text-align:center" onchange="updateSpendColorPreview()">'+
+            '<span style="font-size:12px;color:var(--muted)">%</span>' +
+          '</div>'
+      ) +
+      '<div style="width:36px;height:36px;border-radius:8px;font-size:18px;display:flex;align-items:center;justify-content:center;font-weight:700;color:'+color+'" id="sc_'+t.key+'_preview">$</div>' +
+    '</div>';
+  }).join('');
+}
+
+function updateSpendColorPreview() {
+  ['t1','t2','t3','t4'].forEach(t => {
+    const colorEl = document.getElementById('sc_'+t+'_color');
+    const preview = document.getElementById('sc_'+t+'_preview');
+    if (colorEl && preview) preview.style.color = colorEl.value;
+  });
+}
+
 function saveSettings() {
   const name = document.getElementById('setAppName').value.trim();
   const budget = parseFloat(document.getElementById('setBudget').value);
@@ -2056,6 +2177,16 @@ function saveSettings() {
   if (city) state.city = city;
   if (country) state.country = country;
   state.timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  // Save spending colours
+  if (!state.spendingColors) state.spendingColors = {};
+  ['t1','t2','t3'].forEach(t => {
+    const colorEl = document.getElementById('sc_'+t+'_color');
+    const maxEl = document.getElementById('sc_'+t+'_max');
+    if (colorEl) state.spendingColors[t+'Color'] = colorEl.value;
+    if (maxEl) state.spendingColors[t+'Max'] = parseInt(maxEl.value) || (t==='t1'?50:t==='t2'?70:100);
+  });
+  const t4El = document.getElementById('sc_t4_color');
+  if (t4El) state.spendingColors['t4Color'] = t4El.value;
   saveState();
   closeModal('settingsModal');
   updateHeader();
@@ -4968,6 +5099,36 @@ function deleteGcTx() {
   saveState(); closeModal('gcTxModal'); renderContent();
 }
 
+function viewGcImage(id) {
+  const gc = gcById(id);
+  if (!gc || !gc.image) return;
+  // Remove existing viewer if any
+  const existing = document.getElementById('gcImageViewer');
+  if (existing) existing.remove();
+  const viewer = document.createElement('div');
+  viewer.id = 'gcImageViewer';
+  viewer.style.cssText = 'position:fixed;inset:0;z-index:9999;background:#000;display:flex;flex-direction:column;align-items:center;justify-content:center;opacity:0;transition:opacity 0.25s';
+  viewer.innerHTML =
+    '<div style="position:absolute;top:0;left:0;right:0;padding:16px 16px 12px;display:flex;justify-content:space-between;align-items:center;background:linear-gradient(to bottom,rgba(0,0,0,0.7),transparent);z-index:1">' +
+      '<div style="color:#fff;font-size:15px;font-weight:700">' + gc.name + '</div>' +
+      '<button onclick="closeGcImageViewer()" style="background:rgba(255,255,255,0.15);backdrop-filter:blur(8px);border:none;border-radius:10px;color:#fff;font-size:14px;font-weight:600;font-family:-apple-system,sans-serif;padding:8px 16px;cursor:pointer;display:flex;align-items:center;gap:6px">' +
+        '<svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M1 1l10 10M11 1L1 11" stroke="white" stroke-width="1.8" stroke-linecap="round"/></svg> Close' +
+      '</button>' +
+    '</div>' +
+    '<img src="' + gc.image + '" style="max-width:100%;max-height:100%;object-fit:contain;user-select:none" draggable="false">';
+  // Close on background tap
+  viewer.addEventListener('click', e => { if (e.target === viewer) closeGcImageViewer(); });
+  document.body.appendChild(viewer);
+  requestAnimationFrame(() => { viewer.style.opacity = '1'; });
+}
+
+function closeGcImageViewer() {
+  const viewer = document.getElementById('gcImageViewer');
+  if (!viewer) return;
+  viewer.style.opacity = '0';
+  setTimeout(() => viewer.remove(), 250);
+}
+
 // ── Render Gift Cards ─────────────────────────────────────────────────────────
 function renderGiftCards() {
   const el = document.getElementById('content');
@@ -5025,12 +5186,16 @@ function renderGiftCards() {
 
     // Image if present
     if (gc.image) {
-      card += '<div style="position:relative;height:120px;overflow:hidden;cursor:pointer" onclick="openEditGiftCard(\'' + gc.id + '\')">' +
-        '<img src="' + gc.image + '" style="width:100%;height:100%;object-fit:cover">' +
-        '<div style="position:absolute;inset:0;background:linear-gradient(to bottom,transparent 40%,rgba(0,0,0,0.6))">' +
+      card += '<div style="position:relative;height:120px;overflow:hidden">' +
+        '<img src="' + gc.image + '" style="width:100%;height:100%;object-fit:cover;cursor:pointer" onclick="openEditGiftCard(\'' + gc.id + '\')">' +
+        '<div style="position:absolute;inset:0;background:linear-gradient(to bottom,transparent 40%,rgba(0,0,0,0.6));pointer-events:none">' +
         '<div style="position:absolute;bottom:10px;left:14px;color:#fff;font-size:16px;font-weight:700">' + gc.name + '</div>' +
         '<div style="position:absolute;bottom:10px;right:14px;color:#fff;font-size:13px;font-weight:600">' + (gc.type==='promo'?'':(fmtF(gc.balance))) + '</div>' +
-        '</div></div>';
+        '</div>' +
+        '<button onclick="viewGcImage(\'' + gc.id + '\')" style="position:absolute;top:10px;right:10px;background:rgba(0,0,0,0.5);backdrop-filter:blur(4px);color:#fff;border:none;border-radius:8px;padding:5px 12px;font-size:12px;font-weight:600;font-family:var(--font);cursor:pointer;display:flex;align-items:center;gap:5px">' +
+          '<svg width="13" height="13" viewBox="0 0 13 13" fill="none"><circle cx="6.5" cy="6.5" r="4" stroke="white" stroke-width="1.3"/><circle cx="6.5" cy="6.5" r="1.5" fill="white"/></svg> View' +
+        '</button>' +
+      '</div>';
     }
 
     // Card header
