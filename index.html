@@ -17,7 +17,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '1.2.0-202603192157';
+  const APP_VER = '1.2.0-202603192217';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -652,7 +652,7 @@ async function applyUpdate() {
         <div style="font-size:24px;font-weight:700;letter-spacing:-0.5px;color:var(--muted)" id="budgetDisplay">—</div>
       </div>
     </div>
-    <div class="sub-text"><span id="totalAmount">$0</span> <span id="totalSub">spent this cycle</span></div>
+    <div class="sub-text"><span id="totalSpent">$0</span> <span id="totalSub">spent this cycle</span><span id="totalUpcomingBadge"></span></div>
   </div>
 
   <div class="budget-section">
@@ -1068,7 +1068,7 @@ async function applyUpdate() {
     <label>Amount ($)</label>
     <input type="number" inputmode="decimal" id="recAmount" placeholder="0.00" step="0.01" min="0">
     <label>Category</label>
-    <select id="recCat"></select>
+    <select id="recCat" onchange="updateRecOffsetVisibility()"></select>
     <label>Frequency</label>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px" id="recFreqBtns">
       <button type="button" onclick="setRecFreq('weekly')" id="recFreqWeekly" style="padding:10px;border-radius:10px;border:2px solid var(--accent);background:var(--accent-dim);color:var(--accent);font-weight:700;font-family:var(--font);cursor:pointer;font-size:13px">Weekly</button>
@@ -1119,6 +1119,15 @@ async function applyUpdate() {
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
       <div id="recActiveCheck" onclick="toggleRecActive()" style="width:22px;height:22px;border-radius:6px;background:var(--accent);border:2px solid var(--accent);display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:13px;color:#fff;flex-shrink:0">✓</div>
       <span style="font-size:13px">Active</span>
+    </div>
+    <div id="recOffsetSection" style="display:none;background:var(--surface2);border-radius:10px;padding:12px 14px;margin-bottom:14px">
+      <div style="display:flex;align-items:center;gap:10px">
+        <div id="recOffsetCheck" onclick="toggleRecOffset()" style="width:22px;height:22px;border-radius:6px;background:var(--surface3);border:2px solid var(--border);display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:13px;color:#fff;flex-shrink:0"></div>
+        <div>
+          <div style="font-size:13px;font-weight:600">Auto-deduct from offset account</div>
+          <div style="font-size:11px;color:var(--muted);margin-top:2px">When this expense fires, automatically log a withdrawal from your offset account for the same amount and date</div>
+        </div>
+      </div>
     </div>
     <button class="btn-primary" id="recSaveBtn" onclick="saveRecurring()">Save</button>
     <button class="btn-danger" id="recDeleteBtn" onclick="deleteRecurring()" style="display:none">Delete</button>
@@ -1218,7 +1227,7 @@ const PALETTE = [
 // ── State ─────────────────────────────────────────────────────────────────────
 const APP_VERSION = '1.2.0';
 const BUILD_DATE = '2026-03-19';
-const BUILD_TIME = '19 Mar 2026 9:57 PM AEDT';
+const BUILD_TIME = '19 Mar 2026 10:17 PM AEDT';
 const STORAGE_KEY = 'spendly_generic_v1';
 const LOCK_KEY = 'spendly_pin_hash';
 const BIOM_KEY = 'spendly_biometric';
@@ -1584,10 +1593,17 @@ function updateHeader() {
   document.getElementById('nextCycleBtn').disabled = isCurrentCycle();
 
   // Totals
-  document.getElementById('totalAmount').textContent = fmt(committed);
-  document.getElementById('totalSub').textContent = isCurrentCycle()
-    ? (upcomingTotal > 0 ? fmt(total) + ' spent + ' + fmt(upcomingTotal) + ' upcoming' : 'spent this cycle')
-    : 'spent that cycle';
+  const spentEl = document.getElementById('totalSpent');
+  if (spentEl) spentEl.textContent = fmt(total);
+  document.getElementById('totalSub').textContent = isCurrentCycle() ? 'spent this cycle' : 'spent that cycle';
+  const badge = document.getElementById('totalUpcomingBadge');
+  if (badge) {
+    if (upcomingTotal > 0 && isCurrentCycle()) {
+      badge.innerHTML = ' · <span style="color:var(--accent)">' + fmt(upcomingTotal) + ' upcoming</span>';
+    } else {
+      badge.innerHTML = '';
+    }
+  }
   document.getElementById('budgetDisplay').textContent = budget > 0 ? fmt(budget) : '—';
 
   const remainEl = document.getElementById('totalRemain');
@@ -4755,6 +4771,7 @@ let editingRecurringId = null;
 let recActiveState = true;
 let recFreqState = 'weekly';
 let recWeekdayState = 1; // 1=Mon default
+let recOffsetState = false;
 
 function toggleRecActive() {
   recActiveState = !recActiveState;
@@ -4762,6 +4779,30 @@ function toggleRecActive() {
   el.textContent = recActiveState ? '✓' : '';
   el.style.background = recActiveState ? 'var(--accent)' : 'var(--surface3)';
   el.style.border = '2px solid ' + (recActiveState ? 'var(--accent)' : 'var(--border)');
+}
+
+function toggleRecOffset() {
+  recOffsetState = !recOffsetState;
+  const el = document.getElementById('recOffsetCheck');
+  if (!el) return;
+  el.textContent = recOffsetState ? '✓' : '';
+  el.style.background = recOffsetState ? 'var(--accent)' : 'var(--surface3)';
+  el.style.border = '2px solid ' + (recOffsetState ? 'var(--accent)' : 'var(--border)');
+}
+
+function updateRecOffsetVisibility() {
+  const catSel = document.getElementById('recCat');
+  const catId = catSel ? catSel.value : '';
+  const cat = catById(catId);
+  const isMortgage = cat && (
+    cat.name.toLowerCase().includes('mortgage') ||
+    cat.name.toLowerCase().includes('home loan') ||
+    cat.name.toLowerCase().includes('housing') ||
+    cat.icon === '🏠'
+  );
+  const sec = document.getElementById('recOffsetSection');
+  if (sec) sec.style.display = isMortgage ? 'block' : 'none';
+  if (!isMortgage) { recOffsetState = false; const el = document.getElementById('recOffsetCheck'); if(el){el.textContent='';el.style.background='var(--surface3)';el.style.border='2px solid var(--border)';} }
 }
 
 function setRecFreq(freq) {
@@ -4875,7 +4916,7 @@ function populateRecCatSelect() {
 }
 
 function openAddRecurring() {
-  editingRecurringId = null; recActiveState = true;
+  editingRecurringId = null; recActiveState = true; recOffsetState = false;
   document.getElementById('recurringModalTitle').textContent = 'New recurring expense';
   document.getElementById('recName').value = '';
   document.getElementById('recAmount').value = '';
@@ -4883,7 +4924,10 @@ function openAddRecurring() {
   document.getElementById('recSaveBtn').textContent = 'Save';
   const check = document.getElementById('recActiveCheck');
   check.textContent = '✓'; check.style.background = 'var(--accent)'; check.style.border = '2px solid var(--accent)';
+  const ocheck = document.getElementById('recOffsetCheck');
+  if (ocheck) { ocheck.textContent=''; ocheck.style.background='var(--surface3)'; ocheck.style.border='2px solid var(--border)'; }
   populateRecCatSelect();
+  updateRecOffsetVisibility();
   // Default: weekly, Monday
   setRecFreq('weekly');
   setRecWeekday(1);
@@ -4900,6 +4944,7 @@ function openAddRecurring() {
 function openEditRecurring(id) {
   const rec = (state.recurringExpenses||[]).find(r=>r.id===id); if (!rec) return;
   editingRecurringId = id; recActiveState = rec.active !== false;
+  recOffsetState = rec.autoOffset === true;
   document.getElementById('recurringModalTitle').textContent = 'Edit recurring expense';
   document.getElementById('recName').value = rec.name||'';
   document.getElementById('recAmount').value = rec.amount||'';
@@ -4909,8 +4954,15 @@ function openEditRecurring(id) {
   check.textContent = recActiveState ? '✓' : '';
   check.style.background = recActiveState ? 'var(--accent)' : 'var(--surface3)';
   check.style.border = '2px solid ' + (recActiveState ? 'var(--accent)' : 'var(--border)');
+  const ocheck = document.getElementById('recOffsetCheck');
+  if (ocheck) {
+    ocheck.textContent = recOffsetState ? '✓' : '';
+    ocheck.style.background = recOffsetState ? 'var(--accent)' : 'var(--surface3)';
+    ocheck.style.border = '2px solid ' + (recOffsetState ? 'var(--accent)' : 'var(--border)');
+  }
   populateRecCatSelect();
   if (rec.categoryId) document.getElementById('recCat').value = rec.categoryId;
+  updateRecOffsetVisibility();
   // Restore frequency settings
   const freq = rec.frequency || 'weekly';
   setRecFreq(freq);
@@ -4947,6 +4999,7 @@ function saveRecurring() {
     name, amount, categoryId,
     frequency: recFreqState,
     active: recActiveState,
+    autoOffset: recOffsetState,
     // Frequency-specific
     weekday: recFreqState === 'weekly' ? recWeekdayState : undefined,
     monthDay: recFreqState === 'monthly' ? parseInt(document.getElementById('recMonthDay').value) : undefined,
@@ -5049,6 +5102,8 @@ function applyRecurringExpenses() {
   const today = new Date(); today.setHours(0,0,0,0);
   const todayDateStr = todayStr();
   let added = false;
+  const autoOffsetFired = [];
+
   recs.forEach(r => {
     // Don't add twice on same day
     if (r.lastAdded === todayDateStr) return;
@@ -5056,6 +5111,7 @@ function applyRecurringExpenses() {
     if (!next) return;
     next.setHours(0,0,0,0);
     if (next.getTime() !== today.getTime()) return;
+
     // Add the expense dated today
     state.expenses.push({
       id: uid(),
@@ -5064,10 +5120,51 @@ function applyRecurringExpenses() {
       categoryId: r.categoryId,
       date: todayDateStr,
     });
-    r.lastAdded = todayStr;
+    r.lastAdded = todayDateStr;
     added = true;
+
+    // Auto offset withdrawal if enabled
+    if (r.autoOffset) {
+      if (!state.offsetTransactions) state.offsetTransactions = [];
+      state.offsetTransactions.push({
+        id: uid(),
+        type: 'withdrawal',
+        amount: r.amount,
+        date: todayDateStr,
+        note: r.name + ' (auto)',
+      });
+      autoOffsetFired.push({ name: r.name, amount: r.amount });
+    }
   });
-  if (added) saveState();
+
+  if (added) {
+    saveState();
+    // Show toast for auto offset withdrawals
+    if (autoOffsetFired.length > 0) {
+      setTimeout(() => {
+        autoOffsetFired.forEach(item => {
+          showToast('🏦 Offset withdrawal logged: ' + item.name + ' · -$' + item.amount.toLocaleString('en-AU', {minimumFractionDigits:2,maximumFractionDigits:2}), 5000);
+        });
+      }, 1200);
+    }
+  }
+}
+
+function showToast(message, duration) {
+  duration = duration || 3000;
+  // Remove existing toast
+  const existing = document.getElementById('spendlyToast');
+  if (existing) existing.remove();
+  const toast = document.createElement('div');
+  toast.id = 'spendlyToast';
+  toast.style.cssText = 'position:fixed;bottom:100px;left:50%;transform:translateX(-50%);background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:14px;padding:12px 18px;font-size:13px;font-weight:500;font-family:var(--font);box-shadow:0 4px 24px rgba(0,0,0,0.25);z-index:8000;max-width:320px;text-align:center;opacity:0;transition:opacity 0.3s;pointer-events:none;white-space:nowrap';
+  toast.textContent = message;
+  document.body.appendChild(toast);
+  requestAnimationFrame(() => { toast.style.opacity = '1'; });
+  setTimeout(() => {
+    toast.style.opacity = '0';
+    setTimeout(() => toast.remove(), 300);
+  }, duration);
 }
 // ── Investor / Money Allocation Tab ──────────────────────────────────────────
 function renderInvestor() {
@@ -5436,8 +5533,8 @@ function renderGiftCards() {
         '<div style="position:absolute;bottom:10px;left:14px;color:#fff;font-size:16px;font-weight:700">' + gc.name + '</div>' +
         '<div style="position:absolute;bottom:10px;right:14px;color:#fff;font-size:13px;font-weight:600">' + (gc.type==='promo'?'':(fmtF(gc.balance))) + '</div>' +
         '</div>' +
-        '<button onclick="viewGcImage(\'' + gc.id + '\')" style="position:absolute;top:10px;right:10px;background:rgba(0,0,0,0.5);backdrop-filter:blur(4px);color:#fff;border:none;border-radius:8px;padding:5px 12px;font-size:12px;font-weight:600;font-family:var(--font);cursor:pointer;display:flex;align-items:center;gap:5px">' +
-          '<svg width="13" height="13" viewBox="0 0 13 13" fill="none"><circle cx="6.5" cy="6.5" r="4" stroke="white" stroke-width="1.3"/><circle cx="6.5" cy="6.5" r="1.5" fill="white"/></svg> View' +
+        '<button onclick="event.stopPropagation();viewGcImage(\'' + gc.id + '\')" style="position:absolute;top:8px;right:8px;background:rgba(0,0,0,0.6);backdrop-filter:blur(4px);color:#fff;border:none;border-radius:10px;padding:9px 16px;font-size:13px;font-weight:700;font-family:var(--font);cursor:pointer;display:flex;align-items:center;gap:6px;min-height:38px">' +
+          '<svg width="15" height="15" viewBox="0 0 13 13" fill="none"><circle cx="6.5" cy="6.5" r="4" stroke="white" stroke-width="1.3"/><circle cx="6.5" cy="6.5" r="1.5" fill="white"/></svg> View' +
         '</button>' +
       '</div>';
     }
