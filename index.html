@@ -670,6 +670,7 @@ async function applyUpdate() {
     <button class="tab" onclick="switchTab('recycling')">♻️ Recycling</button>
     <button class="tab" onclick="switchTab('mortgage')">🏠 Mortgage</button>
     <button class="tab" onclick="switchTab('tax')">🧾 Tax</button>
+    <button class="tab" onclick="switchTab('giftcards')">🎁 Wallet</button>
     <button class="tab" onclick="switchTab('investor')">💡 Investor</button>
     <button class="tab" onclick="switchTab('analytics')">Analytics</button>
   </div>
@@ -1109,6 +1110,69 @@ async function applyUpdate() {
   </div>
 </div>
 
+<!-- Gift card modal -->
+<div class="modal-overlay" id="giftCardModal">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title" id="gcModalTitle">New card</div>
+    <label>Store / Brand name</label>
+    <input type="text" id="gcName" placeholder="e.g. David Jones, Netflix, Coles">
+    <label>Type</label>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:14px" id="gcTypeBtns">
+      <button type="button" onclick="setGcType('giftcard')" id="gcTypeGiftcard" style="padding:9px;border-radius:10px;border:2px solid var(--accent);background:var(--accent-dim);color:var(--accent);font-weight:700;font-family:var(--font);cursor:pointer;font-size:12px">🎁 Gift Card</button>
+      <button type="button" onclick="setGcType('voucher')" id="gcTypeVoucher" style="padding:9px;border-radius:10px;border:2px solid var(--border);background:var(--surface2);color:var(--muted);font-weight:600;font-family:var(--font);cursor:pointer;font-size:12px">🎟️ Voucher</button>
+      <button type="button" onclick="setGcType('promo')" id="gcTypePromo" style="padding:9px;border-radius:10px;border:2px solid var(--border);background:var(--surface2);color:var(--muted);font-weight:600;font-family:var(--font);cursor:pointer;font-size:12px">🏷️ Promo Code</button>
+      <button type="button" onclick="setGcType('credit')" id="gcTypeCredit" style="padding:9px;border-radius:10px;border:2px solid var(--border);background:var(--surface2);color:var(--muted);font-weight:600;font-family:var(--font);cursor:pointer;font-size:12px">💳 Store Credit</button>
+    </div>
+    <div id="gcBalanceSection">
+      <label>Current balance ($)</label>
+      <input type="number" inputmode="decimal" id="gcBalance" placeholder="e.g. 50.00" step="0.01" min="0">
+      <label>Original value ($) <span style="font-size:10px;color:var(--muted)">(optional)</span></label>
+      <input type="number" inputmode="decimal" id="gcOriginal" placeholder="e.g. 100.00" step="0.01" min="0">
+    </div>
+    <div id="gcCodeSection" style="display:none">
+      <label>Promo / Voucher code</label>
+      <input type="text" id="gcCode" placeholder="e.g. SAVE20, ABC123">
+    </div>
+    <label>Expiry date <span style="font-size:10px;color:var(--muted)">(optional)</span></label>
+    <input type="date" id="gcExpiry">
+    <label>Where to use</label>
+    <div style="display:flex;gap:6px;margin-bottom:14px">
+      <button type="button" onclick="setGcUsage('both')" id="gcUsageBoth" style="flex:1;padding:8px;border-radius:10px;border:2px solid var(--accent);background:var(--accent-dim);color:var(--accent);font-weight:700;font-family:var(--font);cursor:pointer;font-size:12px">Both</button>
+      <button type="button" onclick="setGcUsage('instore')" id="gcUsageInstore" style="flex:1;padding:8px;border-radius:10px;border:2px solid var(--border);background:var(--surface2);color:var(--muted);font-weight:600;font-family:var(--font);cursor:pointer;font-size:12px">In-store</button>
+      <button type="button" onclick="setGcUsage('online')" id="gcUsageOnline" style="flex:1;padding:8px;border-radius:10px;border:2px solid var(--border);background:var(--surface2);color:var(--muted);font-weight:600;font-family:var(--font);cursor:pointer;font-size:12px">Online</button>
+    </div>
+    <label>Colour</label>
+    <div class="color-grid" id="gcColorGrid"></div>
+    <label>Screenshot / Image <span style="font-size:10px;color:var(--muted)">(optional)</span></label>
+    <div id="gcImagePreview" style="display:none;margin-bottom:10px;border-radius:10px;overflow:hidden;max-height:160px"></div>
+    <input type="file" id="gcImageFile" accept="image/*" onchange="loadGcImage(event)" style="font-size:13px;padding:8px;cursor:pointer;margin-bottom:14px">
+    <label>Notes <span style="font-size:10px;color:var(--muted)">(optional)</span></label>
+    <input type="text" id="gcNotes" placeholder="e.g. For shoes only, min $50 spend">
+    <button class="btn-primary" id="gcSaveBtn" onclick="saveGiftCard()">Save</button>
+    <button class="btn-danger" id="gcDeleteBtn" onclick="deleteGiftCard()" style="display:none">Delete</button>
+    <button class="btn-ghost" onclick="closeModal('giftCardModal')">Cancel</button>
+  </div>
+</div>
+
+<!-- Gift card transaction modal -->
+<div class="modal-overlay" id="gcTxModal">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title" id="gcTxModalTitle">Log purchase</div>
+    <div id="gcTxCardLabel" style="font-size:12px;color:var(--muted);margin-bottom:14px"></div>
+    <label>Amount spent ($)</label>
+    <input type="number" inputmode="decimal" id="gcTxAmt" placeholder="0.00" step="0.01" min="0">
+    <label>Description <span style="font-size:10px;color:var(--muted)">(optional)</span></label>
+    <input type="text" id="gcTxDesc" placeholder="e.g. Shoes, Coffee">
+    <label>Date</label>
+    <input type="date" id="gcTxDate">
+    <button class="btn-primary" id="gcTxSaveBtn" onclick="saveGcTx()">Save</button>
+    <button class="btn-danger" id="gcTxDeleteBtn" onclick="deleteGcTx()" style="display:none">Delete</button>
+    <button class="btn-ghost" onclick="closeModal('gcTxModal')">Cancel</button>
+  </div>
+</div>
+
 <!-- Backup modal -->
 <div class="modal-overlay" id="backupModal">
   <div class="modal">
@@ -1181,6 +1245,8 @@ let state = {
   savingsSubcategories: [], // { id, catId, name, icon, target, goalDate }
   savingsDeposits: [], // { id, targetId, catId, amount, date, note }
   recurringExpenses: [], // { id, name, amount, categoryId, dayOfCycle, active }
+  giftCards: [],        // { id, name, icon, color, type, balance, originalBalance, expiryDate, code, usageType, notes, image, used, transactions }
+  // transactions: [{ id, amount, desc, date }]
   offsetDailyLog: [],   // { date, balance, dailySaving, rate } — one entry per day
   offsetMonthlyHistory: [], // { month:'YYYY-MM', totalSaving, avgBalance, rate }
 };
@@ -1477,12 +1543,16 @@ function switchTab(tab) {
   if (tab !== 'expenses') expenseSearchQuery = '';
   state.currentTab = tab;
   document.querySelectorAll('.tab').forEach((t,i) => {
-    t.classList.toggle('active', ['expenses','goals','savings','recycling','mortgage','tax','investor','analytics'][i] === tab);
+    t.classList.toggle('active', ['expenses','goals','savings','recycling','mortgage','tax','giftcards','investor','analytics'][i] === tab);
   });
   const fab = document.getElementById('fab');
   const isPast = (state.viewingCycleOffset || 0) < 0;
   if (tab === 'calendar' || tab === 'recycling' || tab === 'mortgage' || tab === 'tax' || tab === 'investor') {
     fab.style.display = 'none';
+  } else if (tab === 'giftcards') {
+    fab.innerHTML = '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 2v12M2 8h12" stroke="#fff" stroke-width="2.5" stroke-linecap="round"/></svg> Add card';
+    fab.onclick = openAddGiftCard;
+    fab.style.display = '';
   } else if (tab === 'savings') {
     fab.innerHTML = '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 2v12M2 8h12" stroke="#fff" stroke-width="2.5" stroke-linecap="round"/></svg> Add category';
     fab.onclick = openAddSavingsCat;
@@ -1507,6 +1577,7 @@ function renderContent() {
   else if (state.currentTab === 'calendar')  renderCalendar();
   else if (state.currentTab === 'recycling') renderRecycling();
   else if (state.currentTab === 'mortgage')  renderMortgage();
+  else if (state.currentTab === 'giftcards')  renderGiftCards();
   else if (state.currentTab === 'investor')  renderInvestor();
   else if (state.currentTab === 'tax')       renderTax();
   else if (state.currentTab === 'savings')   renderSavings();
@@ -4699,6 +4770,344 @@ function _allocCard(label, amount, color, desc) {
     '<div style="font-size:16px;font-weight:700;color:' + color + ';margin-bottom:4px">' + amount + '</div>' +
     '<div style="font-size:10px;color:var(--muted);line-height:1.4">' + desc + '</div>' +
   '</div>';
+}
+
+// ── Gift Cards / Wallet ───────────────────────────────────────────────────────
+let editingGcId = null;
+let editingGcTxId = null;
+let gcTxCardId = null;
+let gcTypeState = 'giftcard';
+let gcUsageState = 'both';
+
+const GC_COLORS = ['#4F8EF7','#f060b0','#f0a860','#34C759','#b060f0','#ff5c5c','#f0d860','#888888'];
+
+function gcById(id) { return (state.giftCards||[]).find(c=>c.id===id); }
+
+function setGcType(type) {
+  gcTypeState = type;
+  ['giftcard','voucher','promo','credit'].forEach(t => {
+    const btn = document.getElementById('gcType' + t.charAt(0).toUpperCase() + t.slice(1));
+    if (!btn) return;
+    const active = t === type;
+    btn.style.border = active ? '2px solid var(--accent)' : '2px solid var(--border)';
+    btn.style.background = active ? 'var(--accent-dim)' : 'var(--surface2)';
+    btn.style.color = active ? 'var(--accent)' : 'var(--muted)';
+  });
+  // Show/hide code vs balance section
+  const isPromoOrVoucher = type === 'promo' || type === 'voucher';
+  document.getElementById('gcCodeSection').style.display = isPromoOrVoucher ? 'block' : 'none';
+  document.getElementById('gcBalanceSection').style.display = type === 'promo' ? 'none' : 'block';
+}
+
+function setGcUsage(usage) {
+  gcUsageState = usage;
+  ['both','instore','online'].forEach(u => {
+    const btn = document.getElementById('gcUsage' + u.charAt(0).toUpperCase() + u.slice(1));
+    if (!btn) return;
+    const active = u === usage;
+    btn.style.border = active ? '2px solid var(--accent)' : '2px solid var(--border)';
+    btn.style.background = active ? 'var(--accent-dim)' : 'var(--surface2)';
+    btn.style.color = active ? 'var(--accent)' : 'var(--muted)';
+  });
+}
+
+function loadGcImage(evt) {
+  const file = evt.target.files[0]; if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    const preview = document.getElementById('gcImagePreview');
+    preview.style.display = 'block';
+    preview.innerHTML = '<img src="' + e.target.result + '" style="width:100%;object-fit:cover;border-radius:10px;max-height:160px">';
+    preview.dataset.src = e.target.result;
+  };
+  reader.readAsDataURL(file);
+}
+
+function openAddGiftCard() {
+  editingGcId = null;
+  document.getElementById('gcModalTitle').textContent = 'New card';
+  document.getElementById('gcName').value = '';
+  document.getElementById('gcBalance').value = '';
+  document.getElementById('gcOriginal').value = '';
+  document.getElementById('gcCode').value = '';
+  document.getElementById('gcExpiry').value = '';
+  document.getElementById('gcNotes').value = '';
+  document.getElementById('gcDeleteBtn').style.display = 'none';
+  document.getElementById('gcSaveBtn').textContent = 'Save';
+  document.getElementById('gcImagePreview').style.display = 'none';
+  document.getElementById('gcImagePreview').dataset.src = '';
+  document.getElementById('gcImageFile').value = '';
+  buildColorGridFor('gcColorGrid', GC_COLORS[Math.floor(Math.random()*GC_COLORS.length)]);
+  setGcType('giftcard');
+  setGcUsage('both');
+  document.getElementById('giftCardModal').classList.add('open');
+  setTimeout(() => document.getElementById('gcName').focus(), 350);
+}
+
+function openEditGiftCard(id) {
+  const gc = gcById(id); if (!gc) return;
+  editingGcId = id;
+  document.getElementById('gcModalTitle').textContent = 'Edit card';
+  document.getElementById('gcName').value = gc.name || '';
+  document.getElementById('gcBalance').value = gc.balance || '';
+  document.getElementById('gcOriginal').value = gc.originalBalance || '';
+  document.getElementById('gcCode').value = gc.code || '';
+  document.getElementById('gcExpiry').value = gc.expiryDate || '';
+  document.getElementById('gcNotes').value = gc.notes || '';
+  document.getElementById('gcDeleteBtn').style.display = 'block';
+  document.getElementById('gcSaveBtn').textContent = 'Update';
+  buildColorGridFor('gcColorGrid', gc.color || GC_COLORS[0]);
+  setGcType(gc.type || 'giftcard');
+  setGcUsage(gc.usageType || 'both');
+  const preview = document.getElementById('gcImagePreview');
+  if (gc.image) {
+    preview.style.display = 'block';
+    preview.innerHTML = '<img src="' + gc.image + '" style="width:100%;object-fit:cover;border-radius:10px;max-height:160px">';
+    preview.dataset.src = gc.image;
+  } else {
+    preview.style.display = 'none';
+    preview.dataset.src = '';
+  }
+  document.getElementById('gcImageFile').value = '';
+  document.getElementById('giftCardModal').classList.add('open');
+}
+
+function saveGiftCard() {
+  const name = document.getElementById('gcName').value.trim();
+  if (!name) return;
+  const balance = parseFloat(document.getElementById('gcBalance').value) || 0;
+  const originalBalance = parseFloat(document.getElementById('gcOriginal').value) || balance;
+  const code = document.getElementById('gcCode').value.trim();
+  const expiryDate = document.getElementById('gcExpiry').value || '';
+  const notes = document.getElementById('gcNotes').value.trim();
+  const color = getSelectedColorFrom('gcColorGrid');
+  const preview = document.getElementById('gcImagePreview');
+  const image = preview.dataset.src || '';
+  // Auto icon based on type
+  const icons = { giftcard:'🎁', voucher:'🎟️', promo:'🏷️', credit:'💳' };
+  if (!state.giftCards) state.giftCards = [];
+  if (editingGcId) {
+    const idx = state.giftCards.findIndex(c=>c.id===editingGcId);
+    if (idx>=0) state.giftCards[idx] = { ...state.giftCards[idx], name, type:gcTypeState, balance, originalBalance, code, expiryDate, notes, color, usageType:gcUsageState, image: image || state.giftCards[idx].image };
+  } else {
+    state.giftCards.push({ id:uid(), name, type:gcTypeState, balance, originalBalance, code, expiryDate, notes, color, usageType:gcUsageState, image, used:false, transactions:[] });
+  }
+  saveState(); closeModal('giftCardModal'); renderContent();
+}
+
+function deleteGiftCard() {
+  if (!editingGcId) return;
+  state.giftCards = (state.giftCards||[]).filter(c=>c.id!==editingGcId);
+  saveState(); closeModal('giftCardModal'); renderContent();
+}
+
+function markGcUsed(id) {
+  const gc = gcById(id); if (!gc) return;
+  gc.used = !gc.used;
+  saveState(); renderContent();
+}
+
+// ── Gift Card Transactions ────────────────────────────────────────────────────
+function openAddGcTx(cardId) {
+  editingGcTxId = null; gcTxCardId = cardId;
+  const gc = gcById(cardId);
+  document.getElementById('gcTxModalTitle').textContent = 'Log purchase';
+  document.getElementById('gcTxCardLabel').textContent = gc ? gc.name + ' · Balance: ' + fmt(gc.balance) : '';
+  document.getElementById('gcTxAmt').value = '';
+  document.getElementById('gcTxDesc').value = '';
+  document.getElementById('gcTxDate').value = todayStr();
+  document.getElementById('gcTxDeleteBtn').style.display = 'none';
+  document.getElementById('gcTxSaveBtn').textContent = 'Save';
+  document.getElementById('gcTxModal').classList.add('open');
+  setTimeout(() => document.getElementById('gcTxAmt').focus(), 350);
+}
+
+function openEditGcTx(cardId, txId) {
+  const gc = gcById(cardId); if (!gc) return;
+  const tx = (gc.transactions||[]).find(t=>t.id===txId); if (!tx) return;
+  editingGcTxId = txId; gcTxCardId = cardId;
+  document.getElementById('gcTxModalTitle').textContent = 'Edit purchase';
+  document.getElementById('gcTxCardLabel').textContent = gc.name;
+  document.getElementById('gcTxAmt').value = tx.amount;
+  document.getElementById('gcTxDesc').value = tx.desc || '';
+  document.getElementById('gcTxDate').value = tx.date;
+  document.getElementById('gcTxDeleteBtn').style.display = 'block';
+  document.getElementById('gcTxSaveBtn').textContent = 'Update';
+  document.getElementById('gcTxModal').classList.add('open');
+}
+
+function saveGcTx() {
+  const amount = parseFloat(document.getElementById('gcTxAmt').value);
+  const desc = document.getElementById('gcTxDesc').value.trim();
+  const date = document.getElementById('gcTxDate').value;
+  if (!amount || amount <= 0 || !date || !gcTxCardId) return;
+  const gc = gcById(gcTxCardId); if (!gc) return;
+  if (!gc.transactions) gc.transactions = [];
+  if (editingGcTxId) {
+    const old = gc.transactions.find(t=>t.id===editingGcTxId);
+    if (old) {
+      gc.balance = gc.balance + old.amount - amount; // reverse old, apply new
+      old.amount = amount; old.desc = desc; old.date = date;
+    }
+  } else {
+    gc.transactions.push({ id:uid(), amount, desc, date });
+    gc.balance = Math.max(gc.balance - amount, 0);
+    if (gc.balance === 0) gc.used = true;
+  }
+  saveState(); closeModal('gcTxModal'); renderContent();
+}
+
+function deleteGcTx() {
+  if (!editingGcTxId || !gcTxCardId) return;
+  const gc = gcById(gcTxCardId); if (!gc) return;
+  const tx = (gc.transactions||[]).find(t=>t.id===editingGcTxId);
+  if (tx) gc.balance = Math.min(gc.balance + tx.amount, gc.originalBalance || gc.balance + tx.amount);
+  gc.transactions = (gc.transactions||[]).filter(t=>t.id!==editingGcTxId);
+  if (gc.balance > 0) gc.used = false;
+  saveState(); closeModal('gcTxModal'); renderContent();
+}
+
+// ── Render Gift Cards ─────────────────────────────────────────────────────────
+function renderGiftCards() {
+  const el = document.getElementById('content');
+  const cards = state.giftCards || [];
+  const today = new Date(); today.setHours(0,0,0,0);
+  const fmtF = n => '$' + n.toLocaleString('en-AU', {minimumFractionDigits:2, maximumFractionDigits:2});
+  const typeLabel = { giftcard:'🎁 Gift Card', voucher:'🎟️ Voucher', promo:'🏷️ Promo Code', credit:'💳 Store Credit' };
+  const usageLabel = { both:'In-store & Online', instore:'In-store only', online:'Online only' };
+
+  if (cards.length === 0) {
+    el.innerHTML = '<div class="empty"><div class="empty-icon">🎁</div><div class="empty-text">No cards yet</div><div class="empty-sub">Tap + to add a gift card, voucher, promo code or store credit</div></div>';
+    return;
+  }
+
+  // Sort: active first (by expiry urgency), then used
+  const active = cards.filter(c=>!c.used).sort((a,b) => {
+    const dA = a.expiryDate ? new Date(a.expiryDate+'T00:00:00') - today : Infinity;
+    const dB = b.expiryDate ? new Date(b.expiryDate+'T00:00:00') - today : Infinity;
+    return dA - dB;
+  });
+  const used = cards.filter(c=>c.used);
+
+  // Summary
+  const totalBalance = active.filter(c=>c.type!=='promo').reduce((s,c)=>s+c.balance,0);
+  const expiringSoon = active.filter(c => c.expiryDate && (new Date(c.expiryDate+'T00:00:00')-today)/86400000 <= 30).length;
+
+  let html = '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:16px">' +
+    '<div style="background:var(--surface);border-radius:var(--r);padding:12px 14px">' +
+      '<div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:4px">Total balance</div>' +
+      '<div style="font-size:22px;font-weight:700">' + fmtF(totalBalance) + '</div>' +
+      '<div style="font-size:11px;color:var(--muted)">' + active.length + ' active card' + (active.length!==1?'s':'') + '</div>' +
+    '</div>' +
+    '<div style="background:var(--surface);border-radius:var(--r);padding:12px 14px">' +
+      '<div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:4px">Expiring soon</div>' +
+      '<div style="font-size:22px;font-weight:700;color:' + (expiringSoon>0?'var(--red)':'var(--text)') + '">' + expiringSoon + '</div>' +
+      '<div style="font-size:11px;color:var(--muted)">within 30 days</div>' +
+    '</div>' +
+  '</div>';
+
+  const renderCard = (gc) => {
+    const txs = (gc.transactions||[]).slice().sort((a,b)=>b.date.localeCompare(a.date));
+    const expiryDate = gc.expiryDate ? new Date(gc.expiryDate+'T00:00:00') : null;
+    const daysLeft = expiryDate ? Math.ceil((expiryDate-today)/86400000) : null;
+    const isExpired = daysLeft !== null && daysLeft < 0;
+    const isUrgent = daysLeft !== null && daysLeft >= 0 && daysLeft <= 14;
+    const isWarning = daysLeft !== null && daysLeft > 14 && daysLeft <= 30;
+    const pct = gc.originalBalance > 0 ? Math.min((gc.balance/gc.originalBalance)*100,100) : null;
+
+    let expiryTag = '';
+    if (isExpired) expiryTag = '<span style="background:var(--red-dim);color:var(--red);font-size:10px;font-weight:700;padding:2px 7px;border-radius:6px;margin-left:6px">Expired</span>';
+    else if (isUrgent) expiryTag = '<span style="background:var(--red-dim);color:var(--red);font-size:10px;font-weight:700;padding:2px 7px;border-radius:6px;margin-left:6px">' + daysLeft + 'd left!</span>';
+    else if (isWarning) expiryTag = '<span style="background:rgba(240,168,96,0.15);color:var(--orange);font-size:10px;font-weight:700;padding:2px 7px;border-radius:6px;margin-left:6px">' + daysLeft + 'd left</span>';
+
+    let card = '<div style="background:var(--surface);border-radius:var(--r);margin-bottom:12px;overflow:hidden;' + (gc.used?'opacity:0.55':'') + '">';
+
+    // Image if present
+    if (gc.image) {
+      card += '<div style="position:relative;height:120px;overflow:hidden;cursor:pointer" onclick="openEditGiftCard(\'' + gc.id + '\')">' +
+        '<img src="' + gc.image + '" style="width:100%;height:100%;object-fit:cover">' +
+        '<div style="position:absolute;inset:0;background:linear-gradient(to bottom,transparent 40%,rgba(0,0,0,0.6))">' +
+        '<div style="position:absolute;bottom:10px;left:14px;color:#fff;font-size:16px;font-weight:700">' + gc.name + '</div>' +
+        '<div style="position:absolute;bottom:10px;right:14px;color:#fff;font-size:13px;font-weight:600">' + (gc.type==='promo'?'':(fmtF(gc.balance))) + '</div>' +
+        '</div></div>';
+    }
+
+    // Card header
+    card += '<div style="display:flex;align-items:center;gap:12px;padding:12px 14px;cursor:pointer" onclick="openEditGiftCard(\'' + gc.id + '\')">' +
+      '<div style="width:42px;height:42px;border-radius:11px;background:' + gc.color + ';display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0">' + (typeLabel[gc.type||'giftcard']||'🎁').split(' ')[0] + '</div>' +
+      '<div style="flex:1;min-width:0">' +
+        '<div style="font-size:14px;font-weight:700;display:flex;align-items:center;flex-wrap:wrap">' + gc.name + expiryTag + '</div>' +
+        '<div style="font-size:11px;color:var(--muted);margin-top:2px">' + (typeLabel[gc.type]||'Gift Card') + ' · ' + (usageLabel[gc.usageType]||'Both') + '</div>' +
+      '</div>' +
+      (gc.type !== 'promo' ?
+        '<div style="text-align:right;flex-shrink:0">' +
+          '<div style="font-size:18px;font-weight:800;color:' + gc.color + '">' + fmtF(gc.balance) + '</div>' +
+          (gc.originalBalance && gc.originalBalance !== gc.balance ? '<div style="font-size:10px;color:var(--muted)">of ' + fmtF(gc.originalBalance) + '</div>' : '') +
+        '</div>' : '') +
+    '</div>';
+
+    // Progress bar for cards with original value
+    if (pct !== null && gc.type !== 'promo') {
+      card += '<div style="margin:0 14px 10px">' +
+        '<div style="background:var(--surface2);border-radius:100px;height:4px;overflow:hidden">' +
+          '<div style="width:' + pct + '%;height:100%;background:' + gc.color + ';border-radius:100px;transition:width 0.4s"></div>' +
+        '</div>' +
+        '<div style="font-size:10px;color:var(--muted);margin-top:3px">' + Math.round(pct) + '% remaining</div>' +
+      '</div>';
+    }
+
+    // Promo code display
+    if (gc.code) {
+      card += '<div style="margin:0 14px 10px;background:var(--surface2);border-radius:8px;padding:8px 12px;display:flex;align-items:center;justify-content:space-between">' +
+        '<span style="font-size:12px;color:var(--muted)">Code</span>' +
+        '<span style="font-size:15px;font-weight:700;letter-spacing:0.1em;color:var(--text)">' + gc.code + '</span>' +
+        '<button onclick="navigator.clipboard&&navigator.clipboard.writeText(\'' + gc.code + '\').then(()=>{this.textContent=\'Copied!\';setTimeout(()=>this.textContent=\'Copy\',1500)})" style="background:var(--accent-dim);color:var(--accent);border:none;border-radius:6px;padding:4px 10px;font-size:11px;font-weight:600;font-family:var(--font);cursor:pointer">Copy</button>' +
+      '</div>';
+    }
+
+    // Expiry + usage info
+    if (gc.expiryDate || gc.notes) {
+      card += '<div style="padding:0 14px 10px;font-size:11px;color:var(--muted)">';
+      if (gc.expiryDate) card += '📅 Expires ' + new Date(gc.expiryDate+'T00:00:00').toLocaleDateString('en-AU',{day:'numeric',month:'short',year:'numeric'}) + (daysLeft!==null&&!isExpired?' · '+daysLeft+' days left':'') + '<br>';
+      if (gc.notes) card += '📝 ' + gc.notes;
+      card += '</div>';
+    }
+
+    // Action buttons
+    card += '<div style="border-top:1px solid var(--surface2);padding:8px 14px;display:flex;gap:8px">';
+    if (gc.type !== 'promo') {
+      card += '<button onclick="openAddGcTx(\'' + gc.id + '\')" style="flex:1;background:var(--accent-dim);color:var(--accent);border:none;border-radius:8px;padding:9px;font-size:12px;font-weight:600;font-family:var(--font);cursor:pointer">+ Log purchase</button>';
+    }
+    card += '<button onclick="markGcUsed(\'' + gc.id + '\')" style="background:var(--surface2);color:var(--muted);border:none;border-radius:8px;padding:9px 12px;font-size:12px;font-family:var(--font);cursor:pointer">' + (gc.used?'Restore':'Mark used') + '</button>';
+    card += '</div>';
+
+    // Transactions
+    if (txs.length > 0) {
+      card += '<div style="border-top:1px solid var(--surface2)">';
+      txs.slice(0,4).forEach((tx,i) => {
+        card += '<div style="display:flex;justify-content:space-between;align-items:center;padding:9px 14px;' + (i>0?'border-top:1px solid var(--surface3)':'') + ';cursor:pointer" onclick="openEditGcTx(\'' + gc.id + '\',\'' + tx.id + '\')">' +
+          '<div><div style="font-size:12px">' + (tx.desc||'Purchase') + '</div><div style="font-size:10px;color:var(--muted)">' + new Date(tx.date+'T00:00:00').toLocaleDateString('en-AU',{day:'numeric',month:'short',year:'numeric'}) + '</div></div>' +
+          '<div style="font-size:12px;font-weight:600;color:var(--red)">-' + fmtF(tx.amount) + '</div>' +
+        '</div>';
+      });
+      if (txs.length > 4) card += '<div style="padding:6px 14px;font-size:10px;color:var(--muted)">+' + (txs.length-4) + ' more</div>';
+      card += '</div>';
+    }
+
+    card += '</div>';
+    return card;
+  };
+
+  if (active.length > 0) {
+    html += '<div class="section-label">Active</div>';
+    active.forEach(gc => { html += renderCard(gc); });
+  }
+  if (used.length > 0) {
+    html += '<div class="section-label" style="margin-top:8px">Used / Exhausted</div>';
+    used.forEach(gc => { html += renderCard(gc); });
+  }
+
+  el.innerHTML = html;
 }
 
 // ── Version & Update ──────────────────────────────────────────────────────────
