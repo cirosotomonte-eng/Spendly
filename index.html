@@ -1071,6 +1071,7 @@ async function applyUpdate() {
       <button type="button" onclick="setRecFreq('xweeks')" id="recFreqXweeks" style="padding:10px;border-radius:10px;border:2px solid var(--border);background:var(--surface2);color:var(--muted);font-weight:600;font-family:var(--font);cursor:pointer;font-size:13px">Every X weeks</button>
       <button type="button" onclick="setRecFreq('monthly')" id="recFreqMonthly" style="padding:10px;border-radius:10px;border:2px solid var(--border);background:var(--surface2);color:var(--muted);font-weight:600;font-family:var(--font);cursor:pointer;font-size:13px">Monthly</button>
       <button type="button" onclick="setRecFreq('quarterly')" id="recFreqQuarterly" style="padding:10px;border-radius:10px;border:2px solid var(--border);background:var(--surface2);color:var(--muted);font-weight:600;font-family:var(--font);cursor:pointer;font-size:13px">Quarterly</button>
+      <button type="button" onclick="setRecFreq('yearly')" id="recFreqYearly" style="padding:10px;border-radius:10px;border:2px solid var(--border);background:var(--surface2);color:var(--muted);font-weight:600;font-family:var(--font);cursor:pointer;font-size:13px;grid-column:1/-1">Yearly 📅</button>
     </div>
     <!-- Weekly: pick day of week -->
     <div id="recWeeklySection" style="margin-bottom:14px">
@@ -1103,6 +1104,12 @@ async function applyUpdate() {
       <label>Next due date</label>
       <input type="date" id="recQuarterlyDate">
       <div style="font-size:11px;color:var(--muted);margin-top:-8px">Will repeat every 3 months from this date</div>
+    </div>
+    <!-- Yearly: pick date -->
+    <div id="recYearlySection" style="display:none;margin-bottom:14px">
+      <label>Next due date</label>
+      <input type="date" id="recYearlyDate" oninput="updateRecPreview()">
+      <div style="font-size:11px;color:var(--muted);margin-top:-8px">Will repeat every year on this date</div>
     </div>
     <div id="recPreview" style="font-size:12px;color:var(--muted);margin-bottom:14px;min-height:16px;background:var(--surface2);border-radius:8px;padding:8px 10px;display:none"></div>
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
@@ -1531,6 +1538,7 @@ function getUpcomingRecurring() {
       else if (r.frequency === 'xweeks') next.setDate(next.getDate() + (r.xweeksNum||2)*7);
       else if (r.frequency === 'monthly') next.setMonth(next.getMonth() + 1);
       else if (r.frequency === 'quarterly') next.setMonth(next.getMonth() + 3);
+      else if (r.frequency === 'yearly') next.setFullYear(next.getFullYear() + 1);
       else break;
       next.setHours(0,0,0,0);
       if (next.getTime() === d.getTime()) break;
@@ -4542,7 +4550,7 @@ function toggleRecActive() {
 
 function setRecFreq(freq) {
   recFreqState = freq;
-  const freqs = ['weekly','xweeks','monthly','quarterly'];
+  const freqs = ['weekly','xweeks','monthly','quarterly','yearly'];
   freqs.forEach(f => {
     const btn = document.getElementById('recFreq' + f.charAt(0).toUpperCase() + f.slice(1));
     if (!btn) return;
@@ -4560,6 +4568,7 @@ function setRecFreq(freq) {
   document.getElementById('recXweeksSection').style.display = freq === 'xweeks' ? 'block' : 'none';
   document.getElementById('recMonthlySection').style.display = freq === 'monthly' ? 'block' : 'none';
   document.getElementById('recQuarterlySection').style.display = freq === 'quarterly' ? 'block' : 'none';
+  document.getElementById('recYearlySection').style.display = freq === 'yearly' ? 'block' : 'none';
   updateRecPreview();
 }
 
@@ -4615,6 +4624,14 @@ function updateRecPreview() {
       const next3 = new Date(base); next3.setMonth(next3.getMonth() + 3);
       text = 'Every 3 months · Next after that: ' + next3.toLocaleDateString('en-AU',{day:'numeric',month:'short',year:'numeric'});
     } else text = 'Pick a due date above';
+  } else if (recFreqState === 'yearly') {
+    const d = document.getElementById('recYearlyDate').value;
+    if (d) {
+      const base = new Date(d+'T00:00:00');
+      const today2 = new Date(); today2.setHours(0,0,0,0);
+      while (base <= today2) base.setFullYear(base.getFullYear() + 1);
+      text = 'Every year · Next: ' + base.toLocaleDateString('en-AU',{day:'numeric',month:'short',year:'numeric'});
+    } else text = 'Pick a due date above';
   }
 
   if (text) {
@@ -4656,6 +4673,7 @@ function openAddRecurring() {
   setRecWeekday(1);
   document.getElementById('recXweeksNum').value = '';
   document.getElementById('recXweeksDate').value = '';
+  document.getElementById('recYearlyDate').value = '';
   document.getElementById('recMonthDay').value = '';
   document.getElementById('recQuarterlyDate').value = '';
   closeModal('recurringListModal');
@@ -4689,6 +4707,8 @@ function openEditRecurring(id) {
     document.getElementById('recMonthDay').value = rec.monthDay || '';
   } else if (freq === 'quarterly') {
     document.getElementById('recQuarterlyDate').value = rec.nextDate || '';
+  } else if (freq === 'yearly') {
+    document.getElementById('recYearlyDate').value = rec.nextDate || '';
   }
   updateRecPreview();
   closeModal('recurringListModal');
@@ -4704,6 +4724,7 @@ function saveRecurring() {
   if (recFreqState === 'monthly' && !document.getElementById('recMonthDay').value) return;
   if (recFreqState === 'xweeks' && (!document.getElementById('recXweeksNum').value || !document.getElementById('recXweeksDate').value)) return;
   if (recFreqState === 'quarterly' && !document.getElementById('recQuarterlyDate').value) return;
+  if (recFreqState === 'yearly' && !document.getElementById('recYearlyDate').value) return;
   if (!state.recurringExpenses) state.recurringExpenses = [];
   const rec = {
     id: editingRecurringId || uid(),
@@ -4716,6 +4737,7 @@ function saveRecurring() {
     xweeksNum: recFreqState === 'xweeks' ? parseInt(document.getElementById('recXweeksNum').value) : undefined,
     nextDate: (recFreqState === 'xweeks') ? document.getElementById('recXweeksDate').value
              : (recFreqState === 'quarterly') ? document.getElementById('recQuarterlyDate').value
+             : (recFreqState === 'yearly') ? document.getElementById('recYearlyDate').value
              : undefined,
     lastAdded: editingRecurringId ? (state.recurringExpenses.find(r=>r.id===editingRecurringId)||{}).lastAdded || '' : '',
   };
@@ -4742,6 +4764,7 @@ function recFreqLabel(r) {
   if (r.frequency === 'xweeks') return 'Every ' + (r.xweeksNum||2) + ' week' + ((r.xweeksNum||2)>1?'s':'');
   if (r.frequency === 'monthly') return 'Monthly · ' + (r.monthDay || '?') + (r.monthDay===1?'st':r.monthDay===2?'nd':r.monthDay===3?'rd':'th');
   if (r.frequency === 'quarterly') return 'Quarterly';
+  if (r.frequency === 'yearly') return 'Yearly';
   return 'Recurring';
 }
 
@@ -4768,6 +4791,11 @@ function getRecNextDate(r) {
   if (r.frequency === 'quarterly' && r.nextDate) {
     const base = new Date(r.nextDate + 'T00:00:00');
     while (base < today) base.setMonth(base.getMonth() + 3);
+    return base;
+  }
+  if (r.frequency === 'yearly' && r.nextDate) {
+    const base = new Date(r.nextDate + 'T00:00:00');
+    while (base < today) base.setFullYear(base.getFullYear() + 1);
     return base;
   }
   return null;
