@@ -17,7 +17,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '1.2.0-202603192232';
+  const APP_VER = '1.2.0-202603200700';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -925,10 +925,10 @@ async function applyUpdate() {
       Changing the rate only affects calculations <strong style="color:var(--text)">from today forward</strong>. All previous repayments and interest savings are preserved.
     </div>
     <label>New annual interest rate (%)</label>
-    <input type="number" inputmode="decimal" id="mgNewRate" placeholder="e.g. 5.89" step="0.01">
-    <label>Effective from</label>
-    <input type="date" id="mgRateFromDate">
-    <button class="btn-primary" onclick="saveMortgageRate()">Update rate</button>
+    <input type="number" inputmode="decimal" id="mgNewRate" placeholder="e.g. 5.89" step="0.01" oninput="checkRateChanged()">
+    <label>Effective from (today or future only)</label>
+    <input type="date" id="mgRateFromDate" min="" oninput="checkRateChanged()">
+    <button class="btn-primary" id="mgRateSaveBtn" onclick="saveMortgageRate()" disabled style="opacity:0.4">Update rate</button>
     <button class="btn-ghost" onclick="closeModal('mortgageRateModal')">Cancel</button>
   </div>
 </div>
@@ -1226,8 +1226,8 @@ const PALETTE = [
 
 // ── State ─────────────────────────────────────────────────────────────────────
 const APP_VERSION = '1.2.0';
-const BUILD_DATE = '2026-03-19';
-const BUILD_TIME = '19 Mar 2026 10:32 PM AEDT';
+const BUILD_DATE = '2026-03-20';
+const BUILD_TIME = '20 Mar 2026 7:00 AM AEDT';
 const STORAGE_KEY = 'spendly_generic_v1';
 const LOCK_KEY = 'spendly_pin_hash';
 const BIOM_KEY = 'spendly_biometric';
@@ -1680,6 +1680,7 @@ function switchTab(tab) {
 
 // ── Render ────────────────────────────────────────────────────────────────────
 function renderContent() {
+  setTimeout(initModalSwipeDown, 100);
   if      (state.currentTab === 'expenses')  renderExpenses();
   else if (state.currentTab === 'analytics') renderAnalytics();
   else if (state.currentTab === 'goals')     renderGoals();
@@ -3842,6 +3843,19 @@ function saveMortgageSettings() {
   saveState(); closeModal('mortgageSettingsModal'); renderContent();
 }
 
+
+function checkRateChanged() {
+  const currentRate = (state.mortgage && state.mortgage.interestRate) || 0;
+  const newRate = parseFloat(document.getElementById('mgNewRate').value);
+  const fromDate = document.getElementById('mgRateFromDate').value;
+  const today = todayStr();
+  const btn = document.getElementById('mgRateSaveBtn');
+  if (!btn) return;
+  const isNew = !isNaN(newRate) && newRate > 0 && newRate !== currentRate;
+  const validDate = fromDate && fromDate >= today;
+  btn.disabled = !(isNew && validDate);
+  btn.style.opacity = (isNew && validDate) ? '1' : '0.4';
+}
 function openMortgageRateModal() {
   document.getElementById('mgNewRate').value = (state.mortgage && state.mortgage.interestRate) || '';
   document.getElementById('mgRateFromDate').value = todayStr();
@@ -4268,25 +4282,15 @@ function renderMortgage() {
         '<div style="font-size:18px;font-weight:700;color:'+(currentMonthSaving>0?'var(--accent)':'var(--muted)')+'">$' + currentMonthSaving.toFixed(2) + '</div>' +
       '</div>' +
     '</div>' +
-    (cycleTxs.length > 0 ?
-      '<div style="border-top:1px solid var(--surface2);padding-top:10px;margin-bottom:8px">' +
-        '<div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:6px">' +
-          '<span style="color:var(--muted)">'+cycleLabel+' activity</span>' +
-          '<span style="font-weight:600;color:'+(cycleNet>=0?'var(--accent)':'var(--red)')+'">'+( cycleNet>=0?'+':'-')+'$'+Math.abs(cycleNet).toFixed(2)+'</span>' +
+    '<div style="border-top:1px solid var(--surface2);padding-top:10px">' +
+      '<div style="display:flex;justify-content:space-between;align-items:center">' +
+        '<div style="font-size:11px;color:var(--muted)">' + cycleLabel + ' · ' + cycleTxs.length + ' transaction' + (cycleTxs.length!==1?'s':'') + '</div>' +
+        '<div style="display:flex;align-items:center;gap:8px">' +
+          (cycleTxs.length>0 ? '<span style="font-size:11px;font-weight:600;color:'+(cycleNet>=0?'var(--accent)':'var(--red)')+'">'+(cycleNet>=0?'+':'-')+'$'+Math.abs(cycleNet).toFixed(2)+'</span>' : '') +
+          (cycleTxs.length>0 ? '<button onclick="openOffsetTxSheet()" style="background:var(--surface2);color:var(--text);border:none;border-radius:8px;padding:6px 12px;font-size:12px;font-weight:600;font-family:var(--font);cursor:pointer">View all</button>' : '<span style="font-size:12px;color:var(--muted)">No transactions yet</span>') +
         '</div>' +
-        cycleTxs.slice(0,5).map((t,i) => {
-          const isW = t.type==='withdrawal';
-          return '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;'+(i>0?'border-top:1px solid var(--surface3)':'')+';cursor:pointer" onclick="openEditOffsetTx(\''+t.id+'\')">' +
-            '<div>' +
-              '<div style="font-size:12px;font-weight:500">'+(isW?'💸 ':' 💰 ')+(t.note||(isW?'Withdrawal':'Deposit'))+'</div>' +
-              '<div style="font-size:10px;color:var(--muted)">'+new Date(t.date+'T00:00:00').toLocaleDateString('en-AU',{day:'numeric',month:'short'})+'</div>' +
-            '</div>' +
-            '<div style="font-size:13px;font-weight:600;color:'+(isW?'var(--red)':'var(--accent)')+'">'+( isW?'-':'+')+fmtF(t.amount)+'</div>' +
-          '</div>';
-        }).join('') +
-        (cycleTxs.length > 5 ? '<div style="font-size:11px;color:var(--muted);text-align:center;padding-top:6px">+'+(cycleTxs.length-5)+' more</div>' : '') +
-      '</div>'
-    : '<div style="font-size:12px;color:var(--muted);text-align:center;padding:6px 0 2px">No transactions this month — tap + to add</div>') +
+      '</div>' +
+    '</div>' +
   '</div>';
 
   // ── Offset monthly history ───────────────────────────────────────────────────
@@ -4306,7 +4310,8 @@ function renderMortgage() {
         '<div><div style="font-size:10px;color:var(--muted)">Per $1k</div><div style="font-size:12px;font-weight:600">$'+savingPerK.toFixed(2)+'/mo</div></div>' +
       '</div>';
     });
-    html += '</div>';
+    } // end if(false)
+    html += '</div>'; // close interest log card
     if (monthlyHistory.length > 0) {
       const latest = monthlyHistory[0];
       const perK = latest.avgBalance > 0 ? (latest.totalSaving / latest.avgBalance * 1000) : 0;
@@ -4353,14 +4358,15 @@ function renderMortgage() {
   const totalInterestPaid = intLog.reduce((s,e)=>s+e.interest,0);
   const totalOffsetBenefit = intLog.reduce((s,e)=>s+(e.offsetBenefit||0),0);
 
-  html += '<div style="display:flex;justify-content:space-between;align-items:center;margin:12px 0 8px">' +
-    '<div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em">Monthly interest (from bank)</div>' +
+  html += '<div style="background:var(--surface);border-radius:var(--r);padding:14px;margin-bottom:8px">';
+  html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:' + (intLog.length>0?'12px':'0') + '">' +
+    '<div style="font-size:13px;font-weight:700">Monthly interest (from bank)</div>' +
     '<button onclick="openAddMortgageInterest()" style="background:var(--accent-dim);color:var(--accent);border:none;border-radius:8px;padding:6px 12px;font-size:12px;font-weight:600;font-family:var(--font);cursor:pointer">+ Log</button>' +
   '</div>';
 
   if (intLog.length > 0) {
-    // Summary row
-    html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">' +
+    // Summary row + View all button
+    html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">' +
       '<div style="background:var(--surface);border-radius:var(--r);padding:11px 12px">' +
         '<div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:3px">Total interest paid</div>' +
         '<div style="font-size:17px;font-weight:700;color:var(--red)">-' + fmtF(totalInterestPaid) + '</div>' +
@@ -4371,7 +4377,15 @@ function renderMortgage() {
       '</div>' +
     '</div>';
 
-    html += '<div style="background:var(--surface);border-radius:var(--r);overflow:hidden;margin-bottom:12px">';
+    html += '<button onclick="openInterestLogSheet()" style="width:100%;background:var(--surface2);color:var(--text);border:none;border-radius:10px;padding:10px;font-size:12px;font-weight:600;font-family:var(--font);cursor:pointer;margin-bottom:10px">' +
+      '📋 View all ' + intLog.length + ' entries</button>';
+
+    // Store for sheet rendering
+    window._mgIntLog = intLog;
+    window._mgFmtF = fmtF;
+    window._mgAnnualRate = annualRateNow;
+    window._mgCurrentOffset = currentOffset;
+    if (false) { // kept for reference only, now in sheet
     intLog.forEach((entry, i) => {
       const [yr, mo] = entry.month.split('-');
       const monthLabel = new Date(+yr, +mo-1, 1).toLocaleDateString('en-AU',{month:'long',year:'numeric'});
@@ -5628,6 +5642,128 @@ function renderGiftCards() {
   }
 
   el.innerHTML = html;
+}
+
+
+// ── Offset transaction sheet ──────────────────────────────────────────────────
+function openOffsetTxSheet() {
+  const { cycleStart, cycleEnd } = getCycleRange(state.mortgageCycleOffset || 0);
+  const cycleTxs = getOffsetTxInRange(cycleStart, cycleEnd).sort((a,b)=>b.date.localeCompare(a.date));
+  const cycleLabel = cycleStart.toLocaleDateString('en-AU',{day:'numeric',month:'short'}) + ' – ' + cycleEnd.toLocaleDateString('en-AU',{day:'numeric',month:'short'});
+  const cycleDeposits = cycleTxs.filter(t=>t.type==='deposit').reduce((s,t)=>s+t.amount,0);
+  const cycleWithdrawals = cycleTxs.filter(t=>t.type==='withdrawal').reduce((s,t)=>s+t.amount,0);
+  const cycleNet = cycleDeposits - cycleWithdrawals;
+  const fmtF = n => '$' + n.toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2});
+
+  let existing = document.getElementById('offsetTxSheet');
+  if (existing) existing.remove();
+  const sheet = document.createElement('div');
+  sheet.id = 'offsetTxSheet';
+  sheet.className = 'modal-overlay';
+  let rows = cycleTxs.map((t,i) => {
+    const isW = t.type==='withdrawal';
+    return '<div style="display:flex;justify-content:space-between;align-items:center;padding:11px 0;' + (i>0?'border-top:1px solid var(--surface2)':'') + ';cursor:pointer" onclick="openEditOffsetTx(\'' + t.id + '\')">' +
+      '<div><div style="font-size:13px;font-weight:500">'+(isW?'💸 ':' 💰 ')+(t.note||(isW?'Withdrawal':'Deposit'))+'</div>' +
+      '<div style="font-size:11px;color:var(--muted)">'+new Date(t.date+'T00:00:00').toLocaleDateString('en-AU',{weekday:'short',day:'numeric',month:'short'})+'</div></div>' +
+      '<div style="font-size:13px;font-weight:600;color:'+(isW?'var(--red)':'var(--accent)')+'">'+(isW?'-':'+')+fmtF(t.amount)+'</div>' +
+    '</div>';
+  }).join('');
+
+  sheet.innerHTML = '<div class="modal">' +
+    '<div class="modal-handle"></div>' +
+    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">' +
+      '<div><div style="font-size:15px;font-weight:700">Offset transactions</div>' +
+      '<div style="font-size:11px;color:var(--muted)">' + cycleLabel + '</div></div>' +
+      '<div style="text-align:right"><div style="font-size:11px;color:var(--muted)">Net</div>' +
+      '<div style="font-size:15px;font-weight:700;color:' + (cycleNet>=0?'var(--accent)':'var(--red)') + '">' + (cycleNet>=0?'+':'-') + fmtF(Math.abs(cycleNet)) + '</div></div>' +
+    '</div>' +
+    '<div style="max-height:60vh;overflow-y:auto">' +
+      (rows || '<div style="text-align:center;padding:20px;color:var(--muted);font-size:13px">No transactions this cycle</div>') +
+    '</div>' +
+    '<button onclick="openAddOffsetTx()" style="width:100%;margin-top:14px;background:var(--accent);color:#fff;border:none;border-radius:14px;padding:14px;font-size:15px;font-weight:700;font-family:var(--font);cursor:pointer">+ Add transaction</button>' +
+    '<button class="btn-ghost" onclick="document.getElementById(\'offsetTxSheet\').classList.remove(\'open\')">Close</button>' +
+  '</div>';
+  sheet.addEventListener('click', e => { if (e.target===sheet) sheet.classList.remove('open'); });
+  document.body.appendChild(sheet);
+  requestAnimationFrame(() => sheet.classList.add('open'));
+  setTimeout(() => initModalSwipeDown(), 100);
+}
+
+function openInterestLogSheet() {
+  const intLog = (state.mortgageInterestLog||[]).slice().sort((a,b)=>b.month.localeCompare(a.month));
+  const mg = state.mortgage || {};
+  const annualRateNow = (mg.interestRate||0)/100;
+  const currentOffset = getOffsetBalance();
+  const fmtF = n => '$' + n.toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2});
+
+  let existing = document.getElementById('interestLogSheet');
+  if (existing) existing.remove();
+  const sheet = document.createElement('div');
+  sheet.id = 'interestLogSheet';
+  sheet.className = 'modal-overlay';
+
+  const rows = intLog.map((entry,i) => {
+    const [yr,mo] = entry.month.split('-');
+    const label = new Date(+yr,+mo-1,1).toLocaleDateString('en-AU',{month:'long',year:'numeric'});
+    const calcMonthly = currentOffset>0 ? Math.round(currentOffset*(annualRateNow/12)*100)/100 : 0;
+    const diff = entry.offsetBenefit>0&&calcMonthly>0 ? entry.offsetBenefit-calcMonthly : null;
+    return '<div style="padding:11px 0;' + (i>0?'border-top:1px solid var(--surface2)':'') + ';cursor:pointer" onclick="openEditMortgageInterest(\'' + entry.id + '\')">' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px">' +
+        '<div style="font-size:13px;font-weight:600">' + label + '</div>' +
+        '<div style="font-size:13px;font-weight:700;color:var(--red)">-' + fmtF(entry.interest) + '</div>' +
+      '</div>' +
+      (entry.offsetBenefit>0 ? '<div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted)">' +
+        '<span>Offset saved: <strong style="color:var(--accent)">+' + fmtF(entry.offsetBenefit) + '</strong></span>' +
+        (diff!==null ? '<span style="color:'+(diff>=0?'var(--accent)':'var(--orange)')+'">vs calc: '+(diff>=0?'+':'')+fmtF(diff)+'</span>' : '') +
+      '</div>' : '') +
+    '</div>';
+  }).join('');
+
+  sheet.innerHTML = '<div class="modal">' +
+    '<div class="modal-handle"></div>' +
+    '<div style="font-size:15px;font-weight:700;margin-bottom:4px">Monthly interest log</div>' +
+    '<div style="font-size:11px;color:var(--muted);margin-bottom:14px">' + intLog.length + ' entries · tap to edit</div>' +
+    '<div style="max-height:65vh;overflow-y:auto">' + rows + '</div>' +
+    '<button class="btn-ghost" onclick="document.getElementById(\'interestLogSheet\').classList.remove(\'open\')">Close</button>' +
+  '</div>';
+  sheet.addEventListener('click', e => { if(e.target===sheet) sheet.classList.remove('open'); });
+  document.body.appendChild(sheet);
+  requestAnimationFrame(() => sheet.classList.add('open'));
+  setTimeout(() => initModalSwipeDown(), 100);
+}
+
+// ── Swipe down to close modals ────────────────────────────────────────────────
+function initModalSwipeDown() {
+  document.querySelectorAll('.modal-overlay').forEach(overlay => {
+    const modal = overlay.querySelector('.modal');
+    if (!modal || modal.dataset.swipeInit) return;
+    modal.dataset.swipeInit = '1';
+    let startY = 0, dragging = false;
+    const handle = modal.querySelector('.modal-handle');
+    const dragTarget = handle || modal;
+    dragTarget.addEventListener('touchstart', e => {
+      startY = e.touches[0].clientY;
+      dragging = true;
+      modal.style.transition = 'none';
+    }, { passive: true });
+    dragTarget.addEventListener('touchmove', e => {
+      if (!dragging) return;
+      const dy = e.touches[0].clientY - startY;
+      if (dy > 0) modal.style.transform = 'translateY(' + dy + 'px)';
+    }, { passive: true });
+    dragTarget.addEventListener('touchend', e => {
+      if (!dragging) return;
+      dragging = false;
+      modal.style.transition = '';
+      const dy = e.changedTouches[0].clientY - startY;
+      if (dy > 80) {
+        modal.style.transform = '';
+        overlay.classList.remove('open');
+      } else {
+        modal.style.transform = '';
+      }
+    });
+  });
 }
 
 // ── Version & Update ──────────────────────────────────────────────────────────
