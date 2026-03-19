@@ -2041,6 +2041,7 @@ function openSettings() {
   const tz = state.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone;
   const tzEl = document.getElementById('setTimezoneDisplay');
   if (tzEl) tzEl.textContent = '🌏 Detected timezone: ' + tz;
+  initVersionDisplay();
   document.getElementById('settingsModal').classList.add('open');
 }
 function saveSettings() {
@@ -5117,7 +5118,14 @@ function initVersionDisplay() {
   const av = document.getElementById('appVersionDisplay');
   if (av) av.textContent = APP_VERSION;
   const bd = document.getElementById('appBuildDate');
-  if (bd) bd.textContent = BUILD_DATE;
+  if (bd) {
+    // Format BUILD_DATE nicely: 2026-03-19 → 19 Mar 2026
+    try {
+      const [y,m,d] = BUILD_DATE.split('-');
+      const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+      bd.textContent = d + ' ' + months[parseInt(m)-1] + ' ' + y;
+    } catch(e) { bd.textContent = BUILD_DATE; }
+  }
   const bt = document.getElementById('appBuildTime');
   if (bt) bt.textContent = BUILD_TIME;
 }
