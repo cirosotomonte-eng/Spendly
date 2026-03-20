@@ -17,7 +17,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '1.2.0-202603201338';
+  const APP_VER = '1.2.0-202603201350';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -1334,7 +1334,7 @@ const PALETTE = [
 // ── State ─────────────────────────────────────────────────────────────────────
 const APP_VERSION = '1.2.0';
 const BUILD_DATE = '2026-03-20';
-const BUILD_TIME = '20 Mar 2026 1:38 PM AEDT';
+const BUILD_TIME = '20 Mar 2026 1:50 PM AEDT';
 const STORAGE_KEY = 'spendly_generic_v1';
 const LOCK_KEY = 'spendly_pin_hash';
 const BIOM_KEY = 'spendly_biometric';
@@ -6214,11 +6214,10 @@ function openPortfolioImport() {
   const input = document.createElement('input');
   input.type = 'file'; input.accept = 'image/*'; input.multiple = true;
   input.onchange = async (e) => {
-    const files = Array.from(e.target.files);
+    const files = Array.from(e.target.files).slice(0, 5); // max 5 images
     if (!files.length) return;
-    showToast('🤖 Reading ' + files.length + ' screenshot' + (files.length>1?'s':'') + '…', 10000);
+    showToast('🤖 Reading ' + files.length + ' screenshot' + (files.length>1?'s':'') + '…', 15000);
 
-    // Convert all files to base64
     const toBase64 = file => new Promise((res, rej) => {
       const r = new FileReader();
       r.onload = ev => res({ base64: ev.target.result.split(',')[1], mediaType: file.type || 'image/jpeg' });
@@ -6229,17 +6228,20 @@ function openPortfolioImport() {
     try {
       const images = await Promise.all(files.map(toBase64));
 
-      // Build content array: all images + one instruction
+      // Build content: images first, then instruction
       const content = [];
-      images.forEach((img, i) => {
+      images.forEach(img => {
         content.push({ type: 'image', source: { type: 'base64', media_type: img.mediaType, data: img.base64 } });
-        content.push({ type: 'text', text: 'Screenshot ' + (i+1) + ':' });
       });
-      content.push({ type: 'text', text: 'These are ' + files.length + ' screenshots from a broker portfolio app — they may show different views (Summary, Holdings, P&L, Cost Base) of the same portfolio. Extract and MERGE all holdings into a single JSON array. For each holding combine all available data from across all screenshots. Return ONLY a JSON array, no markdown, no backticks. Each item: { "ticker": "CBA", "name": "Commonwealth Bank", "exchange": "ASX", "units": 100, "currentPrice": 112.30, "avgCost": 95.50 }. Set any field to null if not visible in any screenshot. Assume ASX unless clearly stated. Deduplicate by ticker — merge data from multiple screenshots for the same ticker.' });
+      content.push({ type: 'text', text: 'These ' + files.length + ' screenshots are from a broker app showing a share portfolio (Summary, P&L, and/or Holdings views). Extract ALL holdings visible across all screenshots and merge into one JSON array — deduplicate by ticker, combining data from different screenshots. Return ONLY valid JSON, no markdown, no explanation. Format: [{"ticker":"QAN","name":"Qantas Airways","exchange":"ASX","units":1257,"currentPrice":8.35,"avgCost":5.585}]. Use null for missing fields. Assume ASX exchange.' });
 
       const response = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'anthropic-version': '2023-06-01',
+          'anthropic-dangerous-direct-browser-access': 'true'
+        },
         body: JSON.stringify({
           model: 'claude-sonnet-4-20250514',
           max_tokens: 2000,
@@ -6247,22 +6249,35 @@ function openPortfolioImport() {
         })
       });
 
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        const msg = errData.error?.message || 'HTTP ' + response.status;
+        showToast('❌ API error: ' + msg, 6000);
+        return;
+      }
+
       const data = await response.json();
-      const text = (data.content||[]).find(b=>b.type==='text')?.text || '[]';
+      const text = (data.content||[]).find(b=>b.type==='text')?.text || '';
+      if (!text) { showToast('❌ No response from AI. Try again.', 4000); return; }
+
       let holdings = [];
       try {
-        const clean = text.trim().replace(/^```json?\s*/,'').replace(/\s*```$/,'');
+        const clean = text.trim().replace(/^```json?\s*/,'').replace(/\s*```\s*$/,'').trim();
         holdings = JSON.parse(clean);
-      } catch(err) { holdings = []; }
+      } catch(err) {
+        // Try to extract JSON array from text
+        const match = text.match(/\[[\s\S]*\]/);
+        if (match) { try { holdings = JSON.parse(match[0]); } catch(e2) { holdings = []; } }
+      }
 
-      const filtered = Array.isArray(holdings) ? holdings.filter(h => h.ticker && h.units > 0) : [];
+      const filtered = Array.isArray(holdings) ? holdings.filter(h => h.ticker && (h.units > 0 || h.units === 0)) : [];
       if (filtered.length === 0) {
-        showToast('⚠️ Could not read holdings. Try the Holdings or P&L tab screenshots.', 5000); return;
+        showToast('⚠️ No holdings found. Make sure screenshots show tickers and unit counts.', 5000); return;
       }
       showImportPreview(filtered);
     } catch(err) {
       console.error('Import error:', err);
-      showToast('❌ Import failed. Please try again.', 3000);
+      showToast('❌ Import error: ' + (err.message || 'Unknown error'), 4000);
     }
   };
   input.click();
@@ -6308,6 +6323,36 @@ function showImportPreview(holdings) {
   setTimeout(() => initModalSwipeDown(), 100);
 }
 
+
+function loadCiroPortfolio() {
+  if ((state.portfolio||[]).length > 0) {
+    if (!confirm('This will add to your existing holdings. Continue?')) return;
+  }
+  const today = '2026-03-20';
+  const holdings = [
+    { ticker:'A200', name:'Betashares Australia 200 ETF',   exchange:'ASX', units:10,   avgCost:119.125, currentPrice:142.81 },
+    { ticker:'COL',  name:'Coles Group Limited',            exchange:'ASX', units:32,   avgCost:23.000,  currentPrice:21.625 },
+    { ticker:'CYL',  name:'Catalyst Metals Limited',        exchange:'ASX', units:120,  avgCost:6.790,   currentPrice:6.030  },
+    { ticker:'IOO',  name:'iShares Global 100 ETF',         exchange:'ASX', units:5,    avgCost:137.360, currentPrice:170.38 },
+    { ticker:'IOZ',  name:'iShares Core S&P/ASX 200 ETF',   exchange:'ASX', units:62,   avgCost:28.723,  currentPrice:34.37  },
+    { ticker:'NDQ',  name:'Betashares Nasdaq 100 ETF',      exchange:'ASX', units:10,   avgCost:54.880,  currentPrice:50.80  },
+    { ticker:'QAN',  name:'Qantas Airways Limited',         exchange:'ASX', units:1257, avgCost:5.585,   currentPrice:8.35   },
+    { ticker:'VGN',  name:'Virgin Australia Holdings Ltd',  exchange:'ASX', units:304,  avgCost:3.349,   currentPrice:2.49   },
+  ];
+  if (!state.portfolio) state.portfolio = [];
+  holdings.forEach(h => {
+    // Skip if ticker already exists
+    if (state.portfolio.find(p => p.ticker === h.ticker)) return;
+    state.portfolio.push({
+      id: uid(), ticker: h.ticker, name: h.name, exchange: h.exchange,
+      units: h.units, avgCost: h.avgCost, currentPrice: h.currentPrice,
+      priceHistory: [{ date: today, price: h.currentPrice }],
+      dividends: []
+    });
+  });
+  saveState(); renderContent();
+  showToast('✅ ' + holdings.length + ' holdings loaded!', 3000);
+}
 function confirmPortfolioImport() {
   const sheet = document.getElementById('importPreviewSheet');
   if (!sheet) return;
@@ -6345,7 +6390,8 @@ function renderPortfolio() {
       '<div class="empty-text">No holdings yet</div>' +
       '<div class="empty-sub">Add holdings manually or import from a screenshot</div>' +
       '</div>' +
-      '<button onclick="openPortfolioImport()" style="width:100%;background:var(--surface);border:1.5px solid var(--border);color:var(--text);border-radius:14px;padding:14px;font-size:14px;font-weight:600;font-family:var(--font);cursor:pointer;margin-top:8px">🤖 Import from screenshots (select multiple)</button>';
+      '<button onclick="loadCiroPortfolio()" style="width:100%;background:var(--accent);color:#fff;border:none;border-radius:14px;padding:14px;font-size:15px;font-weight:700;font-family:var(--font);cursor:pointer;margin-top:8px;margin-bottom:8px">⚡ Load my portfolio (pre-filled)</button>' +
+      '<button onclick="openPortfolioImport()" style="width:100%;background:var(--surface);border:1.5px solid var(--border);color:var(--muted);border-radius:14px;padding:12px;font-size:13px;font-weight:600;font-family:var(--font);cursor:pointer">🤖 Import from screenshots</button>';
     return;
   }
 
@@ -6397,8 +6443,9 @@ function renderPortfolio() {
     const lastDiv = (h.dividends||[]).slice().sort((a,b)=>b.date.localeCompare(a.date))[0];
 
     html += '<div style="background:var(--surface);border-radius:var(--r);padding:14px;margin-bottom:8px">' +
-      '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">' +
-        '<div style="cursor:pointer" onclick="openEditHolding(\'' + h.id + '\')">' +
+      // Full header row tappable for edit
+      '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;cursor:pointer" onclick="openEditHolding(\'' + h.id + '\')">' +
+        '<div>' +
           '<div style="display:flex;align-items:center;gap:8px">' +
             '<span style="font-size:16px;font-weight:800">' + h.ticker + '</span>' +
             '<span style="font-size:10px;background:var(--surface2);color:var(--muted);border-radius:4px;padding:2px 6px">' + h.exchange + '</span>' +
@@ -6421,7 +6468,8 @@ function renderPortfolio() {
       '<div style="display:flex;gap:6px">' +
         '<button onclick="openAddDividend(\'' + h.id + '\')" style="flex:1;background:var(--surface2);color:var(--text);border:none;border-radius:8px;padding:8px;font-size:11px;font-weight:600;font-family:var(--font);cursor:pointer">' +
           '💰 Dividend' + (divTotal>0?' ('+fmt0(divTotal)+')':'') + '</button>' +
-        '<button onclick="updateHoldingPrice(\'' + h.id + '\')" style="flex:1;background:var(--accent-dim);color:var(--accent);border:none;border-radius:8px;padding:8px;font-size:11px;font-weight:600;font-family:var(--font);cursor:pointer">📊 Update price</button>' +
+        '<button onclick="updateHoldingPrice(\'' + h.id + '\')" style="flex:1;background:var(--accent-dim);color:var(--accent);border:none;border-radius:8px;padding:8px;font-size:11px;font-weight:600;font-family:var(--font);cursor:pointer">📊 Price</button>' +
+        '<button onclick="openEditHolding(\'' + h.id + '\')" style="background:var(--surface2);color:var(--muted);border:none;border-radius:8px;padding:8px 10px;font-size:11px;font-weight:600;font-family:var(--font);cursor:pointer">✏️</button>' +
       '</div>' +
     '</div>';
   });
