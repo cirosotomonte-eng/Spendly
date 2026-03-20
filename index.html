@@ -17,7 +17,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '1.2.0-202603201212';
+  const APP_VER = '1.2.0-202603201248';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -1232,7 +1232,7 @@ const PALETTE = [
 // ── State ─────────────────────────────────────────────────────────────────────
 const APP_VERSION = '1.2.0';
 const BUILD_DATE = '2026-03-20';
-const BUILD_TIME = '20 Mar 2026 12:12 PM AEDT';
+const BUILD_TIME = '20 Mar 2026 12:48 PM AEDT';
 const STORAGE_KEY = 'spendly_generic_v1';
 const LOCK_KEY = 'spendly_pin_hash';
 const BIOM_KEY = 'spendly_biometric';
@@ -3966,7 +3966,9 @@ function getOffsetBalanceAt(beforeDate) {
     .reduce((s, t) => s + (t.type === 'withdrawal' ? -t.amount : t.amount), 0);
 }
 function getOffsetTxInRange(start, end) {
-  return (state.offsetTransactions || []).filter(t => t.date >= start && t.date <= end);
+  const s = typeof start === 'string' ? start : dateToStr(start);
+  const e = typeof end === 'string' ? end : dateToStr(end);
+  return (state.offsetTransactions || []).filter(t => t.date >= s && t.date <= e);
 }
 
 function setOffsetTxType(type) {
