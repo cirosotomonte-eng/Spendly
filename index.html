@@ -2304,29 +2304,37 @@ function renderAnalyticsOverview() {
         '<div style="background:var(--surface2);border-radius:100px;height:4px;overflow:hidden"><div style="width:'+pct+'%;height:100%;background:'+cat.color+';border-radius:100px"></div></div></div>';
     }).join('');
 
-  // Bar chart
-  const availW = document.getElementById('content').offsetWidth || 350;
-  const totalDays = dayLabels.length;
-  const BAR_W = Math.max(26, Math.min(42, Math.floor((availW-60)/totalDays)));
-  const chartW = Math.max(totalDays * BAR_W + 60, availW);
-  const wrap = document.getElementById('barChartWrap');
-  wrap.style.width = chartW + 'px';
-  const todayD = new Date(); todayD.setHours(0,0,0,0);
-  const topCatColor = sortedCats[0] ? (catById(sortedCats[0][0])||{color:'#4F8EF7'}).color : '#4F8EF7';
-  const barColors = dayKeys.map(d => new Date(d+'T00:00:00').getTime()===todayD.getTime() ? '#4F8EF7cc' : topCatColor+'99');
-  barChart = new Chart(document.getElementById('barChartCanvas'), {
-    type:'bar',
-    data:{ labels:dayLabels, datasets:[{ data:dayData, backgroundColor:barColors, borderRadius:3, borderSkipped:false }] },
-    options:{ responsive:false, maintainAspectRatio:false, animation:false,
-      plugins:{ legend:{ display:false } },
-      scales:{
-        x:{ ticks:{ color:textColor, font:{size:10}, autoSkip:false, maxRotation:45, minRotation:0 }, grid:{ display:false }, border:{ display:false } },
-        y:{ ticks:{ color:textColor, font:{size:10}, callback:v=>fmtShort(v) }, grid:{ color:gridColor }, border:{ display:false } }
+  // Bar chart — defer to rAF so DOM has laid out and offsetWidth is accurate
+  requestAnimationFrame(() => {
+    const wrap = document.getElementById('barChartWrap');
+    const canvas = document.getElementById('barChartCanvas');
+    if (!wrap || !canvas) return;
+    const availW = document.getElementById('content').offsetWidth || 350;
+    const totalDays = dayLabels.length;
+    const BAR_W = Math.max(26, Math.min(42, Math.floor((availW - 60) / totalDays)));
+    const chartW = Math.max(totalDays * BAR_W + 60, availW);
+    const chartH = 150;
+    wrap.style.width = chartW + 'px';
+    canvas.width  = chartW;
+    canvas.height = chartH;
+    const todayD = new Date(); todayD.setHours(0,0,0,0);
+    const topCatColor = sortedCats[0] ? (catById(sortedCats[0][0])||{color:'#4F8EF7'}).color : '#4F8EF7';
+    const barColors = dayKeys.map(d => new Date(d+'T00:00:00').getTime()===todayD.getTime() ? '#4F8EF7cc' : topCatColor+'99');
+    if (barChart) { barChart.destroy(); barChart = null; }
+    barChart = new Chart(canvas, {
+      type:'bar',
+      data:{ labels:dayLabels, datasets:[{ data:dayData, backgroundColor:barColors, borderRadius:3, borderSkipped:false }] },
+      options:{ responsive:false, maintainAspectRatio:false, animation:false,
+        plugins:{ legend:{ display:false } },
+        scales:{
+          x:{ ticks:{ color:textColor, font:{size:10}, autoSkip:false, maxRotation:45, minRotation:0 }, grid:{ display:false }, border:{ display:false } },
+          y:{ ticks:{ color:textColor, font:{size:10}, callback:v=>fmtShort(v) }, grid:{ color:gridColor }, border:{ display:false } }
+        }
       }
-    }
+    });
+    const todayIdx = dayKeys.findIndex(d => new Date(d+'T00:00:00').getTime()===todayD.getTime());
+    if (todayIdx >= 0) { const sp = wrap.parentElement && wrap.parentElement.parentElement; if (sp) sp.scrollLeft = Math.max(0, todayIdx*BAR_W-80); }
   });
-  const todayIdx = dayKeys.findIndex(d => new Date(d+'T00:00:00').getTime()===todayD.getTime());
-  if (todayIdx >= 0) { const sp = wrap.parentElement && wrap.parentElement.parentElement; if (sp) sp.scrollLeft = Math.max(0, todayIdx*BAR_W-80); }
 
   // Donut
   const donutColors = sortedCats.map(([cid]) => (catById(cid)||{color:'#888'}).color);
