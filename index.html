@@ -17,7 +17,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '1.2.0-202603201446';
+  const APP_VER = '1.2.0-202603201503';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -1364,7 +1364,7 @@ const PALETTE = [
 // ── State ─────────────────────────────────────────────────────────────────────
 const APP_VERSION = '1.2.0';
 const BUILD_DATE = '2026-03-20';
-const BUILD_TIME = '20 Mar 2026 2:46 PM AEDT';
+const BUILD_TIME = '20 Mar 2026 3:03 PM AEDT';
 const STORAGE_KEY = 'spendly_generic_v1';
 const LOCK_KEY = 'spendly_pin_hash';
 const BIOM_KEY = 'spendly_biometric';
@@ -6993,6 +6993,123 @@ function renderNotes() {
   el.innerHTML = html;
 }
 
+// ── Expiry alerts ─────────────────────────────────────────────────────────────
+function checkExpiryAlerts() {
+  const cards = (state.giftCards || []).filter(gc => !gc.used && gc.expiryDate);
+  if (!cards.length) return;
+
+  const today = new Date(); today.setHours(0,0,0,0);
+  const DISMISSED_KEY = 'spendly_expiry_dismissed';
+
+  const expired   = [];
+  const urgent    = []; // ≤7 days
+  const warning   = []; // 8–30 days
+
+  cards.forEach(gc => {
+    const exp = new Date(gc.expiryDate + 'T00:00:00');
+    const days = Math.ceil((exp - today) / 86400000);
+    if (days < 0)       expired.push({ gc, days });
+    else if (days <= 7) urgent.push({ gc, days });
+    else if (days <= 30) warning.push({ gc, days });
+  });
+
+  if (!expired.length && !urgent.length && !warning.length) return;
+
+  // Check if already dismissed today
+  const dismissed = JSON.parse(localStorage.getItem(DISMISSED_KEY) || '{}');
+  const todayStr2 = todayStr();
+
+  // Build unique key from all affected card ids + their expiry
+  const alertKey = [...expired, ...urgent, ...warning]
+    .map(x => x.gc.id + x.gc.expiryDate).join('|');
+
+  if (dismissed[alertKey] === todayStr2) return;
+
+  // Build alert sheet
+  let existing = document.getElementById('expiryAlertSheet');
+  if (existing) existing.remove();
+
+  const sheet = document.createElement('div');
+  sheet.id = 'expiryAlertSheet';
+  sheet.style.cssText = 'position:fixed;inset:0;z-index:6000;background:rgba(0,0,0,0.75);backdrop-filter:blur(8px);display:flex;align-items:flex-end;justify-content:center';
+
+  let rows = '';
+
+  if (expired.length) {
+    rows += '<div style="margin-bottom:12px">' +
+      '<div style="font-size:11px;font-weight:700;color:var(--red);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:6px">🚨 Expired</div>';
+    expired.forEach(({gc, days}) => {
+      rows += buildAlertRow(gc, Math.abs(days) + ' day' + (Math.abs(days)!==1?'s':'') + ' ago', 'var(--red)');
+    });
+    rows += '</div>';
+  }
+
+  if (urgent.length) {
+    rows += '<div style="margin-bottom:12px">' +
+      '<div style="font-size:11px;font-weight:700;color:var(--orange);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:6px">⚠️ Expiring very soon</div>';
+    urgent.forEach(({gc, days}) => {
+      rows += buildAlertRow(gc, days === 0 ? 'Today!' : 'in ' + days + ' day' + (days!==1?'s':''), 'var(--orange)');
+    });
+    rows += '</div>';
+  }
+
+  if (warning.length) {
+    rows += '<div style="margin-bottom:12px">' +
+      '<div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:6px">📅 Expiring this month</div>';
+    warning.forEach(({gc, days}) => {
+      rows += buildAlertRow(gc, 'in ' + days + ' days', 'var(--muted)');
+    });
+    rows += '</div>';
+  }
+
+  sheet.innerHTML =
+    '<div class="modal" style="max-width:500px;width:100%">' +
+      '<div class="modal-handle"></div>' +
+      '<div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">' +
+        '<div style="font-size:28px">🚨</div>' +
+        '<div>' +
+          '<div style="font-size:16px;font-weight:700">Wallet expiry alert</div>' +
+          '<div style="font-size:12px;color:var(--muted)">' + (expired.length + urgent.length + warning.length) + ' item' + ((expired.length+urgent.length+warning.length)!==1?'s':'') + ' need your attention</div>' +
+        '</div>' +
+      '</div>' +
+      '<div style="max-height:50vh;overflow-y:auto;margin-bottom:14px">' + rows + '</div>' +
+      '<button onclick="switchTab(\'giftcards\');document.getElementById(\'expiryAlertSheet\').remove()" style="width:100%;background:var(--accent);color:#fff;border:none;border-radius:14px;padding:14px;font-size:15px;font-weight:700;font-family:var(--font);cursor:pointer;margin-bottom:8px">Go to Wallet</button>' +
+      '<button onclick="dismissExpiryAlert(\'' + alertKey.replace(/'/g,"\\'") + '\')" style="width:100%;background:none;border:none;color:var(--muted);padding:12px;font-size:14px;font-family:var(--font);cursor:pointer">Dismiss for today</button>' +
+    '</div>';
+
+  sheet.addEventListener('click', e => { if (e.target===sheet) dismissExpiryAlert(alertKey); });
+  document.body.appendChild(sheet);
+  requestAnimationFrame(() => sheet.style.opacity = '1');
+  setTimeout(() => initModalSwipeDown(), 100);
+}
+
+function buildAlertRow(gc, timeStr, color) {
+  const typeLabel = { giftcard:'🎁', voucher:'🎟️', promo:'🏷️', credit:'💳' };
+  const icon = typeLabel[gc.type||'giftcard'] || '🎁';
+  const val = (gc.type !== 'promo' && gc.balance > 0)
+    ? ' · <strong style="color:' + color + '">$' + gc.balance.toFixed(2) + ' remaining</strong>'
+    : (gc.code ? ' · Code: <strong>' + gc.code + '</strong>' : '');
+  return '<div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--surface2)">' +
+    '<div style="width:36px;height:36px;border-radius:10px;background:' + (gc.color||'#888') + '22;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">' + icon + '</div>' +
+    '<div style="flex:1;min-width:0">' +
+      '<div style="font-size:13px;font-weight:600">' + gc.name + '</div>' +
+      '<div style="font-size:11px;color:' + color + ';font-weight:600">Expires ' + timeStr + val + '</div>' +
+    '</div>' +
+  '</div>';
+}
+
+function dismissExpiryAlert(alertKey) {
+  const DISMISSED_KEY = 'spendly_expiry_dismissed';
+  const dismissed = JSON.parse(localStorage.getItem(DISMISSED_KEY) || '{}');
+  dismissed[alertKey] = todayStr();
+  // Keep only last 30 keys to avoid bloat
+  const keys = Object.keys(dismissed);
+  if (keys.length > 30) delete dismissed[keys[0]];
+  localStorage.setItem(DISMISSED_KEY, JSON.stringify(dismissed));
+  const sheet = document.getElementById('expiryAlertSheet');
+  if (sheet) sheet.remove();
+}
+
 // ── Version & Update ──────────────────────────────────────────────────────────
 function initVersionDisplay() {
   const hv = document.getElementById('headerVersion');
@@ -7093,6 +7210,7 @@ async function init() {
     applyRecurringExpenses();
     recordTodayOffsetSaving();
     setTimeout(checkCycleComplete, 2000);
+    setTimeout(checkExpiryAlerts, 1500);
     setTimeout(initModalSwipeDown, 600);
   } catch(e) {
     console.error('Init error:', e);
