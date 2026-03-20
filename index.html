@@ -17,7 +17,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '1.2.0-202603201406';
+  const APP_VER = '1.2.0-202603201414';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -1263,8 +1263,8 @@ async function applyUpdate() {
     <input type="number" inputmode="numeric" id="superAge" placeholder="e.g. 35" min="18" max="70">
     <label>Retirement age</label>
     <input type="number" inputmode="numeric" id="superRetAge" placeholder="e.g. 67" min="55" max="75">
-    <label>Base salary ($)</label>
-    <input type="number" inputmode="decimal" id="superSalary" placeholder="e.g. 95000">
+    <label>Base salary ($) <span style="font-size:10px;color:var(--muted);font-weight:400">— enter as annual figure regardless of pay frequency</span></label>
+    <input type="number" inputmode="decimal" id="superSalary" placeholder="e.g. 147000 (annual)">
     <label>Salary frequency</label>
     <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:6px;margin-bottom:14px" id="superFreqBtns">
       <button type="button" onclick="setSuperFreq('weekly')" id="superFreqWeekly" style="padding:8px 4px;border-radius:8px;border:2px solid var(--border);background:var(--surface2);color:var(--muted);font-weight:600;font-family:var(--font);cursor:pointer;font-size:11px">Weekly</button>
@@ -1335,7 +1335,7 @@ const PALETTE = [
 // ── State ─────────────────────────────────────────────────────────────────────
 const APP_VERSION = '1.2.0';
 const BUILD_DATE = '2026-03-20';
-const BUILD_TIME = '20 Mar 2026 2:06 PM AEDT';
+const BUILD_TIME = '20 Mar 2026 2:14 PM AEDT';
 const STORAGE_KEY = 'spendly_generic_v1';
 const LOCK_KEY = 'spendly_pin_hash';
 const BIOM_KEY = 'spendly_biometric';
@@ -6524,7 +6524,7 @@ function openSuperSettings() {
   document.getElementById('superBalance').value = s.balance || '';
   document.getElementById('superAge').value = s.currentAge || '';
   document.getElementById('superRetAge').value = s.retirementAge || 67;
-  document.getElementById('superSalary').value = s.annualSalary || '';
+  document.getElementById('superSalary').value = s.inputSalary || s.annualSalary || '';
   document.getElementById('superEmpRate').value = s.employerRate ?? 11.5;
   document.getElementById('superVolRate').value = s.voluntaryRate || 0;
   const contribType = s.contribType || 'percent';
@@ -6543,8 +6543,8 @@ function saveSuperSettings() {
   const balance = parseFloat(document.getElementById('superBalance').value) || 0;
   if (!state.super) state.super = {};
   const inputSalary = parseFloat(document.getElementById('superSalary').value) || 0;
-  const freqMultiplier = { weekly: 52, fortnightly: 26, monthly: 12, annual: 1 };
-  const annualSalary = inputSalary * (freqMultiplier[superFreqState] || 1);
+  // Salary is always entered as annual — frequency is for display context only
+  const annualSalary = inputSalary;
   state.super.balance = balance;
   state.super.currentAge = parseInt(document.getElementById('superAge').value) || 0;
   state.super.retirementAge = parseInt(document.getElementById('superRetAge').value) || 67;
@@ -6603,12 +6603,18 @@ function renderNetWorth() {
 
   // Super projection
   let superAtRetirement = 0;
-  if (sup.currentAge > 0 && sup.retirementAge > sup.currentAge && sup.annualSalary > 0) {
+  if (sup.currentAge > 0 && sup.retirementAge > sup.currentAge) {
     const years = sup.retirementAge - sup.currentAge;
-    const annualContrib = sup.annualSalary * ((sup.employerRate + sup.voluntaryRate) / 100);
+    // Use voluntaryCash directly (already stored as annual $) + employer SG
+    const employerAnnual = (sup.annualSalary || 0) * ((sup.employerRate || 11.5) / 100);
+    const voluntaryAnnual = sup.voluntaryCash || 0; // stored correctly as annual $
+    const annualContrib = employerAnnual + voluntaryAnnual;
     const r = (sup.expectedReturn || 7) / 100;
-    // FV of existing balance + FV of annual contributions
-    superAtRetirement = sup.balance * Math.pow(1+r, years) + annualContrib * (Math.pow(1+r, years)-1)/r;
+    if (r > 0) {
+      superAtRetirement = sup.balance * Math.pow(1+r, years) + annualContrib * (Math.pow(1+r, years)-1)/r;
+    } else {
+      superAtRetirement = sup.balance + annualContrib * years;
+    }
   }
 
   let html = '<div style="font-size:16px;font-weight:700;margin:8px 0 4px">💎 Net Worth</div>';
@@ -6679,7 +6685,7 @@ function renderNetWorth() {
         '📊 ' + years + ' years · ' + (sup.expectedReturn||7) + '% p.a. return · ' +
         'Employer ' + (sup.employerRate||11.5) + '% SG' +
         (sup.voluntaryCash>0 ? ' + $' + Math.round(sup.voluntaryContribMonthly||sup.voluntaryCash/12).toLocaleString('en-AU') + '/mo sacrifice ($' + Math.round(sup.voluntaryCash).toLocaleString('en-AU') + '/yr)' : '') +
-        ' · Annual salary $' + Math.round((sup.annualSalary||0)/1000) + 'k' +
+        ' · Annual salary $' + Math.round((sup.annualSalary||0)/1000) + 'k · Total into super: $' + Math.round(((sup.annualSalary||0)*(sup.employerRate||11.5)/100) + (sup.voluntaryCash||0)).toLocaleString('en-AU') + '/yr' +
       '</div>' +
     '</div>';
   } else {
