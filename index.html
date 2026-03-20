@@ -17,7 +17,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '1.2.0-202603201248';
+  const APP_VER = '1.2.0-202603201257';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -1232,7 +1232,7 @@ const PALETTE = [
 // ── State ─────────────────────────────────────────────────────────────────────
 const APP_VERSION = '1.2.0';
 const BUILD_DATE = '2026-03-20';
-const BUILD_TIME = '20 Mar 2026 12:48 PM AEDT';
+const BUILD_TIME = '20 Mar 2026 12:57 PM AEDT';
 const STORAGE_KEY = 'spendly_generic_v1';
 const LOCK_KEY = 'spendly_pin_hash';
 const BIOM_KEY = 'spendly_biometric';
@@ -4305,7 +4305,7 @@ function renderMortgage() {
   html += '<div style="background:var(--surface);border-radius:var(--r);padding:14px;margin-bottom:8px">' +
     '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">' +
       '<div style="font-size:13px;font-weight:700">Offset account</div>' +
-      '<button onclick="openAddOffsetTx()" style="background:var(--accent-dim);color:var(--accent);border:none;border-radius:8px;padding:7px 12px;font-size:12px;font-weight:600;font-family:var(--font);cursor:pointer">+ Add</button>' +
+      '<button onclick="openOffsetTxSheet()" style="background:var(--accent-dim);color:var(--accent);border:none;border-radius:8px;padding:7px 12px;font-size:12px;font-weight:600;font-family:var(--font);cursor:pointer">+ Add / View</button>' +
     '</div>' +
     '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:12px">' +
       '<div>' +
@@ -4321,13 +4321,10 @@ function renderMortgage() {
         '<div style="font-size:18px;font-weight:700;color:'+(currentMonthSaving>0?'var(--accent)':'var(--muted)')+'">$' + currentMonthSaving.toFixed(2) + '</div>' +
       '</div>' +
     '</div>' +
-    '<div style="border-top:1px solid var(--surface2);padding-top:10px">' +
+    '<div style="border-top:1px solid var(--surface2);padding-top:10px;cursor:pointer" onclick="openOffsetTxSheet()">' +
       '<div style="display:flex;justify-content:space-between;align-items:center">' +
         '<div style="font-size:11px;color:var(--muted)">' + cycleLabel + ' · ' + cycleTxs.length + ' transaction' + (cycleTxs.length!==1?'s':'') + '</div>' +
-        '<div style="display:flex;align-items:center;gap:8px">' +
-          (cycleTxs.length>0 ? '<span style="font-size:11px;font-weight:600;color:'+(cycleNet>=0?'var(--accent)':'var(--red)')+'">'+(cycleNet>=0?'+':'-')+'$'+Math.abs(cycleNet).toFixed(2)+'</span>' : '') +
-          (cycleTxs.length>0 ? '<button onclick="openOffsetTxSheet()" style="background:var(--surface2);color:var(--text);border:none;border-radius:8px;padding:6px 12px;font-size:12px;font-weight:600;font-family:var(--font);cursor:pointer">View all</button>' : '<span style="font-size:12px;color:var(--muted)">No transactions yet</span>') +
-        '</div>' +
+        '<div style="font-size:11px;font-weight:600;color:'+(cycleNet!==0?(cycleNet>0?'var(--accent)':'var(--red)'):'var(--muted)')+'">' + (cycleNet>0?'+':cycleNet<0?'-':'') + '$'+Math.abs(cycleNet).toFixed(2) + '</div>' +
       '</div>' +
     '</div>' +
   '</div>';
@@ -5723,46 +5720,115 @@ function renderGiftCards() {
 
 // ── Offset transaction sheet ──────────────────────────────────────────────────
 function openOffsetTxSheet() {
-  const { cycleStart, cycleEnd } = getCycleRange(state.mortgageCycleOffset || 0);
-  const cycleTxs = getOffsetTxInRange(cycleStart, cycleEnd).sort((a,b)=>b.date.localeCompare(a.date));
-  const cycleLabel = cycleStart.toLocaleDateString('en-AU',{day:'numeric',month:'short'}) + ' – ' + cycleEnd.toLocaleDateString('en-AU',{day:'numeric',month:'short'});
-  const cycleDeposits = cycleTxs.filter(t=>t.type==='deposit').reduce((s,t)=>s+t.amount,0);
-  const cycleWithdrawals = cycleTxs.filter(t=>t.type==='withdrawal').reduce((s,t)=>s+t.amount,0);
-  const cycleNet = cycleDeposits - cycleWithdrawals;
-  const fmtF = n => '$' + n.toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2});
+  const refreshOffsetSheet = () => {
+    const { cycleStart, cycleEnd } = getCycleRange(state.mortgageCycleOffset || 0);
+    const cycleTxs = getOffsetTxInRange(cycleStart, cycleEnd).sort((a,b)=>b.date.localeCompare(a.date));
+    const cycleLabel = cycleStart.toLocaleDateString('en-AU',{day:'numeric',month:'short'}) + ' – ' + cycleEnd.toLocaleDateString('en-AU',{day:'numeric',month:'short'});
+    const cycleNet = cycleTxs.filter(t=>t.type==='deposit').reduce((s,t)=>s+t.amount,0)
+                   - cycleTxs.filter(t=>t.type==='withdrawal').reduce((s,t)=>s+t.amount,0);
+    const fmtF = n => '$' + n.toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2});
+
+    const listEl = document.getElementById('offsetTxList');
+    if (!listEl) return;
+    if (cycleTxs.length === 0) {
+      listEl.innerHTML = '<div style="text-align:center;padding:20px;color:var(--muted);font-size:13px">No transactions this cycle</div>';
+    } else {
+      listEl.innerHTML = cycleTxs.map((t,i) => {
+        const isW = t.type === 'withdrawal';
+        return '<div style="display:flex;align-items:center;gap:10px;padding:11px 0;' + (i>0?'border-top:1px solid var(--surface2)':'') + '">' +
+          '<div style="flex:1;min-width:0;cursor:pointer" onclick="openEditOffsetTx(\'' + t.id + '\')">' +
+            '<div style="font-size:13px;font-weight:500">' + (isW?'💸 ':' 💰 ') + (t.note||(isW?'Withdrawal':'Deposit')) + '</div>' +
+            '<div style="font-size:11px;color:var(--muted)">' + new Date(t.date+'T00:00:00').toLocaleDateString('en-AU',{weekday:'short',day:'numeric',month:'short'}) + '</div>' +
+          '</div>' +
+          '<div style="font-size:13px;font-weight:600;color:' + (isW?'var(--red)':'var(--accent)') + '">' + (isW?'-':'+') + fmtF(t.amount) + '</div>' +
+          '<button onclick="deleteOffsetTxInline(\'' + t.id + '\')" style="background:rgba(255,59,48,0.1);color:var(--red);border:none;border-radius:8px;width:32px;height:32px;display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;font-size:15px">×</button>' +
+        '</div>';
+      }).join('');
+    }
+    // Update net
+    const netEl = document.getElementById('offsetSheetNet');
+    if (netEl) {
+      netEl.textContent = (cycleNet>=0?'+':'-') + fmtF(Math.abs(cycleNet));
+      netEl.style.color = cycleNet >= 0 ? 'var(--accent)' : 'var(--red)';
+    }
+    const labelEl = document.getElementById('offsetSheetLabel');
+    if (labelEl) labelEl.textContent = cycleLabel + ' · ' + cycleTxs.length + ' transaction' + (cycleTxs.length!==1?'s':'');
+  };
 
   let existing = document.getElementById('offsetTxSheet');
   if (existing) existing.remove();
   const sheet = document.createElement('div');
   sheet.id = 'offsetTxSheet';
   sheet.className = 'modal-overlay';
-  let rows = cycleTxs.map((t,i) => {
-    const isW = t.type==='withdrawal';
-    return '<div style="display:flex;justify-content:space-between;align-items:center;padding:11px 0;' + (i>0?'border-top:1px solid var(--surface2)':'') + ';cursor:pointer" onclick="openEditOffsetTx(\'' + t.id + '\')">' +
-      '<div><div style="font-size:13px;font-weight:500">'+(isW?'💸 ':' 💰 ')+(t.note||(isW?'Withdrawal':'Deposit'))+'</div>' +
-      '<div style="font-size:11px;color:var(--muted)">'+new Date(t.date+'T00:00:00').toLocaleDateString('en-AU',{weekday:'short',day:'numeric',month:'short'})+'</div></div>' +
-      '<div style="font-size:13px;font-weight:600;color:'+(isW?'var(--red)':'var(--accent)')+'">'+(isW?'-':'+')+fmtF(t.amount)+'</div>' +
-    '</div>';
-  }).join('');
 
   sheet.innerHTML = '<div class="modal">' +
     '<div class="modal-handle"></div>' +
-    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">' +
-      '<div><div style="font-size:15px;font-weight:700">Offset transactions</div>' +
-      '<div style="font-size:11px;color:var(--muted)">' + cycleLabel + '</div></div>' +
-      '<div style="text-align:right"><div style="font-size:11px;color:var(--muted)">Net</div>' +
-      '<div style="font-size:15px;font-weight:700;color:' + (cycleNet>=0?'var(--accent)':'var(--red)') + '">' + (cycleNet>=0?'+':'-') + fmtF(Math.abs(cycleNet)) + '</div></div>' +
+    // Header
+    '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px">' +
+      '<div>' +
+        '<div style="font-size:15px;font-weight:700">Offset transactions</div>' +
+        '<div style="font-size:11px;color:var(--muted)" id="offsetSheetLabel"></div>' +
+      '</div>' +
+      '<div style="text-align:right">' +
+        '<div style="font-size:11px;color:var(--muted)">Net</div>' +
+        '<div style="font-size:15px;font-weight:700" id="offsetSheetNet"></div>' +
+      '</div>' +
     '</div>' +
-    '<div style="max-height:60vh;overflow-y:auto">' +
-      (rows || '<div style="text-align:center;padding:20px;color:var(--muted);font-size:13px">No transactions this cycle</div>') +
+    // Add form inline
+    '<div style="background:var(--surface2);border-radius:12px;padding:12px;margin-bottom:14px">' +
+      '<div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:10px">Add transaction</div>' +
+      '<div style="display:flex;gap:6px;margin-bottom:8px">' +
+        '<button id="offsetSheetDep" onclick="setOffsetSheetType(\'deposit\')" style="flex:1;padding:8px;border-radius:8px;border:2px solid var(--accent);background:var(--accent-dim);color:var(--accent);font-weight:700;font-family:var(--font);cursor:pointer;font-size:12px">💰 Deposit</button>' +
+        '<button id="offsetSheetWd" onclick="setOffsetSheetType(\'withdrawal\')" style="flex:1;padding:8px;border-radius:8px;border:2px solid var(--border);background:var(--surface);color:var(--muted);font-weight:600;font-family:var(--font);cursor:pointer;font-size:12px">💸 Withdraw</button>' +
+      '</div>' +
+      '<div style="display:flex;gap:6px">' +
+        '<input type="number" inputmode="decimal" id="offsetSheetAmt" placeholder="Amount" style="flex:2;background:var(--surface);border:1.5px solid var(--border);border-radius:8px;color:var(--text);font-size:14px;font-family:var(--font);padding:8px 10px;outline:none">' +
+        '<input type="text" id="offsetSheetNote" placeholder="Note (optional)" style="flex:3;background:var(--surface);border:1.5px solid var(--border);border-radius:8px;color:var(--text);font-size:14px;font-family:var(--font);padding:8px 10px;outline:none">' +
+        '<button onclick="saveOffsetSheetTx()" style="background:var(--accent);color:#fff;border:none;border-radius:8px;padding:8px 14px;font-size:13px;font-weight:700;font-family:var(--font);cursor:pointer;flex-shrink:0">Add</button>' +
+      '</div>' +
     '</div>' +
-    '<button onclick="openAddOffsetTx()" style="width:100%;margin-top:14px;background:var(--accent);color:#fff;border:none;border-radius:14px;padding:14px;font-size:15px;font-weight:700;font-family:var(--font);cursor:pointer">+ Add transaction</button>' +
+    // Transaction list
+    '<div id="offsetTxList" style="max-height:45vh;overflow-y:auto"></div>' +
     '<button class="btn-ghost" onclick="document.getElementById(\'offsetTxSheet\').classList.remove(\'open\')">Close</button>' +
   '</div>';
+
   sheet.addEventListener('click', e => { if (e.target===sheet) sheet.classList.remove('open'); });
   document.body.appendChild(sheet);
-  requestAnimationFrame(() => sheet.classList.add('open'));
+  requestAnimationFrame(() => { sheet.classList.add('open'); refreshOffsetSheet(); });
   setTimeout(() => initModalSwipeDown(), 100);
+  // Store refresh function for use by helpers
+  window._refreshOffsetSheet = refreshOffsetSheet;
+}
+
+let _offsetSheetType = 'deposit';
+function setOffsetSheetType(type) {
+  _offsetSheetType = type;
+  const dep = document.getElementById('offsetSheetDep');
+  const wd = document.getElementById('offsetSheetWd');
+  if (dep) { dep.style.border = type==='deposit' ? '2px solid var(--accent)' : '2px solid var(--border)'; dep.style.background = type==='deposit' ? 'var(--accent-dim)' : 'var(--surface)'; dep.style.color = type==='deposit' ? 'var(--accent)' : 'var(--muted)'; dep.style.fontWeight = type==='deposit' ? '700' : '600'; }
+  if (wd)  { wd.style.border  = type==='withdrawal' ? '2px solid var(--red)' : '2px solid var(--border)'; wd.style.background  = type==='withdrawal' ? 'rgba(255,59,48,0.1)' : 'var(--surface)'; wd.style.color  = type==='withdrawal' ? 'var(--red)' : 'var(--muted)'; wd.style.fontWeight = type==='withdrawal' ? '700' : '600'; }
+}
+
+function saveOffsetSheetTx() {
+  const amt = parseFloat(document.getElementById('offsetSheetAmt').value);
+  const note = document.getElementById('offsetSheetNote').value.trim();
+  if (!amt || amt <= 0) return;
+  if (!state.offsetTransactions) state.offsetTransactions = [];
+  state.offsetTransactions.push({ id: uid(), type: _offsetSheetType, amount: amt, date: todayStr(), note });
+  document.getElementById('offsetSheetAmt').value = '';
+  document.getElementById('offsetSheetNote').value = '';
+  saveState();
+  if (window._refreshOffsetSheet) window._refreshOffsetSheet();
+  updateHeader();
+  renderContent();
+}
+
+function deleteOffsetTxInline(id) {
+  state.offsetTransactions = (state.offsetTransactions||[]).filter(t => t.id !== id);
+  saveState();
+  if (window._refreshOffsetSheet) window._refreshOffsetSheet();
+  updateHeader();
+  renderContent();
 }
 
 function openInterestLogSheet() {
