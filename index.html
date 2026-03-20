@@ -17,7 +17,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '1.2.0-202603201422';
+  const APP_VER = '1.2.0-202603201446';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -684,6 +684,7 @@ async function applyUpdate() {
     <button class="tab" onclick="switchTab('networth')">💎 Net Worth</button>
     <button class="tab" onclick="switchTab('investor')">💡 Investor</button>
     <button class="tab" onclick="switchTab('analytics')">Analytics</button>
+    <button class="tab" onclick="switchTab('notes')">📝 Notes</button>
   </div>
 
   <div class="content" id="content"></div>
@@ -1311,6 +1312,29 @@ async function applyUpdate() {
   </div>
 </div>
 
+<!-- Note modal -->
+<div class="modal-overlay" id="noteModal">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title" id="noteModalTitle">New note</div>
+    <label>Title</label>
+    <input type="text" id="noteTitle" placeholder="e.g. Check offset account rate">
+    <label>Note</label>
+    <textarea id="noteBody" placeholder="Add details, links, numbers — anything you want to remember…" style="width:100%;min-height:120px;background:var(--surface2);border:1.5px solid var(--border);border-radius:10px;color:var(--text);font-size:14px;font-family:var(--font);padding:10px 12px;outline:none;resize:vertical;box-sizing:border-box;margin-bottom:14px;line-height:1.5"></textarea>
+    <label>Category <span style="font-size:10px;color:var(--muted)">(optional)</span></label>
+    <input type="text" id="noteCategory" placeholder="e.g. Mortgage, Investing, Tax">
+    <label>Colour</label>
+    <div class="color-grid" id="noteColorGrid"></div>
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+      <div id="notePinnedCheck" onclick="toggleNotePin()" style="width:22px;height:22px;border-radius:6px;background:var(--surface3);border:2px solid var(--border);display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:13px;flex-shrink:0"></div>
+      <span style="font-size:13px">Pin to top</span>
+    </div>
+    <button class="btn-primary" id="noteSaveBtn" onclick="saveNote()">Save</button>
+    <button class="btn-danger" id="noteDeleteBtn" onclick="deleteNote()" style="display:none">Delete</button>
+    <button class="btn-ghost" onclick="closeModal('noteModal')">Cancel</button>
+  </div>
+</div>
+
 <!-- Backup modal -->
 <div class="modal-overlay" id="backupModal">
   <div class="modal">
@@ -1340,7 +1364,7 @@ const PALETTE = [
 // ── State ─────────────────────────────────────────────────────────────────────
 const APP_VERSION = '1.2.0';
 const BUILD_DATE = '2026-03-20';
-const BUILD_TIME = '20 Mar 2026 2:22 PM AEDT';
+const BUILD_TIME = '20 Mar 2026 2:46 PM AEDT';
 const STORAGE_KEY = 'spendly_generic_v1';
 const LOCK_KEY = 'spendly_pin_hash';
 const BIOM_KEY = 'spendly_biometric';
@@ -1405,6 +1429,7 @@ let state = {
     balanceHistory: [], // [{ date, balance }]
   },
   propertyValue: 0,     // estimated home value for net worth
+  notes: [],            // { id, title, body, color, pinned, createdAt, updatedAt, category }
   propertyHistory: [],  // [{ date, value, note }] — valuation history
 };
 
@@ -1778,11 +1803,11 @@ function switchTab(tab) {
   if (tab !== 'expenses') expenseSearchQuery = '';
   state.currentTab = tab;
   document.querySelectorAll('.tab').forEach((t,i) => {
-    t.classList.toggle('active', ['expenses','goals','savings','recycling','mortgage','tax','giftcards','portfolio','networth','investor','analytics'][i] === tab);
+    t.classList.toggle('active', ['expenses','goals','savings','recycling','mortgage','tax','giftcards','portfolio','networth','investor','analytics','notes'][i] === tab);
   });
   const fab = document.getElementById('fab');
   const isPast = (state.viewingCycleOffset || 0) < 0;
-  if (tab === 'calendar' || tab === 'recycling' || tab === 'mortgage' || tab === 'tax' || tab === 'investor' || tab === 'networth') {
+  if (tab === 'calendar' || tab === 'recycling' || tab === 'mortgage' || tab === 'tax' || tab === 'investor' || tab === 'networth' || tab === 'notes') {
     fab.style.display = 'none';
   } else if (tab === 'portfolio') {
     fab.innerHTML = '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 2v12M2 8h12" stroke="#fff" stroke-width="2.5" stroke-linecap="round"/></svg> Add holding';
@@ -1821,6 +1846,7 @@ function renderContent() {
   else if (state.currentTab === 'portfolio')  renderPortfolio();
   else if (state.currentTab === 'networth')   renderNetWorth();
   else if (state.currentTab === 'investor')  renderInvestor();
+  else if (state.currentTab === 'notes')      renderNotes();
   else if (state.currentTab === 'tax')       renderTax();
   else if (state.currentTab === 'savings')   renderSavings();
 }
@@ -6828,6 +6854,143 @@ function renderNetWorth() {
       });
     }
   }
+}
+
+// ── Notes ─────────────────────────────────────────────────────────────────────
+let editingNoteId = null;
+let notePinnedState = false;
+const NOTE_COLORS = ['#4F8EF7','#34C759','#f0a860','#f060b0','#b060f0','#ff5c5c','#f0d860','#888888'];
+
+function toggleNotePin() {
+  notePinnedState = !notePinnedState;
+  const el = document.getElementById('notePinnedCheck');
+  el.textContent = notePinnedState ? '📌' : '';
+  el.style.background = notePinnedState ? 'var(--accent-dim)' : 'var(--surface3)';
+  el.style.border = '2px solid ' + (notePinnedState ? 'var(--accent)' : 'var(--border)');
+}
+
+function openAddNote(prefillTitle) {
+  editingNoteId = null; notePinnedState = false;
+  document.getElementById('noteModalTitle').textContent = 'New note';
+  document.getElementById('noteTitle').value = prefillTitle || '';
+  document.getElementById('noteBody').value = '';
+  document.getElementById('noteCategory').value = '';
+  document.getElementById('noteSaveBtn').textContent = 'Save';
+  document.getElementById('noteDeleteBtn').style.display = 'none';
+  const check = document.getElementById('notePinnedCheck');
+  check.textContent = ''; check.style.background = 'var(--surface3)'; check.style.border = '2px solid var(--border)';
+  buildColorGridFor('noteColorGrid', NOTE_COLORS[Math.floor(Math.random() * NOTE_COLORS.length)]);
+  document.getElementById('noteModal').classList.add('open');
+  setTimeout(() => document.getElementById('noteTitle').focus(), 350);
+}
+
+function openEditNote(id) {
+  const note = (state.notes||[]).find(n=>n.id===id); if (!note) return;
+  editingNoteId = id; notePinnedState = note.pinned || false;
+  document.getElementById('noteModalTitle').textContent = 'Edit note';
+  document.getElementById('noteTitle').value = note.title || '';
+  document.getElementById('noteBody').value = note.body || '';
+  document.getElementById('noteCategory').value = note.category || '';
+  document.getElementById('noteSaveBtn').textContent = 'Update';
+  document.getElementById('noteDeleteBtn').style.display = 'block';
+  const check = document.getElementById('notePinnedCheck');
+  check.textContent = notePinnedState ? '📌' : '';
+  check.style.background = notePinnedState ? 'var(--accent-dim)' : 'var(--surface3)';
+  check.style.border = '2px solid ' + (notePinnedState ? 'var(--accent)' : 'var(--border)');
+  buildColorGridFor('noteColorGrid', note.color || NOTE_COLORS[0]);
+  document.getElementById('noteModal').classList.add('open');
+}
+
+function saveNote() {
+  const title = document.getElementById('noteTitle').value.trim();
+  const body = document.getElementById('noteBody').value.trim();
+  const category = document.getElementById('noteCategory').value.trim();
+  const color = getSelectedColorFrom('noteColorGrid');
+  if (!title && !body) return;
+  if (!state.notes) state.notes = [];
+  const now = new Date().toISOString();
+  if (editingNoteId) {
+    const idx = state.notes.findIndex(n=>n.id===editingNoteId);
+    if (idx>=0) state.notes[idx] = { ...state.notes[idx], title, body, category, color, pinned: notePinnedState, updatedAt: now };
+  } else {
+    state.notes.push({ id: uid(), title, body, category, color, pinned: notePinnedState, createdAt: now, updatedAt: now });
+  }
+  saveState(); closeModal('noteModal'); renderContent();
+}
+
+function deleteNote() {
+  if (!editingNoteId) return;
+  state.notes = (state.notes||[]).filter(n=>n.id!==editingNoteId);
+  saveState(); closeModal('noteModal'); renderContent();
+}
+
+function renderNotes() {
+  const el = document.getElementById('content');
+  const notes = state.notes || [];
+
+  // Header with search + add
+  let html = '<div style="display:flex;gap:8px;margin-bottom:14px">' +
+    '<div style="flex:1;display:inline-flex;align-items:center;gap:6px;background:var(--surface);border-radius:var(--r);padding:0 14px;height:38px">' +
+      '<svg width="13" height="13" viewBox="0 0 15 15" fill="none" style="flex-shrink:0;opacity:0.4"><circle cx="6" cy="6" r="4.5" stroke="currentColor" stroke-width="1.5"/><path d="M10 10l3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>' +
+      '<input id="noteSearch" type="text" placeholder="Search notes…" oninput="renderNotes()" style="flex:1;background:none;border:none;outline:none;color:var(--text);font-size:15px;font-family:var(--font);height:100%">' +
+    '</div>' +
+    '<button onclick="openAddNote()" style="background:var(--accent);color:#fff;border:none;border-radius:var(--r);padding:0 16px;font-size:13px;font-weight:700;font-family:var(--font);cursor:pointer;height:38px;white-space:nowrap">+ New</button>' +
+  '</div>';
+
+  const query = (document.getElementById('noteSearch')?.value || '').toLowerCase().trim();
+  let filtered = notes.filter(n => {
+    if (!query) return true;
+    return (n.title||'').toLowerCase().includes(query) || (n.body||'').toLowerCase().includes(query) || (n.category||'').toLowerCase().includes(query);
+  });
+
+  // Sort: pinned first, then by updatedAt desc
+  filtered.sort((a,b) => {
+    if (a.pinned && !b.pinned) return -1;
+    if (!a.pinned && b.pinned) return 1;
+    return (b.updatedAt||b.createdAt||'').localeCompare(a.updatedAt||a.createdAt||'');
+  });
+
+  if (filtered.length === 0) {
+    html += '<div class="empty"><div class="empty-icon">📝</div><div class="empty-text">' + (query ? 'No results' : 'No notes yet') + '</div><div class="empty-sub">' + (query ? 'Try a different search' : 'Tap + New to capture something quickly') + '</div></div>';
+    el.innerHTML = html; return;
+  }
+
+  // Group by category
+  const categories = [];
+  const byCat = {};
+  filtered.forEach(n => {
+    const cat = n.category || '';
+    if (!byCat[cat]) { byCat[cat] = []; categories.push(cat); }
+    byCat[cat].push(n);
+  });
+
+  categories.forEach(cat => {
+    if (cat) html += '<div class="section-label">' + cat + '</div>';
+    byCat[cat].forEach(note => {
+      const timeStr = note.updatedAt ? new Date(note.updatedAt).toLocaleDateString('en-AU',{day:'numeric',month:'short',year:'numeric'}) : '';
+      const bodyPreview = (note.body||'').replace(/\n/g,' ').slice(0, 120);
+      html += '<div style="background:var(--surface);border-radius:var(--r);padding:14px;margin-bottom:8px;cursor:pointer;border-left:3px solid ' + (note.color||'var(--accent)') + '" onclick="openEditNote(\'' + note.id + '\')">' +
+        '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">' +
+          '<div style="flex:1;min-width:0">' +
+            '<div style="font-size:14px;font-weight:700;margin-bottom:4px">' + (note.pinned?'📌 ':'') + (note.title||'Untitled') + '</div>' +
+            (bodyPreview ? '<div style="font-size:12px;color:var(--muted);line-height:1.5;white-space:pre-wrap">' + bodyPreview + (note.body.length>120?'…':'') + '</div>' : '') +
+          '</div>' +
+        '</div>' +
+        '<div style="font-size:10px;color:var(--muted);margin-top:8px">' + timeStr + '</div>' +
+      '</div>';
+    });
+  });
+
+  // Quick add suggestions at bottom
+  if (!query && notes.length < 3) {
+    html += '<div style="margin-top:16px"><div class="section-label">Quick ideas</div>';
+    ['Check mortgage rate options', 'Review super fund performance', 'Compare offset vs redraw', 'Tax deductions to claim'].forEach(s => {
+      html += '<div onclick="openAddNote(\'' + s + '\')" style="padding:10px 14px;background:var(--surface);border-radius:10px;margin-bottom:6px;font-size:13px;color:var(--muted);cursor:pointer;display:flex;align-items:center;gap:8px"><span style="opacity:0.4">+</span>' + s + '</div>';
+    });
+    html += '</div>';
+  }
+
+  el.innerHTML = html;
 }
 
 // ── Version & Update ──────────────────────────────────────────────────────────
