@@ -17,7 +17,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '1.2.0-202603200850';
+  const APP_VER = '1.2.0-202603201125';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -1227,7 +1227,7 @@ const PALETTE = [
 // ── State ─────────────────────────────────────────────────────────────────────
 const APP_VERSION = '1.2.0';
 const BUILD_DATE = '2026-03-20';
-const BUILD_TIME = '20 Mar 2026 8:50 AM AEDT';
+const BUILD_TIME = '20 Mar 2026 11:25 AM AEDT';
 const STORAGE_KEY = 'spendly_generic_v1';
 const LOCK_KEY = 'spendly_pin_hash';
 const BIOM_KEY = 'spendly_biometric';
@@ -4126,28 +4126,37 @@ function mortgageProjectionData(extraOffsetAmt) {
     return { bals, totalInt, weeks, paidOffDate };
   }
 
-  const resA = runAmort(0, actualPmt);       // no offset baseline
-  const resB = runAmort(totalOffset, actualPmt); // with offset
+  const resA = runAmort(0, minPmt);           // P1: min repayment, no offset
+  const resB = runAmort(totalOffset, minPmt); // P2: min repayment + offset
+  const resC = runAmort(0, actualPmt);        // P3: your repayment, no offset
+  const resD = runAmort(totalOffset, actualPmt); // P4: your repayment + offset (best case)
 
-  const weeksSaved = Math.max(resA.weeks - resB.weeks, 0);
+  const weeksSaved = Math.max(resA.weeks - resD.weeks, 0);
   const yearsSaved = Math.floor(weeksSaved / 52);
   const monthsSaved = Math.floor((weeksSaved % 52) / 4.33);
-  const yearsLeft = Math.floor(resB.weeks / 52);
-  const monthsLeft = Math.floor((resB.weeks % 52) / 4.33);
-  const interestSaved = Math.max(resA.totalInt - resB.totalInt, 0);
+  const yearsLeft = Math.floor(resD.weeks / 52);
+  const monthsLeft = Math.floor((resD.weeks % 52) / 4.33);
+  const interestSaved = Math.max(resA.totalInt - resD.totalInt, 0);
 
-  // Snowball at 5/10/20 years
+  // Snowball at 5/10/20 years (compares min+no-offset vs actual+offset)
   const snowball = [5,10,20].map(yrs => {
     const wks = yrs * 52;
     let bA = startBalance, bB = startBalance, intA = 0, intB = 0;
     for (let w = 0; w < wks; w++) {
-      if (bA > 0) { const i=bA*weeklyRate; intA+=i; bA-=Math.max(Math.min(actualPmt-i,bA),0); }
+      if (bA > 0) { const i=bA*weeklyRate; intA+=i; bA-=Math.max(Math.min(minPmt-i,bA),0); }
       if (bB > 0) { const i=Math.max(bB-totalOffset,0)*weeklyRate; intB+=i; bB-=Math.max(Math.min(actualPmt-i,bB),0); }
     }
     return { years: yrs, saved: Math.max(intA - intB, 0) };
   });
 
-  return { pathA: resA.bals, pathB: resB.bals, interestSaved, yearsSaved, monthsSaved, yearsLeft, monthsLeft, paidOffDate: resB.paidOffDate, snowball, totalIntA: resA.totalInt, totalIntB: resB.totalInt, baseOffset };
+  return {
+    pathA: resA.bals, pathB: resB.bals, pathC: resC.bals, pathD: resD.bals,
+    minPmt, actualPmt,
+    interestSaved, yearsSaved, monthsSaved, yearsLeft, monthsLeft,
+    paidOffDate: resD.paidOffDate, snowball,
+    totalIntA: resA.totalInt, totalIntB: resB.totalInt, totalIntC: resC.totalInt, totalIntD: resD.totalInt,
+    baseOffset
+  };
 }
 
 function renderMortgage() {
@@ -4388,11 +4397,9 @@ function renderMortgage() {
     html += '<button onclick="openInterestLogSheet()" style="width:100%;background:var(--surface2);color:var(--text);border:none;border-radius:10px;padding:10px;font-size:12px;font-weight:600;font-family:var(--font);cursor:pointer;margin-bottom:10px">' +
       '📋 View all ' + intLog.length + ' entries</button>';
 
-    // Show entries via bottom sheet - just show the button here
-    html += '<button onclick="openInterestLogSheet()" style="width:100%;background:var(--surface2);color:var(--text);border:none;border-radius:10px;padding:10px;font-size:12px;font-weight:600;font-family:var(--font);cursor:pointer;margin-bottom:10px">📋 View all ' + intLog.length + ' entries</button>';
     html += '</div>';
   } else {
-    html += '<div style="text-align:center;font-size:13px;color:var(--muted);padding:12px">No one-off extras yet — these are on top of your scheduled overpayment</div>';
+    html += '<div style="text-align:center;font-size:13px;color:var(--muted);padding:12px">No entries yet — tap + Log to record your bank\'s monthly interest charges</div>';
   }
 
   // ── Projections ───────────────────────────────────────────────────────────
@@ -4406,12 +4413,15 @@ function renderMortgage() {
     html += '<div style="background:var(--surface);border-radius:var(--r);padding:14px;margin-bottom:8px">' +
       '<div style="font-size:13px;font-weight:700;margin-bottom:14px">📈 Projections</div>';
 
-    // ── Balance chart: Path A vs Path B ──────────────────────────────────────
-    html += '<div style="font-size:11px;color:var(--muted);margin-bottom:8px">Loan balance over time</div>';
-    html += '<div style="position:relative;height:160px;margin-bottom:6px"><canvas id="mgBalanceChart"></canvas></div>';
-    html += '<div style="display:flex;gap:14px;font-size:11px;margin-bottom:16px">' +
-      '<div style="display:flex;align-items:center;gap:5px"><div style="width:12px;height:3px;background:#888;border-radius:2px"></div><span style="color:var(--muted)">Min repayment only</span></div>' +
-      '<div style="display:flex;align-items:center;gap:5px"><div style="width:12px;height:3px;background:var(--accent);border-radius:2px"></div><span style="color:var(--muted)">Your path (with ' + fmtD(proj.baseOffset) + ' offset)</span></div>' +
+    // ── Balance chart: 4 paths ───────────────────────────────────────────────
+    html += '<div style="font-size:11px;color:var(--muted);margin-bottom:8px">Loan balance over time — 4 scenarios</div>';
+    html += '<div style="position:relative;height:180px;margin-bottom:8px"><canvas id="mgBalanceChart"></canvas></div>';
+    // Legend
+    html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:10px;margin-bottom:16px">' +
+      '<div style="display:flex;align-items:center;gap:5px"><div style="width:16px;height:2px;background:#aaa;flex-shrink:0"></div><span style="color:var(--muted)">Min ' + fmtD(proj.minPmt) + '/wk, no offset</span></div>' +
+      '<div style="display:flex;align-items:center;gap:5px"><div style="width:16px;height:2px;background:#60b0f0;flex-shrink:0;border-top:2px dashed #60b0f0"></div><span style="color:var(--muted)">Min ' + fmtD(proj.minPmt) + '/wk + offset</span></div>' +
+      '<div style="display:flex;align-items:center;gap:5px"><div style="width:16px;height:2px;background:#f0a860;flex-shrink:0"></div><span style="color:var(--muted)">Your ' + fmtD(proj.actualPmt) + '/wk, no offset</span></div>' +
+      '<div style="display:flex;align-items:center;gap:5px"><div style="width:16px;height:2px;background:#4F8EF7;flex-shrink:0"></div><span style="color:var(--muted)">Your ' + fmtD(proj.actualPmt) + '/wk + offset ✨</span></div>' +
     '</div>';
 
     // ── Interest snowball ─────────────────────────────────────────────────────
@@ -4451,18 +4461,18 @@ function renderMortgage() {
     const gridColor = isDark ? '#2a2a2a' : '#e8e8e0';
     const ctx = document.getElementById('mgBalanceChart');
     if (ctx) {
-      const maxLen = Math.max(proj.pathA.length, proj.pathB.length);
+      const maxLen = Math.max(proj.pathA.length, proj.pathB.length, proj.pathC.length, proj.pathD.length);
       const labels = Array.from({length: maxLen}, (_,i) => i === 0 ? 'Now' : 'Yr ' + i);
-      // Pad shorter path with zeros
-      const padA = [...proj.pathA, ...Array(Math.max(0, maxLen - proj.pathA.length)).fill(0)];
-      const padB = [...proj.pathB, ...Array(Math.max(0, maxLen - proj.pathB.length)).fill(0)];
+      const pad = (arr) => [...arr, ...Array(Math.max(0, maxLen - arr.length)).fill(0)];
       new Chart(ctx, {
         type: 'line',
         data: {
           labels,
           datasets: [
-            { label: 'Min only', data: padA, borderColor: '#888', backgroundColor: 'transparent', borderWidth: 1.5, borderDash: [4,3], pointRadius: 0 },
-            { label: 'Your path', data: padB, borderColor: '#4F8EF7', backgroundColor: 'rgba(79,142,247,0.08)', borderWidth: 2, fill: true, pointRadius: 0 },
+            { label: 'Min, no offset',     data: pad(proj.pathA), borderColor: '#aaa',     backgroundColor: 'transparent',                borderWidth: 1.5, borderDash: [4,3], pointRadius: 0 },
+            { label: 'Min + offset',        data: pad(proj.pathB), borderColor: '#60b0f0',  backgroundColor: 'transparent',                borderWidth: 1.5, borderDash: [2,3], pointRadius: 0 },
+            { label: 'Your rate, no offset',data: pad(proj.pathC), borderColor: '#f0a860',  backgroundColor: 'transparent',                borderWidth: 1.5, pointRadius: 0 },
+            { label: 'Your rate + offset',  data: pad(proj.pathD), borderColor: '#4F8EF7',  backgroundColor: 'rgba(79,142,247,0.08)',      borderWidth: 2.5, fill: true, pointRadius: 0 },
           ]
         },
         options: {
@@ -4488,8 +4498,8 @@ function updateMgWhatIf(extraAmt) {
   const base = mortgageProjectionData(0);
   const proj = mortgageProjectionData(amt);
   if (!base || !proj) return;
-  const extraSaved = Math.max(base.totalIntA - proj.totalIntB, 0);
-  const weeksSaved = Math.max(base.pathA.length - proj.pathB.length, 0) * 52;
+  const extraSaved = Math.max(base.totalIntD - proj.totalIntD, 0);
+  const weeksSaved = Math.max(base.pathD.length - proj.pathD.length, 0) * 52;
   const yrsSaved = Math.floor(weeksSaved / 52);
   const mosSaved = Math.floor((weeksSaved % 52) / 4.33);
   const timeStr = yrsSaved > 0 || mosSaved > 0
