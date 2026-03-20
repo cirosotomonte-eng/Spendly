@@ -17,7 +17,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '1.2.0-202603201350';
+  const APP_VER = '1.2.0-202603201406';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -1277,13 +1277,14 @@ async function applyUpdate() {
     <label>Your extra contributions</label>
     <div style="display:flex;gap:6px;margin-bottom:10px">
       <button type="button" onclick="setSuperContribType('percent')" id="superContribPct" style="flex:1;padding:8px;border-radius:8px;border:2px solid var(--accent);background:var(--accent-dim);color:var(--accent);font-weight:700;font-family:var(--font);cursor:pointer;font-size:12px">% of salary</button>
+      <button type="button" onclick="setSuperContribType('cash-month')" id="superContribCashMonth" style="flex:1;padding:8px;border-radius:8px;border:2px solid var(--border);background:var(--surface2);color:var(--muted);font-weight:600;font-family:var(--font);cursor:pointer;font-size:12px">$ per month</button>
       <button type="button" onclick="setSuperContribType('cash')" id="superContribCash" style="flex:1;padding:8px;border-radius:8px;border:2px solid var(--border);background:var(--surface2);color:var(--muted);font-weight:600;font-family:var(--font);cursor:pointer;font-size:12px">$ per year</button>
     </div>
     <div id="superContribPctRow">
       <input type="number" inputmode="decimal" id="superVolRate" placeholder="e.g. 5 (% of salary)" step="0.5" min="0">
     </div>
     <div id="superContribCashRow" style="display:none">
-      <input type="number" inputmode="decimal" id="superVolCash" placeholder="e.g. 5000 ($ per year)" step="100" min="0">
+      <input type="number" inputmode="decimal" id="superVolCash" placeholder="e.g. 1020" step="100" min="0"><div id="superCashPreview" style="font-size:11px;color:var(--muted);margin-top:-8px;min-height:16px"></div>
     </div>
     <label style="margin-top:4px">Expected annual return (%)</label>
     <input type="number" inputmode="decimal" id="superReturn" placeholder="e.g. 7" step="0.5">
@@ -1334,7 +1335,7 @@ const PALETTE = [
 // ── State ─────────────────────────────────────────────────────────────────────
 const APP_VERSION = '1.2.0';
 const BUILD_DATE = '2026-03-20';
-const BUILD_TIME = '20 Mar 2026 1:50 PM AEDT';
+const BUILD_TIME = '20 Mar 2026 2:06 PM AEDT';
 const STORAGE_KEY = 'spendly_generic_v1';
 const LOCK_KEY = 'spendly_pin_hash';
 const BIOM_KEY = 'spendly_biometric';
@@ -6497,14 +6498,25 @@ function setSuperFreq(freq) {
 
 function setSuperContribType(type) {
   superContribTypeState = type;
-  const pctBtn = document.getElementById('superContribPct');
-  const cashBtn = document.getElementById('superContribCash');
+  ['percent','cash-month','cash'].forEach(t => {
+    const idMap = {'percent':'superContribPct','cash-month':'superContribCashMonth','cash':'superContribCash'};
+    const btn = document.getElementById(idMap[t]);
+    if (!btn) return;
+    const active = t === type;
+    btn.style.border = active ? '2px solid var(--accent)' : '2px solid var(--border)';
+    btn.style.background = active ? 'var(--accent-dim)' : 'var(--surface2)';
+    btn.style.color = active ? 'var(--accent)' : 'var(--muted)';
+    btn.style.fontWeight = active ? '700' : '600';
+  });
   const pctRow = document.getElementById('superContribPctRow');
   const cashRow = document.getElementById('superContribCashRow');
-  if (pctBtn) { pctBtn.style.border = type==='percent' ? '2px solid var(--accent)' : '2px solid var(--border)'; pctBtn.style.background = type==='percent' ? 'var(--accent-dim)' : 'var(--surface2)'; pctBtn.style.color = type==='percent' ? 'var(--accent)' : 'var(--muted)'; pctBtn.style.fontWeight = type==='percent' ? '700' : '600'; }
-  if (cashBtn) { cashBtn.style.border = type==='cash' ? '2px solid var(--accent)' : '2px solid var(--border)'; cashBtn.style.background = type==='cash' ? 'var(--accent-dim)' : 'var(--surface2)'; cashBtn.style.color = type==='cash' ? 'var(--accent)' : 'var(--muted)'; cashBtn.style.fontWeight = type==='cash' ? '700' : '600'; }
+  const preview = document.getElementById('superCashPreview');
   if (pctRow) pctRow.style.display = type==='percent' ? 'block' : 'none';
-  if (cashRow) cashRow.style.display = type==='cash' ? 'block' : 'none';
+  if (cashRow) cashRow.style.display = (type==='cash'||type==='cash-month') ? 'block' : 'none';
+  if (preview) preview.textContent = type==='cash-month' ? 'Enter your monthly salary sacrifice amount' : type==='cash' ? 'Enter your annual sacrifice amount' : '';
+  // Update placeholder
+  const input = document.getElementById('superVolCash');
+  if (input) input.placeholder = type==='cash-month' ? 'e.g. 1020 (per month)' : 'e.g. 12240 (per year)';
 }
 
 function openSuperSettings() {
@@ -6515,7 +6527,12 @@ function openSuperSettings() {
   document.getElementById('superSalary').value = s.annualSalary || '';
   document.getElementById('superEmpRate').value = s.employerRate ?? 11.5;
   document.getElementById('superVolRate').value = s.voluntaryRate || 0;
-  document.getElementById('superVolCash').value = s.voluntaryCash || 0;
+  const contribType = s.contribType || 'percent';
+  if (contribType === 'cash-month') {
+    document.getElementById('superVolCash').value = s.voluntaryContribMonthly || (s.voluntaryCash ? (s.voluntaryCash/12).toFixed(2) : 0);
+  } else {
+    document.getElementById('superVolCash').value = s.voluntaryCash || 0;
+  }
   document.getElementById('superReturn').value = s.expectedReturn ?? 7;
   setSuperFreq(s.salaryFrequency || 'annual');
   setSuperContribType(s.contribType || 'percent');
@@ -6540,9 +6557,15 @@ function saveSuperSettings() {
     const pct = parseFloat(document.getElementById('superVolRate').value) || 0;
     state.super.voluntaryRate = pct;
     state.super.voluntaryCash = (annualSalary * pct / 100);
+  } else if (superContribTypeState === 'cash-month') {
+    const monthly = parseFloat(document.getElementById('superVolCash').value) || 0;
+    state.super.voluntaryCash = monthly * 12;
+    state.super.voluntaryContribMonthly = monthly;
+    state.super.voluntaryRate = annualSalary > 0 ? (monthly * 12 / annualSalary * 100) : 0;
   } else {
     const cash = parseFloat(document.getElementById('superVolCash').value) || 0;
     state.super.voluntaryCash = cash;
+    state.super.voluntaryContribMonthly = cash / 12;
     state.super.voluntaryRate = annualSalary > 0 ? (cash / annualSalary * 100) : 0;
   }
   state.super.expectedReturn = parseFloat(document.getElementById('superReturn').value) || 7;
@@ -6653,10 +6676,10 @@ function renderNetWorth() {
         '</div>' +
       '</div>' +
       '<div style="font-size:11px;color:var(--muted);background:var(--surface2);border-radius:8px;padding:8px 10px;line-height:1.6">' +
-        '📊 ' + years + ' years of growth at ' + (sup.expectedReturn||7) + '% p.a. · ' +
-        'Employer ' + (sup.employerRate||11.5) + '%' +
-        (sup.voluntaryCash>0 ? ' + your $' + Math.round(sup.voluntaryCash).toLocaleString('en-AU') + '/yr extra' : '') +
-        ' · $' + Math.round((sup.annualSalary||0)/1000) + 'k salary' +
+        '📊 ' + years + ' years · ' + (sup.expectedReturn||7) + '% p.a. return · ' +
+        'Employer ' + (sup.employerRate||11.5) + '% SG' +
+        (sup.voluntaryCash>0 ? ' + $' + Math.round(sup.voluntaryContribMonthly||sup.voluntaryCash/12).toLocaleString('en-AU') + '/mo sacrifice ($' + Math.round(sup.voluntaryCash).toLocaleString('en-AU') + '/yr)' : '') +
+        ' · Annual salary $' + Math.round((sup.annualSalary||0)/1000) + 'k' +
       '</div>' +
     '</div>';
   } else {
