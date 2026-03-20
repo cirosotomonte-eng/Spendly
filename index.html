@@ -17,7 +17,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '1.2.0-202603201125';
+  const APP_VER = '1.2.0-202603201134';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -1227,7 +1227,7 @@ const PALETTE = [
 // ── State ─────────────────────────────────────────────────────────────────────
 const APP_VERSION = '1.2.0';
 const BUILD_DATE = '2026-03-20';
-const BUILD_TIME = '20 Mar 2026 11:25 AM AEDT';
+const BUILD_TIME = '20 Mar 2026 11:34 AM AEDT';
 const STORAGE_KEY = 'spendly_generic_v1';
 const LOCK_KEY = 'spendly_pin_hash';
 const BIOM_KEY = 'spendly_biometric';
@@ -4153,7 +4153,10 @@ function mortgageProjectionData(extraOffsetAmt) {
     pathA: resA.bals, pathB: resB.bals, pathC: resC.bals, pathD: resD.bals,
     minPmt, actualPmt,
     interestSaved, yearsSaved, monthsSaved, yearsLeft, monthsLeft,
-    paidOffDate: resD.paidOffDate, snowball,
+    paidOffDate: resD.paidOffDate,
+    paidOffA: resA.paidOffDate, paidOffB: resB.paidOffDate,
+    paidOffC: resC.paidOffDate, paidOffD: resD.paidOffDate,
+    snowball,
     totalIntA: resA.totalInt, totalIntB: resB.totalInt, totalIntC: resC.totalInt, totalIntD: resD.totalInt,
     baseOffset
   };
@@ -4461,29 +4464,88 @@ function renderMortgage() {
     const gridColor = isDark ? '#2a2a2a' : '#e8e8e0';
     const ctx = document.getElementById('mgBalanceChart');
     if (ctx) {
+      const fmtPayoff = d => d ? d.toLocaleDateString('en-AU',{month:'short',year:'numeric'}) : '—';
+      const today = new Date();
+
+      // Build year labels based on actual calendar years
       const maxLen = Math.max(proj.pathA.length, proj.pathB.length, proj.pathC.length, proj.pathD.length);
-      const labels = Array.from({length: maxLen}, (_,i) => i === 0 ? 'Now' : 'Yr ' + i);
+      const labels = Array.from({length: maxLen}, (_,i) => {
+        if (i === 0) return 'Now';
+        const yr = new Date(today.getFullYear() + i, today.getMonth(), 1);
+        return yr.toLocaleDateString('en-AU',{month:'short',year:'numeric'});
+      });
+
       const pad = (arr) => [...arr, ...Array(Math.max(0, maxLen - arr.length)).fill(0)];
+
+      // Find payoff index for each path (where balance hits 0)
+      const payoffIdx = (arr) => {
+        const idx = arr.findIndex(v => v === 0);
+        return idx >= 0 ? idx : arr.length - 1;
+      };
+
+      // Create point data with big dot only at payoff
+      const pointData = (padded, payIdx) => padded.map((v, i) => i === payIdx ? 5 : 0);
+
+      const pA = pad(proj.pathA), pB = pad(proj.pathB), pC = pad(proj.pathC), pD = pad(proj.pathD);
+      const idxA = payoffIdx(pA), idxB = payoffIdx(pB), idxC = payoffIdx(pC), idxD = payoffIdx(pD);
+
       new Chart(ctx, {
         type: 'line',
         data: {
           labels,
           datasets: [
-            { label: 'Min, no offset',     data: pad(proj.pathA), borderColor: '#aaa',     backgroundColor: 'transparent',                borderWidth: 1.5, borderDash: [4,3], pointRadius: 0 },
-            { label: 'Min + offset',        data: pad(proj.pathB), borderColor: '#60b0f0',  backgroundColor: 'transparent',                borderWidth: 1.5, borderDash: [2,3], pointRadius: 0 },
-            { label: 'Your rate, no offset',data: pad(proj.pathC), borderColor: '#f0a860',  backgroundColor: 'transparent',                borderWidth: 1.5, pointRadius: 0 },
-            { label: 'Your rate + offset',  data: pad(proj.pathD), borderColor: '#4F8EF7',  backgroundColor: 'rgba(79,142,247,0.08)',      borderWidth: 2.5, fill: true, pointRadius: 0 },
+            { label: 'Min, no offset',      data: pA, borderColor: '#aaa',    backgroundColor: 'transparent',           borderWidth: 1.5, borderDash: [4,3], pointRadius: pointData(pA,idxA), pointBackgroundColor: '#aaa' },
+            { label: 'Min + offset',         data: pB, borderColor: '#60b0f0', backgroundColor: 'transparent',           borderWidth: 1.5, borderDash: [2,3], pointRadius: pointData(pB,idxB), pointBackgroundColor: '#60b0f0' },
+            { label: 'Your rate, no offset', data: pC, borderColor: '#f0a860', backgroundColor: 'transparent',           borderWidth: 1.5, pointRadius: pointData(pC,idxC), pointBackgroundColor: '#f0a860' },
+            { label: 'Your rate + offset',   data: pD, borderColor: '#4F8EF7', backgroundColor: 'rgba(79,142,247,0.08)', borderWidth: 2.5, fill: true, pointRadius: pointData(pD,idxD), pointBackgroundColor: '#4F8EF7' },
           ]
         },
         options: {
           responsive: true, maintainAspectRatio: false, animation: false,
-          plugins: { legend: { display: false } },
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              callbacks: {
+                label: ctx => ctx.dataset.label + ': $' + Math.round(ctx.parsed.y/1000) + 'k'
+              }
+            }
+          },
           scales: {
-            x: { ticks: { color: textColor, font: { size: 10 }, maxTicksLimit: 8 }, grid: { display: false }, border: { display: false } },
+            x: { ticks: { color: textColor, font: { size: 10 }, maxTicksLimit: 7 }, grid: { display: false }, border: { display: false } },
             y: { ticks: { color: textColor, font: { size: 10 }, callback: v => '$' + Math.round(v/1000) + 'k' }, grid: { color: gridColor }, border: { display: false } }
           }
         }
       });
+
+      // ── Payoff date summary table ─────────────────────────────────────────
+      const mgWhatIfEl = document.getElementById('mgWhatIfSlider');
+      const insertAfter = ctx.closest('div')?.parentNode;
+      const table = document.createElement('div');
+      table.style.cssText = 'background:var(--surface2);border-radius:10px;padding:10px 12px;margin-bottom:16px;font-size:11px';
+      table.innerHTML =
+        '<div style="font-size:11px;font-weight:700;color:var(--text);margin-bottom:8px">🏁 Estimated payoff dates</div>' +
+        '<div style="display:grid;grid-template-columns:14px 1fr auto;gap:4px 8px;align-items:center">' +
+          '<div style="width:12px;height:2px;background:#aaa;border-top:2px dashed #aaa"></div>' +
+          '<div style="color:var(--muted)">Min $' + Math.round(proj.minPmt) + '/wk, no offset</div>' +
+          '<div style="font-weight:700;text-align:right">' + fmtPayoff(proj.paidOffA) + '</div>' +
+
+          '<div style="width:12px;height:2px;background:#60b0f0"></div>' +
+          '<div style="color:var(--muted)">Min $' + Math.round(proj.minPmt) + '/wk + offset</div>' +
+          '<div style="font-weight:700;color:#60b0f0;text-align:right">' + fmtPayoff(proj.paidOffB) + '</div>' +
+
+          '<div style="width:12px;height:2px;background:#f0a860"></div>' +
+          '<div style="color:var(--muted)">Your $' + Math.round(proj.actualPmt) + '/wk, no offset</div>' +
+          '<div style="font-weight:700;color:#f0a860;text-align:right">' + fmtPayoff(proj.paidOffC) + '</div>' +
+
+          '<div style="width:12px;height:2px;background:#4F8EF7"></div>' +
+          '<div style="color:var(--text);font-weight:600">Your $' + Math.round(proj.actualPmt) + '/wk + offset ✨</div>' +
+          '<div style="font-weight:700;color:#4F8EF7;text-align:right">' + fmtPayoff(proj.paidOffD) + '</div>' +
+        '</div>';
+      // Insert after chart canvas parent div
+      const canvasParent = ctx.parentNode;
+      if (canvasParent && canvasParent.parentNode) {
+        canvasParent.parentNode.insertBefore(table, canvasParent.nextSibling);
+      }
     }
   }
 }
