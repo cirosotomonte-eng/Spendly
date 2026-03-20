@@ -17,7 +17,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '1.2.0-202603201311';
+  const APP_VER = '1.2.0-202603201338';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -1263,13 +1263,29 @@ async function applyUpdate() {
     <input type="number" inputmode="numeric" id="superAge" placeholder="e.g. 35" min="18" max="70">
     <label>Retirement age</label>
     <input type="number" inputmode="numeric" id="superRetAge" placeholder="e.g. 67" min="55" max="75">
-    <label>Annual salary ($)</label>
+    <label>Base salary ($)</label>
     <input type="number" inputmode="decimal" id="superSalary" placeholder="e.g. 95000">
+    <label>Salary frequency</label>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:6px;margin-bottom:14px" id="superFreqBtns">
+      <button type="button" onclick="setSuperFreq('weekly')" id="superFreqWeekly" style="padding:8px 4px;border-radius:8px;border:2px solid var(--border);background:var(--surface2);color:var(--muted);font-weight:600;font-family:var(--font);cursor:pointer;font-size:11px">Weekly</button>
+      <button type="button" onclick="setSuperFreq('fortnightly')" id="superFreqFortnightly" style="padding:8px 4px;border-radius:8px;border:2px solid var(--border);background:var(--surface2);color:var(--muted);font-weight:600;font-family:var(--font);cursor:pointer;font-size:11px">Fortnightly</button>
+      <button type="button" onclick="setSuperFreq('monthly')" id="superFreqMonthly" style="padding:8px 4px;border-radius:8px;border:2px solid var(--border);background:var(--surface2);color:var(--muted);font-weight:600;font-family:var(--font);cursor:pointer;font-size:11px">Monthly</button>
+      <button type="button" onclick="setSuperFreq('annual')" id="superFreqAnnual" style="padding:8px 4px;border-radius:8px;border:2px solid var(--accent);background:var(--accent-dim);color:var(--accent);font-weight:700;font-family:var(--font);cursor:pointer;font-size:11px">Annual</button>
+    </div>
     <label>Employer SG rate (%)</label>
     <input type="number" inputmode="decimal" id="superEmpRate" placeholder="e.g. 11.5" step="0.5">
-    <label>Your voluntary contribution (% of salary)</label>
-    <input type="number" inputmode="decimal" id="superVolRate" placeholder="e.g. 5" step="0.5" min="0">
-    <label>Expected annual return (%)</label>
+    <label>Your extra contributions</label>
+    <div style="display:flex;gap:6px;margin-bottom:10px">
+      <button type="button" onclick="setSuperContribType('percent')" id="superContribPct" style="flex:1;padding:8px;border-radius:8px;border:2px solid var(--accent);background:var(--accent-dim);color:var(--accent);font-weight:700;font-family:var(--font);cursor:pointer;font-size:12px">% of salary</button>
+      <button type="button" onclick="setSuperContribType('cash')" id="superContribCash" style="flex:1;padding:8px;border-radius:8px;border:2px solid var(--border);background:var(--surface2);color:var(--muted);font-weight:600;font-family:var(--font);cursor:pointer;font-size:12px">$ per year</button>
+    </div>
+    <div id="superContribPctRow">
+      <input type="number" inputmode="decimal" id="superVolRate" placeholder="e.g. 5 (% of salary)" step="0.5" min="0">
+    </div>
+    <div id="superContribCashRow" style="display:none">
+      <input type="number" inputmode="decimal" id="superVolCash" placeholder="e.g. 5000 ($ per year)" step="100" min="0">
+    </div>
+    <label style="margin-top:4px">Expected annual return (%)</label>
     <input type="number" inputmode="decimal" id="superReturn" placeholder="e.g. 7" step="0.5">
     <button class="btn-primary" onclick="saveSuperSettings()">Save</button>
     <button class="btn-ghost" onclick="closeModal('superModal')">Cancel</button>
@@ -1318,7 +1334,7 @@ const PALETTE = [
 // ── State ─────────────────────────────────────────────────────────────────────
 const APP_VERSION = '1.2.0';
 const BUILD_DATE = '2026-03-20';
-const BUILD_TIME = '20 Mar 2026 1:11 PM AEDT';
+const BUILD_TIME = '20 Mar 2026 1:38 PM AEDT';
 const STORAGE_KEY = 'spendly_generic_v1';
 const LOCK_KEY = 'spendly_pin_hash';
 const BIOM_KEY = 'spendly_biometric';
@@ -6196,43 +6212,58 @@ function deleteDividend() {
 // ── AI Screenshot Import ───────────────────────────────────────────────────────
 function openPortfolioImport() {
   const input = document.createElement('input');
-  input.type = 'file'; input.accept = 'image/*';
+  input.type = 'file'; input.accept = 'image/*'; input.multiple = true;
   input.onchange = async (e) => {
-    const file = e.target.files[0]; if (!file) return;
-    showToast('🤖 Reading your portfolio screenshot…', 8000);
-    const reader = new FileReader();
-    reader.onload = async (ev) => {
-      const base64 = ev.target.result.split(',')[1];
-      const mediaType = file.type || 'image/jpeg';
+    const files = Array.from(e.target.files);
+    if (!files.length) return;
+    showToast('🤖 Reading ' + files.length + ' screenshot' + (files.length>1?'s':'') + '…', 10000);
+
+    // Convert all files to base64
+    const toBase64 = file => new Promise((res, rej) => {
+      const r = new FileReader();
+      r.onload = ev => res({ base64: ev.target.result.split(',')[1], mediaType: file.type || 'image/jpeg' });
+      r.onerror = rej;
+      r.readAsDataURL(file);
+    });
+
+    try {
+      const images = await Promise.all(files.map(toBase64));
+
+      // Build content array: all images + one instruction
+      const content = [];
+      images.forEach((img, i) => {
+        content.push({ type: 'image', source: { type: 'base64', media_type: img.mediaType, data: img.base64 } });
+        content.push({ type: 'text', text: 'Screenshot ' + (i+1) + ':' });
+      });
+      content.push({ type: 'text', text: 'These are ' + files.length + ' screenshots from a broker portfolio app — they may show different views (Summary, Holdings, P&L, Cost Base) of the same portfolio. Extract and MERGE all holdings into a single JSON array. For each holding combine all available data from across all screenshots. Return ONLY a JSON array, no markdown, no backticks. Each item: { "ticker": "CBA", "name": "Commonwealth Bank", "exchange": "ASX", "units": 100, "currentPrice": 112.30, "avgCost": 95.50 }. Set any field to null if not visible in any screenshot. Assume ASX unless clearly stated. Deduplicate by ticker — merge data from multiple screenshots for the same ticker.' });
+
+      const response = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: 'claude-sonnet-4-20250514',
+          max_tokens: 2000,
+          messages: [{ role: 'user', content }]
+        })
+      });
+
+      const data = await response.json();
+      const text = (data.content||[]).find(b=>b.type==='text')?.text || '[]';
+      let holdings = [];
       try {
-        const response = await fetch('https://api.anthropic.com/v1/messages', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            model: 'claude-sonnet-4-20250514',
-            max_tokens: 1000,
-            messages: [{
-              role: 'user',
-              content: [
-                { type: 'image', source: { type: 'base64', media_type: mediaType, data: base64 } },
-                { type: 'text', text: 'Extract all share/ETF holdings from this broker portfolio screenshot. Return ONLY a JSON array with no markdown, no backticks. Each item: { "ticker": "CBA", "name": "Commonwealth Bank", "exchange": "ASX", "units": 100, "avgCost": 95.50, "currentPrice": 112.30 }. Use null for any field not visible. Return [] if no holdings found.' }
-              ]
-            }]
-          })
-        });
-        const data = await response.json();
-        const text = (data.content||[]).find(b=>b.type==='text')?.text || '[]';
-        let holdings = [];
-        try { holdings = JSON.parse(text.trim()); } catch(e) { holdings = []; }
-        if (!Array.isArray(holdings) || holdings.length === 0) {
-          showToast('⚠️ Could not read holdings. Try a clearer screenshot.', 4000); return;
-        }
-        showImportPreview(holdings);
-      } catch(err) {
-        showToast('❌ Import failed. Please try again.', 3000);
+        const clean = text.trim().replace(/^```json?\s*/,'').replace(/\s*```$/,'');
+        holdings = JSON.parse(clean);
+      } catch(err) { holdings = []; }
+
+      const filtered = Array.isArray(holdings) ? holdings.filter(h => h.ticker && h.units > 0) : [];
+      if (filtered.length === 0) {
+        showToast('⚠️ Could not read holdings. Try the Holdings or P&L tab screenshots.', 5000); return;
       }
-    };
-    reader.readAsDataURL(file);
+      showImportPreview(filtered);
+    } catch(err) {
+      console.error('Import error:', err);
+      showToast('❌ Import failed. Please try again.', 3000);
+    }
   };
   input.click();
 }
@@ -6291,7 +6322,7 @@ function confirmPortfolioImport() {
       name: h.name || h.ticker,
       exchange: h.exchange || 'ASX',
       units: h.units || 0,
-      avgCost: h.avgCost || 0,
+      avgCost: h.avgCost || h.currentPrice || 0,
       currentPrice: h.currentPrice || 0,
       priceHistory: h.currentPrice ? [{ date: today, price: h.currentPrice }] : [],
       dividends: []
@@ -6314,7 +6345,7 @@ function renderPortfolio() {
       '<div class="empty-text">No holdings yet</div>' +
       '<div class="empty-sub">Add holdings manually or import from a screenshot</div>' +
       '</div>' +
-      '<button onclick="openPortfolioImport()" style="width:100%;background:var(--surface);border:1.5px solid var(--border);color:var(--text);border-radius:14px;padding:14px;font-size:14px;font-weight:600;font-family:var(--font);cursor:pointer;margin-top:8px">🤖 Import from screenshot</button>';
+      '<button onclick="openPortfolioImport()" style="width:100%;background:var(--surface);border:1.5px solid var(--border);color:var(--text);border-radius:14px;padding:14px;font-size:14px;font-weight:600;font-family:var(--font);cursor:pointer;margin-top:8px">🤖 Import from screenshots (select multiple)</button>';
     return;
   }
 
@@ -6352,7 +6383,7 @@ function renderPortfolio() {
   '</div>';
 
   // Import button
-  html += '<button onclick="openPortfolioImport()" style="width:100%;background:var(--surface);border:1.5px dashed var(--border);color:var(--muted);border-radius:10px;padding:10px;font-size:12px;font-weight:600;font-family:var(--font);cursor:pointer;margin-bottom:14px">🤖 Update via screenshot import</button>';
+  html += '<button onclick="openPortfolioImport()" style="width:100%;background:var(--surface);border:1.5px dashed var(--border);color:var(--muted);border-radius:10px;padding:10px;font-size:12px;font-weight:600;font-family:var(--font);cursor:pointer;margin-bottom:14px">🤖 Update via screenshots (select multiple)</button>';
 
   // Holdings list
   html += '<div class="section-label">Holdings</div>';
@@ -6399,6 +6430,35 @@ function renderPortfolio() {
 }
 
 // ── Super settings ────────────────────────────────────────────────────────────
+
+let superFreqState = 'annual';
+let superContribTypeState = 'percent';
+
+function setSuperFreq(freq) {
+  superFreqState = freq;
+  ['weekly','fortnightly','monthly','annual'].forEach(f => {
+    const btn = document.getElementById('superFreq' + f.charAt(0).toUpperCase() + f.slice(1));
+    if (!btn) return;
+    const active = f === freq;
+    btn.style.border = active ? '2px solid var(--accent)' : '2px solid var(--border)';
+    btn.style.background = active ? 'var(--accent-dim)' : 'var(--surface2)';
+    btn.style.color = active ? 'var(--accent)' : 'var(--muted)';
+    btn.style.fontWeight = active ? '700' : '600';
+  });
+}
+
+function setSuperContribType(type) {
+  superContribTypeState = type;
+  const pctBtn = document.getElementById('superContribPct');
+  const cashBtn = document.getElementById('superContribCash');
+  const pctRow = document.getElementById('superContribPctRow');
+  const cashRow = document.getElementById('superContribCashRow');
+  if (pctBtn) { pctBtn.style.border = type==='percent' ? '2px solid var(--accent)' : '2px solid var(--border)'; pctBtn.style.background = type==='percent' ? 'var(--accent-dim)' : 'var(--surface2)'; pctBtn.style.color = type==='percent' ? 'var(--accent)' : 'var(--muted)'; pctBtn.style.fontWeight = type==='percent' ? '700' : '600'; }
+  if (cashBtn) { cashBtn.style.border = type==='cash' ? '2px solid var(--accent)' : '2px solid var(--border)'; cashBtn.style.background = type==='cash' ? 'var(--accent-dim)' : 'var(--surface2)'; cashBtn.style.color = type==='cash' ? 'var(--accent)' : 'var(--muted)'; cashBtn.style.fontWeight = type==='cash' ? '700' : '600'; }
+  if (pctRow) pctRow.style.display = type==='percent' ? 'block' : 'none';
+  if (cashRow) cashRow.style.display = type==='cash' ? 'block' : 'none';
+}
+
 function openSuperSettings() {
   const s = state.super || {};
   document.getElementById('superBalance').value = s.balance || '';
@@ -6407,21 +6467,37 @@ function openSuperSettings() {
   document.getElementById('superSalary').value = s.annualSalary || '';
   document.getElementById('superEmpRate').value = s.employerRate ?? 11.5;
   document.getElementById('superVolRate').value = s.voluntaryRate || 0;
+  document.getElementById('superVolCash').value = s.voluntaryCash || 0;
   document.getElementById('superReturn').value = s.expectedReturn ?? 7;
+  setSuperFreq(s.salaryFrequency || 'annual');
+  setSuperContribType(s.contribType || 'percent');
   document.getElementById('superModal').classList.add('open');
 }
 
 function saveSuperSettings() {
   const balance = parseFloat(document.getElementById('superBalance').value) || 0;
   if (!state.super) state.super = {};
+  const inputSalary = parseFloat(document.getElementById('superSalary').value) || 0;
+  const freqMultiplier = { weekly: 52, fortnightly: 26, monthly: 12, annual: 1 };
+  const annualSalary = inputSalary * (freqMultiplier[superFreqState] || 1);
   state.super.balance = balance;
   state.super.currentAge = parseInt(document.getElementById('superAge').value) || 0;
   state.super.retirementAge = parseInt(document.getElementById('superRetAge').value) || 67;
-  state.super.annualSalary = parseFloat(document.getElementById('superSalary').value) || 0;
+  state.super.annualSalary = annualSalary;
+  state.super.inputSalary = inputSalary;
+  state.super.salaryFrequency = superFreqState;
   state.super.employerRate = parseFloat(document.getElementById('superEmpRate').value) || 11.5;
-  state.super.voluntaryRate = parseFloat(document.getElementById('superVolRate').value) || 0;
+  state.super.contribType = superContribTypeState;
+  if (superContribTypeState === 'percent') {
+    const pct = parseFloat(document.getElementById('superVolRate').value) || 0;
+    state.super.voluntaryRate = pct;
+    state.super.voluntaryCash = (annualSalary * pct / 100);
+  } else {
+    const cash = parseFloat(document.getElementById('superVolCash').value) || 0;
+    state.super.voluntaryCash = cash;
+    state.super.voluntaryRate = annualSalary > 0 ? (cash / annualSalary * 100) : 0;
+  }
   state.super.expectedReturn = parseFloat(document.getElementById('superReturn').value) || 7;
-  // Log balance history
   if (!state.super.balanceHistory) state.super.balanceHistory = [];
   state.super.balanceHistory.push({ date: todayStr(), balance });
   saveState(); closeModal('superModal'); renderContent();
@@ -6530,7 +6606,9 @@ function renderNetWorth() {
       '</div>' +
       '<div style="font-size:11px;color:var(--muted);background:var(--surface2);border-radius:8px;padding:8px 10px;line-height:1.6">' +
         '📊 ' + years + ' years of growth at ' + (sup.expectedReturn||7) + '% p.a. · ' +
-        'Employer ' + (sup.employerRate||11.5) + '%' + (sup.voluntaryRate>0?' + your '+sup.voluntaryRate+'%':'') + ' of $' + Math.round((sup.annualSalary||0)/1000) + 'k salary' +
+        'Employer ' + (sup.employerRate||11.5) + '%' +
+        (sup.voluntaryCash>0 ? ' + your $' + Math.round(sup.voluntaryCash).toLocaleString('en-AU') + '/yr extra' : '') +
+        ' · $' + Math.round((sup.annualSalary||0)/1000) + 'k salary' +
       '</div>' +
     '</div>';
   } else {
