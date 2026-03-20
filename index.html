@@ -17,7 +17,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '1.2.0-202603201616';
+  const APP_VER = '1.2.0-202603201651';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -151,11 +151,11 @@ async function applyUpdate() {
   /* Stats cards */
   #cycleStats { margin: 8px 20px 12px; }
 
-  /* Tabs */
-  .tabs { display: flex; gap: 4px; padding: 0 20px 14px; overflow-x: auto; scrollbar-width: none; }
-  .tabs::-webkit-scrollbar { display: none; }
-  .tab { flex-shrink: 0; padding: 8px 14px; background: var(--surface); border: none; border-radius: var(--r); color: var(--muted); font-size: 13px; font-family: var(--font); cursor: pointer; transition: all 0.15s; white-space: nowrap; }
-  .tab.active { background: var(--accent); color: #fff; font-weight: 600; }
+  /* Tabs — icon grid */
+  .tabs { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; padding: 0 16px 14px; }
+  .tab { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 8px 4px; background: var(--surface); border: 1px solid var(--surface2); border-radius: var(--r); color: var(--muted); font-size: 10px; font-family: var(--font); cursor: pointer; transition: all 0.15s; white-space: nowrap; line-height: 1.2; }
+  .tab .tab-icon { font-size: 18px; line-height: 1; }
+  .tab.active { background: var(--accent-dim); border-color: var(--accent); color: var(--accent); font-weight: 700; }
 
   /* Content */
   .content { flex: 1; padding: 0 20px; padding-bottom: 100px; }
@@ -379,8 +379,8 @@ async function applyUpdate() {
   #launchScreen { -webkit-transform: translateZ(0); }
 
   .spendly-tip { position:relative; display:inline-flex; align-items:center; }
-  .spendly-tip-icon { width:15px;height:15px;border-radius:50%;background:var(--surface3);color:var(--muted);font-size:10px;font-weight:700;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;margin-left:5px;line-height:1;font-style:normal; }
-  .spendly-tip-box { display:none;position:absolute;bottom:calc(100% + 6px);left:50%;transform:translateX(-50%);background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:10px 12px;font-size:11px;color:var(--muted);line-height:1.6;width:240px;z-index:200;box-shadow:0 4px 16px rgba(0,0,0,0.2);pointer-events:none; }
+  .spendly-tip-icon { width:16px;height:16px;border-radius:50%;background:none;border:1.5px solid var(--muted);color:var(--muted);font-size:10px;font-weight:700;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;margin-left:5px;line-height:1;font-style:normal;opacity:0.6; }
+  .spendly-tip-box { display:none;position:absolute;bottom:calc(100% + 6px);left:50%;transform:translateX(-50%);background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:10px 12px;font-size:11px;font-weight:400;color:var(--muted);line-height:1.6;width:240px;z-index:200;box-shadow:0 4px 16px rgba(0,0,0,0.2);pointer-events:none;text-transform:none;letter-spacing:normal; }
   .spendly-tip-box.visible { display:block; }
 </style>
 </head>
@@ -649,7 +649,7 @@ async function applyUpdate() {
     </div>
     <div class="totals-row">
       <div>
-        <div class="num-label">Left to spend</div>
+        <div class="num-label" style="display:flex;align-items:center;gap:4px">Left to spend<span class="spendly-tip"><i class="spendly-tip-icon" data-tip="tip-leftspend" onclick="event.stopPropagation();showTip(this.dataset.tip)">i</i><div class="spendly-tip-box" id="tip-leftspend" style="left:0;transform:none;width:220px">Your remaining budget after subtracting what you've spent and including any upcoming recurring expenses not yet committed.</div></span></div>
         <div class="big-num" id="totalRemain">—</div>
       </div>
       <div style="text-align:right">
@@ -657,7 +657,7 @@ async function applyUpdate() {
         <div style="font-size:24px;font-weight:700;letter-spacing:-0.5px;color:var(--muted)" id="budgetDisplay">—</div>
       </div>
     </div>
-    <div class="sub-text"><span id="totalSpent">$0</span> <span id="totalSub">spent this cycle</span><span id="totalUpcomingBadge"></span></div>
+
   </div>
 
   <div class="budget-section">
@@ -673,18 +673,18 @@ async function applyUpdate() {
   <div id="cycleStats"></div>
 
   <div class="tabs">
-    <button class="tab active" onclick="switchTab('expenses')">Expenses</button>
-    <button class="tab" onclick="switchTab('goals')">Budget</button>
-    <button class="tab" onclick="switchTab('savings')">💰 Savings</button>
-    <button class="tab" onclick="switchTab('recycling')">♻️ Recycling</button>
-    <button class="tab" onclick="switchTab('mortgage')">🏠 Mortgage</button>
-    <button class="tab" onclick="switchTab('tax')">🧾 Tax</button>
-    <button class="tab" onclick="switchTab('giftcards')">🎁 Wallet</button>
-    <button class="tab" onclick="switchTab('portfolio')">📈 Portfolio</button>
-    <button class="tab" onclick="switchTab('networth')">💎 Net Worth</button>
-    <button class="tab" onclick="switchTab('investor')">💡 Investor</button>
-    <button class="tab" onclick="switchTab('analytics')">Analytics</button>
-    <button class="tab" onclick="switchTab('notes')">📝 Notes</button>
+    <button class="tab active" onclick="switchTab('expenses')"><span class="tab-icon">💸</span>Expenses</button>
+    <button class="tab" onclick="switchTab('goals')"><span class="tab-icon">🎯</span>Budget</button>
+    <button class="tab" onclick="switchTab('savings')"><span class="tab-icon">💰</span>Savings</button>
+    <button class="tab" onclick="switchTab('recycling')"><span class="tab-icon">♻️</span>Recycling</button>
+    <button class="tab" onclick="switchTab('mortgage')"><span class="tab-icon">🏠</span>Mortgage</button>
+    <button class="tab" onclick="switchTab('tax')"><span class="tab-icon">🧾</span>Tax</button>
+    <button class="tab" onclick="switchTab('giftcards')"><span class="tab-icon">🎁</span>Wallet</button>
+    <button class="tab" onclick="switchTab('portfolio')"><span class="tab-icon">📈</span>Portfolio</button>
+    <button class="tab" onclick="switchTab('networth')"><span class="tab-icon">💎</span>Net Worth</button>
+    <button class="tab" onclick="switchTab('investor')"><span class="tab-icon">💡</span>Investor</button>
+    <button class="tab" onclick="switchTab('analytics')"><span class="tab-icon">📊</span>Analytics</button>
+    <button class="tab" onclick="switchTab('notes')"><span class="tab-icon">📝</span>Notes</button>
   </div>
 
   <div class="content" id="content"></div>
@@ -1364,7 +1364,7 @@ const PALETTE = [
 // ── State ─────────────────────────────────────────────────────────────────────
 const APP_VERSION = '1.2.0';
 const BUILD_DATE = '2026-03-20';
-const BUILD_TIME = '20 Mar 2026 4:16 PM AEDT';
+const BUILD_TIME = '20 Mar 2026 4:51 PM AEDT';
 const STORAGE_KEY = 'spendly_generic_v1';
 const LOCK_KEY = 'spendly_pin_hash';
 const BIOM_KEY = 'spendly_biometric';
@@ -1748,7 +1748,7 @@ function updateHeader() {
   // Totals
   const spentEl = document.getElementById('totalSpent');
   if (spentEl) spentEl.textContent = fmt(total);
-  document.getElementById('totalSub').textContent = isFutureCycle() ? 'projected recurring' : isCurrentCycle() ? 'spent this cycle' : 'spent that cycle';
+  // sub-text removed — now handled by tooltips
   const badge = document.getElementById('totalUpcomingBadge');
   if (badge) {
     if (upcomingTotal > 0 && isCurrentCycle()) {
@@ -1793,9 +1793,10 @@ function updateHeader() {
     '<div style="font-size:10px;color:var(--muted)">until ' + endStr + '</div>';
   const b2 = document.createElement('div');
   b2.style.cssText = 'flex:2;background:var(--surface);border-radius:10px;padding:10px 12px;';
-  b2.innerHTML = '<div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:4px">Daily limit</div>' +
-    '<div style="font-size:20px;font-weight:700;letter-spacing:-0.5px;color:' + dailyColor + '">' + (dailyLimit > 0 ? fmt(dailyLimit) : '–') + '</div>' +
-    '<div style="font-size:10px;color:var(--muted)">' + subText + '</div>';
+  b2.innerHTML = '<div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:4px;display:flex;align-items:center;gap:4px">Daily limit' +
+    '<span class="spendly-tip"><i class="spendly-tip-icon" data-tip="tip-dailylimit" onclick="event.stopPropagation();showTip(this.dataset.tip)">i</i>' +
+    '<div class="spendly-tip-box" id="tip-dailylimit" style="left:auto;right:0;transform:none;width:200px">Your available spend divided by the days left in your cycle. Updated daily.</div></span></div>' +
+    '<div style="font-size:20px;font-weight:700;letter-spacing:-0.5px;color:' + dailyColor + '">' + (dailyLimit > 0 ? fmt(dailyLimit) : '–') + '</div>';
   wrap.appendChild(b1); wrap.appendChild(b2);
   statsEl.appendChild(wrap);
 }
