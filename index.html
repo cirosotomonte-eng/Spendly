@@ -17,7 +17,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '1.3.4-202603210934';
+  const APP_VER = '1.3.5-202603211010';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -1397,9 +1397,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '1.3.4';
+const APP_VERSION = '1.3.5';
 const BUILD_DATE = '2026-03-21';
-const BUILD_TIME = '21 Mar 2026 9:34 AM AEDT';
+const BUILD_TIME = '21 Mar 2026 10:10 AM AEDT';
 const STORAGE_KEY = 'spendly_generic_v1';
 const LOCK_KEY = 'spendly_pin_hash';
 const BIOM_KEY = 'spendly_biometric';
@@ -1763,8 +1763,23 @@ function navigateCycle(delta) {
 function updateHeader() {
   const expenses = cycleExpenses();
   const total = expenses.reduce((s,e) => s + e.amount, 0);
-  const upcoming = isCurrentCycle() ? getUpcomingRecurring() : [];
-  const upcomingTotal = upcoming.reduce((s,e) => s + e.amount, 0);
+
+  let upcomingTotal = 0;
+  if (isCurrentCycle()) {
+    upcomingTotal = getUpcomingRecurring().reduce((s,e) => s + e.amount, 0);
+  } else if (isFutureCycle()) {
+    // Project all recurring expenses due within this future cycle
+    const { cycleStart, cycleEnd } = getCycleRange();
+    const recurring = (state.recurringExpenses || []).filter(r => r.active !== false);
+    let checkDate = new Date(cycleStart);
+    while (checkDate <= cycleEnd) {
+      const dateStr = dateToStr(checkDate);
+      recurring.forEach(r => {
+        if (isRecurringDueOn(r, dateStr)) upcomingTotal += r.amount;
+      });
+      checkDate.setDate(checkDate.getDate() + 1);
+    }
+  }
   const committed = total + upcomingTotal;
   const budget = state.budget;
   const remain = budget - committed;
@@ -1788,6 +1803,8 @@ function updateHeader() {
   if (badge) {
     if (upcomingTotal > 0 && isCurrentCycle()) {
       badge.innerHTML = ' · <span style="color:var(--accent)">' + fmt(upcomingTotal) + ' upcoming</span>';
+    } else if (upcomingTotal > 0 && isFutureCycle()) {
+      badge.innerHTML = ' · <span style="color:var(--accent)">' + fmt(upcomingTotal) + ' committed</span>';
     } else {
       badge.innerHTML = '';
     }
