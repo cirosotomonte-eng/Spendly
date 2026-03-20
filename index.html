@@ -17,7 +17,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '1.3.3-202603201847';
+  const APP_VER = '1.3.4-202603210934';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -1397,9 +1397,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '1.3.3';
-const BUILD_DATE = '2026-03-20';
-const BUILD_TIME = '20 Mar 2026 6:47 PM AEDT';
+const APP_VERSION = '1.3.4';
+const BUILD_DATE = '2026-03-21';
+const BUILD_TIME = '21 Mar 2026 9:34 AM AEDT';
 const STORAGE_KEY = 'spendly_generic_v1';
 const LOCK_KEY = 'spendly_pin_hash';
 const BIOM_KEY = 'spendly_biometric';
@@ -7763,7 +7763,10 @@ async function init() {
     const ls = document.getElementById('launchScreen');
     if (ls && ls.style.display !== 'none') {
       ls.style.display = 'none';
-      showApp();
+      if (!initWelcome()) {
+        showApp();
+        initLock();
+      }
     }
   }, 4000);
   try {
@@ -7811,7 +7814,28 @@ function autoBackup() {
     sessionStorage.setItem(BACKUP_KEY2, data);
   } catch(e) {}
 }
-document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') autoBackup(); });
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') {
+    autoBackup();
+  } else if (document.visibilityState === 'visible') {
+    // Re-lock if user has a PIN set and app was hidden
+    const hasPin = !!localStorage.getItem(LOCK_KEY);
+    const lockEl = document.getElementById('lockScreen');
+    const isAlreadyLocked = lockEl && lockEl.style.display !== 'none';
+    if (hasPin && !isAlreadyLocked) {
+      lockMode = 'unlock'; lockBuf = '';
+      document.getElementById('lockIcon').textContent = '🔒';
+      document.getElementById('lockTitle').textContent = 'Hey, ' + (state.appName || 'there') + ' 👋';
+      document.getElementById('lockSub').textContent = 'Enter your PIN to continue';
+      document.getElementById('lockHint').style.display = 'none';
+      document.getElementById('lockSkipBtn').style.display = 'none';
+      document.getElementById('lockBiomBtn').style.display = 'none';
+      document.getElementById('lockBiomSmall').style.display = 'none';
+      updateDots(0, false);
+      showLockScreen();
+    }
+  }
+});
 </script>
 </body>
 </html>
