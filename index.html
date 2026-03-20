@@ -17,7 +17,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '1.3.5-202603211010';
+  const APP_VER = '1.3.6-202603211022';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -1397,9 +1397,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '1.3.5';
+const APP_VERSION = '1.3.6';
 const BUILD_DATE = '2026-03-21';
-const BUILD_TIME = '21 Mar 2026 10:10 AM AEDT';
+const BUILD_TIME = '21 Mar 2026 10:22 AM AEDT';
 const STORAGE_KEY = 'spendly_generic_v1';
 const LOCK_KEY = 'spendly_pin_hash';
 const BIOM_KEY = 'spendly_biometric';
@@ -2225,6 +2225,7 @@ function renderAnalytics() {
     { id:'movers',     label:'Movers' },
     { id:'merchants',  label:'Merchants' },
     { id:'heatmap',    label:'Heat Map' },
+    { id:'forecast',   label:'Forecast' },
   ];
   const tabsHtml = '<div class="an-tabs">' + tabs.map(t =>
     '<button class="an-tab' + (analyticsSection===t.id?' active':'') + '" onclick="analyticsSection=\''+t.id+'\';renderAnalytics()">' + t.label + '</button>'
@@ -2242,14 +2243,20 @@ function renderAnalytics() {
   else if (analyticsSection === 'movers')   renderAnalyticsMovers();
   else if (analyticsSection === 'merchants') renderAnalyticsMerchants();
   else if (analyticsSection === 'heatmap')  renderAnalyticsHeatmap();
+  else if (analyticsSection === 'forecast') renderAnalyticsForecast();
 }
 
 // ── Overview ──────────────────────────────────────────────────────────────────
 function renderAnalyticsOverview() {
   const ab = document.getElementById('anBody');
-  const expenses = cycleExpenses();
+  // Always show current cycle data regardless of which cycle is being viewed in the expenses tab
+  const { cycleStart, cycleEnd } = getCycleRange(0);
+  const expenses = state.expenses.filter(e => {
+    const d = new Date(e.date + 'T00:00:00');
+    return d >= cycleStart && d <= cycleEnd;
+  });
   if (expenses.length === 0) {
-    ab.innerHTML = '<div class="empty" style="padding:40px 0"><div class="empty-icon">📊</div><div class="empty-text">No data this cycle</div></div>';
+    ab.innerHTML = '<div class="empty" style="padding:40px 0"><div class="empty-icon">📊</div><div class="empty-text">No expenses this cycle yet</div><div class="empty-sub">Add some expenses to see your overview</div></div>';
     return;
   }
   const total = expenses.reduce((s,e) => s+e.amount, 0);
@@ -2261,8 +2268,7 @@ function renderAnalyticsOverview() {
   const varTotal   = expenses.filter(e => { const c=catById(e.categoryId); return c&&c.type==='variable'; }).reduce((s,e)=>s+e.amount,0);
   const totalBudget = state.categories.reduce((s,c) => s+(c.budgetLimit||0), 0);
 
-  // Pace projection
-  const { cycleStart, cycleEnd } = getCycleRange();
+  // Pace projection — always current cycle
   const today = new Date(); today.setHours(0,0,0,0);
   const daysElapsed = Math.max(1, Math.round((today - cycleStart) / 86400000) + 1);
   const totalDaysInCycle = Math.round((cycleEnd - cycleStart) / 86400000) + 1;
@@ -2651,8 +2657,9 @@ function renderAnalyticsHeatmap() {
 
   // Table — header row (cycle labels)
   const colLabelStyle = 'font-size:9px;color:var(--muted);text-align:center;padding:0 2px 6px;white-space:nowrap;';
+  const stickyBg = 'var(--bg)';
   let html = legendHtml + '<div style="overflow-x:auto;margin:0 -20px;padding:0 20px 16px"><table style="border-collapse:separate;border-spacing:3px;min-width:max-content">';
-  html += '<thead><tr><th style="text-align:left;font-size:10px;color:var(--muted);padding:0 8px 6px 0;font-weight:600;white-space:nowrap">Category</th>';
+  html += '<thead><tr><th style="position:sticky;left:0;z-index:3;background:' + stickyBg + ';text-align:left;font-size:10px;color:var(--muted);padding:0 10px 6px 0;font-weight:600;white-space:nowrap">Category</th>';
   cycles.forEach(c => { html += '<th style="' + colLabelStyle + '">' + c.label + '</th>'; });
   html += '<th style="' + colLabelStyle + 'padding-left:6px">Total</th></tr></thead><tbody>';
 
@@ -2660,7 +2667,7 @@ function renderAnalyticsHeatmap() {
     const catTotal = cycles.reduce((s,c)=>s+(c.bycat[cat.id]||0),0);
     if (catTotal === 0) return; // skip empty cats
     html += '<tr>';
-    html += '<td style="padding:0 8px 0 0;white-space:nowrap;font-size:12px">' + cat.icon + ' ' + cat.name + '</td>';
+    html += '<td style="position:sticky;left:0;z-index:2;background:' + stickyBg + ';padding:0 10px 0 0;white-space:nowrap;font-size:12px">' + cat.icon + ' ' + cat.name + '</td>';
     cycles.forEach(c => {
       const val = c.bycat[cat.id] || 0;
       const bg = cellColor(val, cat.color, cat.budgetLimit);
@@ -2675,7 +2682,7 @@ function renderAnalyticsHeatmap() {
 
   // Cycle totals footer row
   html += '<tr style="border-top:1px solid var(--border)">';
-  html += '<td style="padding:6px 8px 2px 0;font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em">Total</td>';
+  html += '<td style="position:sticky;left:0;z-index:2;background:' + stickyBg + ';padding:6px 10px 2px 0;font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;white-space:nowrap">Total</td>';
   let grandTotal = 0;
   cycles.forEach(c => {
     grandTotal += c.total;
@@ -2687,7 +2694,147 @@ function renderAnalyticsHeatmap() {
   ab.innerHTML = html;
 }
 
-// ── Goals tab ─────────────────────────────────────────────────────────────────
+// ── Forecast (12-month projection) ────────────────────────────────────────────
+function renderAnalyticsForecast() {
+  const ab = document.getElementById('anBody');
+  const recurring = (state.recurringExpenses || []).filter(r => r.active !== false);
+  const budget = state.budget || 0;
+
+  if (recurring.length === 0) {
+    ab.innerHTML = '<div class="empty" style="padding:40px 0"><div class="empty-icon">🔮</div><div class="empty-text">No recurring expenses set up</div><div class="empty-sub">Add recurring expenses to see your 12-month forecast</div></div>';
+    return;
+  }
+
+  // Build 12 future cycles starting from next cycle (offset 1)
+  const NUM = 12;
+  const forecastCycles = [];
+  for (let i = 1; i <= NUM; i++) {
+    const { cycleStart, cycleEnd } = getCycleRange(i);
+    let committed = 0;
+    const byCat = {};
+    let checkDate = new Date(cycleStart);
+    while (checkDate <= cycleEnd) {
+      const dateStr = dateToStr(checkDate);
+      recurring.forEach(r => {
+        if (isRecurringDueOn(r, dateStr)) {
+          committed += r.amount;
+          byCat[r.categoryId] = (byCat[r.categoryId] || 0) + r.amount;
+        }
+      });
+      checkDate.setDate(checkDate.getDate() + 1);
+    }
+    const free = budget - committed;
+    const monthLabel = cycleStart.toLocaleDateString('en-AU', { month: 'short', year: '2-digit' });
+    const fullLabel = cycleStart.toLocaleDateString('en-AU', { day: 'numeric', month: 'short' }) +
+      ' – ' + cycleEnd.toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' });
+    forecastCycles.push({ committed, free, byCat, monthLabel, fullLabel, cycleStart, cycleEnd, pct: budget > 0 ? Math.min(committed / budget * 100, 100) : 0 });
+  }
+
+  const totalCommitted12 = forecastCycles.reduce((s, c) => s + c.committed, 0);
+  const avgCommitted = totalCommitted12 / NUM;
+  const maxCommitted = Math.max(...forecastCycles.map(c => c.committed));
+  const minFree = Math.min(...forecastCycles.map(c => c.free));
+
+  // Top categories across forecast
+  const catTotals = {};
+  forecastCycles.forEach(fc => {
+    Object.entries(fc.byCat).forEach(([cid, v]) => {
+      catTotals[cid] = (catTotals[cid] || 0) + v;
+    });
+  });
+  const topCats = Object.entries(catTotals).sort((a,b) => b[1]-a[1]).slice(0, 5);
+
+  const isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+  const textColor = isDark ? '#888' : '#999';
+  const gridColor = isDark ? '#2a2a2a' : '#e8e8e0';
+
+  ab.innerHTML =
+    // Summary KPIs
+    '<div class="an-kpi-grid" style="margin-bottom:14px">' +
+      '<div class="an-kpi"><div class="an-kpi-label">Avg committed/cycle</div><div class="an-kpi-val">' + fmt(avgCommitted) + '</div>' +
+        (budget > 0 ? '<div class="an-kpi-sub">' + (avgCommitted/budget*100).toFixed(0) + '% of budget</div>' : '') + '</div>' +
+      '<div class="an-kpi"><div class="an-kpi-label">12-month total</div><div class="an-kpi-val">' + fmt(totalCommitted12) + '</div>' +
+        '<div class="an-kpi-sub">in recurring costs</div></div>' +
+    '</div>' +
+    (minFree < 0 ?
+    '<div style="background:rgba(255,92,92,0.1);border:1px solid rgba(255,92,92,0.3);border-radius:var(--r);padding:11px 13px;margin-bottom:12px;font-size:12px;color:var(--red)">⚠️ Recurring expenses exceed your budget in some cycles — you may need to review your commitments.</div>'
+    : budget > 0 && (avgCommitted / budget) > 0.7 ?
+    '<div style="background:rgba(240,168,96,0.1);border:1px solid rgba(240,168,96,0.3);border-radius:var(--r);padding:11px 13px;margin-bottom:12px;font-size:12px;color:var(--orange)">💡 Recurring expenses use over 70% of your budget on average — there\'s not much left for discretionary spending.</div>'
+    : '') +
+    // Bar chart
+    '<div class="an-card">' +
+      '<div class="an-card-title">Committed spend — next 12 cycles</div>' +
+      '<div style="position:relative;height:160px"><canvas id="forecastCanvas"></canvas></div>' +
+    '</div>' +
+    // Monthly breakdown list
+    '<div class="an-card">' +
+      '<div class="an-card-title">Cycle-by-cycle breakdown</div>' +
+      forecastCycles.map(fc => {
+        const barW = maxCommitted > 0 ? (fc.committed / maxCommitted * 100) : 0;
+        const freeColor = fc.free < 0 ? 'var(--red)' : fc.free < budget * 0.2 ? 'var(--orange)' : '#34C759';
+        return '<div style="padding:9px 0;border-bottom:0.5px solid var(--surface2)">' +
+          '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:5px">' +
+            '<div>' +
+              '<span style="font-size:13px;font-weight:600">' + fc.monthLabel + '</span>' +
+              '<span style="font-size:10px;color:var(--muted);margin-left:6px">' + fc.fullLabel + '</span>' +
+            '</div>' +
+            '<div style="text-align:right">' +
+              '<span style="font-size:13px;font-weight:700;color:var(--red)">-' + fmt(fc.committed) + '</span>' +
+              (budget > 0 ? '<span style="font-size:11px;color:' + freeColor + ';margin-left:8px">' + fmt(fc.free) + ' free</span>' : '') +
+            '</div>' +
+          '</div>' +
+          '<div style="background:var(--surface2);border-radius:100px;height:4px;overflow:hidden">' +
+            '<div style="width:' + barW.toFixed(1) + '%;height:100%;border-radius:100px;background:' +
+              (fc.pct >= 100 ? 'var(--red)' : fc.pct >= 75 ? 'var(--orange)' : 'var(--accent)') + '"></div>' +
+          '</div>' +
+        '</div>';
+      }).join('') +
+    '</div>' +
+    // Top recurring categories
+    '<div class="an-card">' +
+      '<div class="an-card-title">Biggest recurring commitments (12 months)</div>' +
+      topCats.map(([cid, total]) => {
+        const cat = catById(cid); if (!cat) return '';
+        const pct = totalCommitted12 > 0 ? (total / totalCommitted12 * 100) : 0;
+        return '<div style="margin-bottom:11px">' +
+          '<div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px">' +
+            '<span>' + cat.icon + ' ' + cat.name + '</span>' +
+            '<span style="color:' + cat.color + '">' + fmt(total) + ' <span style="color:var(--muted);font-size:11px">' + pct.toFixed(0) + '%</span></span>' +
+          '</div>' +
+          '<div style="background:var(--surface2);border-radius:100px;height:4px;overflow:hidden">' +
+            '<div style="width:' + pct.toFixed(0) + '%;height:100%;background:' + cat.color + ';border-radius:100px"></div>' +
+          '</div>' +
+        '</div>';
+      }).join('') +
+    '</div>';
+
+  // Bar chart
+  requestAnimationFrame(() => {
+    const canvas = document.getElementById('forecastCanvas');
+    if (!canvas) return;
+    const labels = forecastCycles.map(fc => fc.monthLabel);
+    const committed = forecastCycles.map(fc => fc.committed);
+    const free = budget > 0 ? forecastCycles.map(fc => Math.max(fc.free, 0)) : null;
+    const datasets = [
+      { label: 'Committed', data: committed, backgroundColor: forecastCycles.map(fc => fc.pct >= 100 ? 'rgba(255,92,92,0.7)' : fc.pct >= 75 ? 'rgba(240,168,96,0.7)' : 'rgba(79,142,247,0.7)'), borderRadius: 4, borderSkipped: false },
+    ];
+    if (free) datasets.push({ label: 'Free to spend', data: free, backgroundColor: 'rgba(52,199,89,0.25)', borderRadius: 4, borderSkipped: false });
+    new Chart(canvas, {
+      type: 'bar',
+      data: { labels, datasets },
+      options: {
+        responsive: true, maintainAspectRatio: false, animation: false,
+        plugins: { legend: { position: 'bottom', labels: { color: textColor, font: { size: 10 }, boxWidth: 10, padding: 10 } } },
+        scales: {
+          x: { stacked: true, ticks: { color: textColor, font: { size: 10 } }, grid: { display: false }, border: { display: false } },
+          y: { stacked: true, ticks: { color: textColor, font: { size: 10 }, callback: v => fmtShort(v) }, grid: { color: gridColor }, border: { display: false } }
+        }
+      }
+    });
+  });
+}
+
+
 function renderGoals() {
   const el = document.getElementById('content');
   const expenses = cycleExpenses();
