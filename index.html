@@ -17,7 +17,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '1.3.1-202603201727';
+  const APP_VER = '1.3.2-202603201833';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -1394,9 +1394,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '1.3.1';
+const APP_VERSION = '1.3.2';
 const BUILD_DATE = '2026-03-20';
-const BUILD_TIME = '20 Mar 2026 5:27 PM AEDT';
+const BUILD_TIME = '20 Mar 2026 6:33 PM AEDT';
 const STORAGE_KEY = 'spendly_generic_v1';
 const LOCK_KEY = 'spendly_pin_hash';
 const BIOM_KEY = 'spendly_biometric';
@@ -1994,21 +1994,19 @@ function debounceSearch(val) {
   expenseSearchQuery = val;
   clearTimeout(_searchDebounce);
   _searchDebounce = setTimeout(() => {
-    renderExpensesKeepSearch();
-  }, 300);
-}
-function renderExpensesKeepSearch() {
-  const scrollY = window.scrollY || document.documentElement.scrollTop;
-  renderExpenses();
-  const input = document.getElementById('expenseSearchInput');
-  if (input && expenseSearchQuery) {
-    // Use requestAnimationFrame to re-focus after DOM settles without dismissing keyboard
-    requestAnimationFrame(() => {
-      input.focus({ preventScroll: true });
-      try { input.setSelectionRange(expenseSearchQuery.length, expenseSearchQuery.length); } catch(e){}
-    });
-  }
-  window.scrollTo(0, scrollY);
+    // Only update the results region — never touch the search input itself
+    const resultsEl = document.getElementById('expenseResults');
+    if (resultsEl) {
+      renderExpenseResults(resultsEl);
+      // Update search bar border colour in-place without rebuilding it
+      const bar = document.getElementById('expenseSearchBar');
+      if (bar) bar.style.borderColor = val.trim() ? 'var(--accent)' : 'transparent';
+      const clearBtn = document.getElementById('expenseSearchClear');
+      if (clearBtn) clearBtn.style.display = val.trim() ? '' : 'none';
+    } else {
+      renderExpenses();
+    }
+  }, 200);
 }
 
 function setExpenseSearch(val) {
@@ -2020,7 +2018,13 @@ function clearExpenseSearch() {
   expenseSearchQuery = '';
   const input = document.getElementById('expenseSearchInput');
   if (input) input.value = '';
-  renderExpenses();
+  const bar = document.getElementById('expenseSearchBar');
+  if (bar) bar.style.borderColor = 'transparent';
+  const clearBtn = document.getElementById('expenseSearchClear');
+  if (clearBtn) clearBtn.style.display = 'none';
+  const resultsEl = document.getElementById('expenseResults');
+  if (resultsEl) renderExpenseResults(resultsEl);
+  else renderExpenses();
 }
 
 function renderExpenses() {
@@ -2035,6 +2039,23 @@ function renderExpenses() {
   }
 
   const query = expenseSearchQuery.trim().toLowerCase();
+
+  // Build shell with search bar (written once — never rebuilt on keystroke)
+  const searchBar = '<div id="expenseSearchBar" style="display:inline-flex;align-items:center;gap:6px;margin-bottom:14px;background:var(--surface);border-radius:var(--r);padding:0 14px;border:1.5px solid ' + (query ? 'var(--accent)' : 'transparent') + ';height:34px;width:100%;box-sizing:border-box">' +
+    '<svg width="13" height="13" viewBox="0 0 15 15" fill="none" style="flex-shrink:0;opacity:0.4"><circle cx="6" cy="6" r="4.5" stroke="currentColor" stroke-width="1.5"/><path d="M10 10l3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>' +
+    '<input id="expenseSearchInput" type="text" placeholder="Search expenses\u2026" value="' + (query ? query.replace(/"/g,'&quot;') : '') + '" oninput="debounceSearch(this.value)" style="flex:1;background:none;border:none;outline:none;color:var(--text);font-size:16px;font-family:var(--font);padding:0;margin:0;height:100%">' +
+    '<button id="expenseSearchClear" onclick="clearExpenseSearch()" style="display:' + (query ? '' : 'none') + ';background:none;border:none;color:var(--muted);font-size:16px;cursor:pointer;padding:0;line-height:1;flex-shrink:0">\u00d7</button>' +
+  '</div>' +
+  '<div id="expenseResults"></div>';
+
+  el.innerHTML = searchBar;
+  renderExpenseResults(document.getElementById('expenseResults'));
+}
+
+// Renders only the results region — safe to call without touching the search input
+function renderExpenseResults(resultsEl) {
+  if (!resultsEl) return;
+  const query = expenseSearchQuery.trim().toLowerCase();
   const allExpenses = cycleExpenses().sort((a,b) => b.date.localeCompare(a.date) || b.id.localeCompare(a.id));
   const upcoming = isCurrentCycle() ? getUpcomingRecurring().sort((a,b) => a.date.localeCompare(b.date)) : [];
 
@@ -2043,11 +2064,7 @@ function renderExpenses() {
     return (cat ? cat.name.toLowerCase() : '').includes(query) || (e.name||'').toLowerCase().includes(query);
   }) : allExpenses;
 
-  const searchBar = '<div style="display:inline-flex;align-items:center;gap:6px;margin-bottom:14px;background:var(--surface);border-radius:var(--r);padding:0 14px;border:1.5px solid ' + (query ? 'var(--accent)' : 'transparent') + ';height:34px;width:100%;box-sizing:border-box">' +
-    '<svg width="13" height="13" viewBox="0 0 15 15" fill="none" style="flex-shrink:0;opacity:0.4"><circle cx="6" cy="6" r="4.5" stroke="currentColor" stroke-width="1.5"/><path d="M10 10l3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>' +
-    '<input id="expenseSearchInput" type="text" placeholder="Search expenses\u2026" value="' + (query ? query.replace(/"/g,'&quot;') : '') + '" oninput="debounceSearch(this.value)" style="flex:1;background:none;border:none;outline:none;color:var(--text);font-size:16px;font-family:var(--font);padding:0;margin:0;height:100%">' +
-    (query ? '<button onclick="clearExpenseSearch()" style="background:none;border:none;color:var(--muted);font-size:16px;cursor:pointer;padding:0;line-height:1;flex-shrink:0">\u00d7</button>' : '') +
-  '</div>';
+  // (searchBar is rendered by renderExpenses — not duplicated here)
 
   // ── Upcoming recurring section ─────────────────────────────────────────────
   let upcomingHTML = '';
@@ -2081,16 +2098,16 @@ function renderExpenses() {
   }
 
   if (expenses.length === 0 && !upcomingHTML) {
-    el.innerHTML = searchBar + (query
+    resultsEl.innerHTML = query
       ? '<div class="empty"><div class="empty-icon">\ud83d\udd0d</div><div class="empty-text">No results</div><div class="empty-sub">No expenses match \"' + query + '\"</div></div>'
-      : '<div class="empty"><div class="empty-icon">\ud83d\udcb8</div><div class="empty-text">No expenses yet</div><div class="empty-sub">Tap + to add your first expense</div></div>');
+      : '<div class="empty"><div class="empty-icon">\ud83d\udcb8</div><div class="empty-text">No expenses yet</div><div class="empty-sub">Tap + to add your first expense</div></div>';
     return;
   }
 
   const groups = {};
   expenses.forEach(e => { if (!groups[e.date]) groups[e.date] = []; groups[e.date].push(e); });
 
-  let html = searchBar + upcomingHTML + buildSpendLegend();
+  let html = upcomingHTML + buildSpendLegend();
   if (query) {
     html += '<div style="font-size:12px;color:var(--muted);margin-bottom:10px">' + expenses.length + ' result' + (expenses.length !== 1 ? 's' : '') + ' for \"<strong style=\"color:var(--text)\">' + query + '</strong>\"</div>';
   }
@@ -2115,14 +2132,10 @@ function renderExpenses() {
         '<div class="item-amount" style="color:' + getSpendColor(e.categoryId) + '">' + fmt(e.amount) + '</div></div></div>';
     });
   });
-  el.innerHTML = html;
-  document.querySelectorAll('.swipe-wrapper').forEach(w => {
+  resultsEl.innerHTML = html;
+  resultsEl.querySelectorAll('.swipe-wrapper').forEach(w => {
     attachSwipeDelete(w, w.id.replace('sw-', ''));
   });
-  if (query) {
-    const input = document.getElementById('expenseSearchInput');
-    if (input) { input.focus(); input.setSelectionRange(input.value.length, input.value.length); }
-  }
 }
 
 function onboardingHTML() {
