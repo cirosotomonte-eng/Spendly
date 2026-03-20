@@ -17,7 +17,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '1.2.0-202603201656';
+  const APP_VER = '1.3.0-202603201800';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -231,6 +231,36 @@ async function applyUpdate() {
   .donut-wrap { display: flex; gap: 16px; align-items: center; margin-bottom: 20px; }
   .legend-item { display: flex; align-items: center; gap: 7px; font-size: 12px; margin-bottom: 7px; }
   .legend-dot { width: 9px; height: 9px; border-radius: 2px; flex-shrink: 0; }
+
+  /* Analytics — enhanced */
+  .an-tabs { display:flex; gap:6px; margin:0 0 14px; overflow-x:auto; scrollbar-width:none; padding-bottom:2px; }
+  .an-tabs::-webkit-scrollbar { display:none; }
+  .an-tab { flex-shrink:0; padding:6px 14px; border-radius:100px; font-size:12px; font-weight:600; font-family:var(--font); border:1px solid var(--border); background:var(--surface); color:var(--muted); cursor:pointer; transition:all 0.15s; white-space:nowrap; }
+  .an-tab.active { background:var(--accent-dim); border-color:var(--accent); color:var(--accent); }
+  .an-kpi-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:14px; }
+  .an-kpi { background:var(--surface); border-radius:var(--r); padding:13px 14px; }
+  .an-kpi-label { font-size:10px; color:var(--muted); text-transform:uppercase; letter-spacing:0.08em; margin-bottom:4px; }
+  .an-kpi-val { font-size:20px; font-weight:700; letter-spacing:-0.5px; }
+  .an-kpi-sub { font-size:11px; color:var(--muted); margin-top:3px; }
+  .an-card { background:var(--surface); border-radius:var(--r); padding:14px; margin-bottom:10px; }
+  .an-card-title { font-size:10px; color:var(--muted); text-transform:uppercase; letter-spacing:0.08em; margin-bottom:12px; font-weight:600; }
+  .mover-row { display:flex; align-items:center; gap:10px; padding:7px 0; border-bottom:0.5px solid var(--surface2); }
+  .mover-row:last-child { border-bottom:none; }
+  .mover-badge { font-size:10px; font-weight:700; padding:3px 7px; border-radius:100px; flex-shrink:0; }
+  .mover-up { background:rgba(255,92,92,0.15); color:var(--red); }
+  .mover-down { background:rgba(52,199,89,0.15); color:#34C759; }
+  .mover-new { background:rgba(240,168,96,0.15); color:var(--orange); }
+  .merchant-row { display:flex; align-items:center; justify-content:space-between; padding:8px 0; border-bottom:0.5px solid var(--surface2); }
+  .merchant-row:last-child { border-bottom:none; }
+  .merchant-bar-wrap { width:100%; background:var(--surface2); border-radius:100px; height:3px; margin-top:4px; overflow:hidden; }
+  .merchant-bar { height:100%; border-radius:100px; }
+  .pace-arc-wrap { display:flex; flex-direction:column; align-items:center; padding:6px 0 10px; }
+  .heatmap-grid { display:grid; gap:3px; }
+  .heatmap-cell { border-radius:3px; height:28px; display:flex; align-items:center; justify-content:center; font-size:9px; font-weight:600; }
+  .trend-sparkline { display:flex; align-items:flex-end; gap:4px; height:56px; margin:4px 0 10px; }
+  .trend-bar-wrap { display:flex; flex-direction:column; align-items:center; flex:1; height:100%; }
+  .trend-bar-inner { width:100%; border-radius:3px 3px 0 0; flex-shrink:0; min-height:3px; transition:height 0.3s; }
+  .trend-bar-label { font-size:9px; color:var(--muted); margin-top:3px; white-space:nowrap; }
 
   /* Calendar */
   .cal-scroll { overflow-x: auto; overflow-y: auto; margin: 0 -20px; padding: 0 20px 16px; }
@@ -1362,9 +1392,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '1.2.0';
+const APP_VERSION = '1.3.0';
 const BUILD_DATE = '2026-03-20';
-const BUILD_TIME = '20 Mar 2026 4:56 PM AEDT';
+const BUILD_TIME = '20 Mar 2026 6:00 PM AEDT';
 const STORAGE_KEY = 'spendly_generic_v1';
 const LOCK_KEY = 'spendly_pin_hash';
 const BIOM_KEY = 'spendly_biometric';
@@ -2124,66 +2154,165 @@ function onboardingHTML() {
 }
 
 // ── Analytics tab ─────────────────────────────────────────────────────────────
-let barChart = null, donutChart = null;
+let barChart = null, donutChart = null, trendChart = null;
+let analyticsSection = 'overview'; // overview | trends | movers | merchants | heatmap
+
+function getMultiCycleData(numCycles) {
+  // Returns array of { label, total, bycat, expenses, budget, cycleStart, cycleEnd } for last N cycles (0 = current)
+  const result = [];
+  for (let i = numCycles - 1; i >= 0; i--) {
+    const offset = -i;
+    const { cycleStart, cycleEnd } = getCycleRange(offset);
+    const exps = state.expenses.filter(e => {
+      const d = new Date(e.date + 'T00:00:00');
+      return d >= cycleStart && d <= cycleEnd;
+    });
+    const total = exps.reduce((s,e) => s + e.amount, 0);
+    const bycat = {};
+    exps.forEach(e => { bycat[e.categoryId] = (bycat[e.categoryId]||0) + e.amount; });
+    const budget = state.categories.reduce((s,c) => s + (c.budgetLimit||0), 0);
+    const label = cycleStart.toLocaleDateString('en-AU', { day:'numeric', month:'short' });
+    result.push({ label, total, bycat, expenses: exps, budget, cycleStart, cycleEnd, offset });
+  }
+  return result;
+}
+
 function renderAnalytics() {
   const el = document.getElementById('content');
-  const expenses = cycleExpenses();
-  if (!isSetupComplete() || expenses.length === 0) {
+  if (!isSetupComplete() || state.expenses.length === 0) {
     el.innerHTML = '<div class="empty"><div class="empty-icon">📊</div><div class="empty-text">No data yet</div><div class="empty-sub">Add some expenses to see analytics</div></div>';
     return;
   }
-  const total = expenses.reduce((s,e)=>s+e.amount,0);
+
+  const tabs = [
+    { id:'overview',   label:'Overview' },
+    { id:'trends',     label:'Trends' },
+    { id:'movers',     label:'Movers' },
+    { id:'merchants',  label:'Merchants' },
+    { id:'heatmap',    label:'Heat Map' },
+  ];
+  const tabsHtml = '<div class="an-tabs">' + tabs.map(t =>
+    '<button class="an-tab' + (analyticsSection===t.id?' active':'') + '" onclick="analyticsSection=\''+t.id+'\';renderAnalytics()">' + t.label + '</button>'
+  ).join('') + '</div>';
+
+  el.innerHTML = tabsHtml + '<div id="anBody"></div>';
+
+  // Destroy old charts
+  if (barChart)   { barChart.destroy();   barChart = null; }
+  if (donutChart) { donutChart.destroy(); donutChart = null; }
+  if (trendChart) { trendChart.destroy(); trendChart = null; }
+
+  if (analyticsSection === 'overview')  renderAnalyticsOverview();
+  else if (analyticsSection === 'trends')   renderAnalyticsTrends();
+  else if (analyticsSection === 'movers')   renderAnalyticsMovers();
+  else if (analyticsSection === 'merchants') renderAnalyticsMerchants();
+  else if (analyticsSection === 'heatmap')  renderAnalyticsHeatmap();
+}
+
+// ── Overview ──────────────────────────────────────────────────────────────────
+function renderAnalyticsOverview() {
+  const ab = document.getElementById('anBody');
+  const expenses = cycleExpenses();
+  if (expenses.length === 0) {
+    ab.innerHTML = '<div class="empty" style="padding:40px 0"><div class="empty-icon">📊</div><div class="empty-text">No data this cycle</div></div>';
+    return;
+  }
+  const total = expenses.reduce((s,e) => s+e.amount, 0);
   const bycat = {};
   expenses.forEach(e => { bycat[e.categoryId] = (bycat[e.categoryId]||0) + e.amount; });
-  const sortedCats = Object.entries(bycat).sort((a,b)=>b[1]-a[1]);
+  const sortedCats = Object.entries(bycat).sort((a,b) => b[1]-a[1]);
 
-  const fixedTotal = expenses.filter(e=>{ const c=catById(e.categoryId); return c && c.type==='fixed'; }).reduce((s,e)=>s+e.amount,0);
-  const varTotal   = expenses.filter(e=>{ const c=catById(e.categoryId); return c && c.type==='variable'; }).reduce((s,e)=>s+e.amount,0);
+  const fixedTotal = expenses.filter(e => { const c=catById(e.categoryId); return c&&c.type==='fixed'; }).reduce((s,e)=>s+e.amount,0);
+  const varTotal   = expenses.filter(e => { const c=catById(e.categoryId); return c&&c.type==='variable'; }).reduce((s,e)=>s+e.amount,0);
+  const totalBudget = state.categories.reduce((s,c) => s+(c.budgetLimit||0), 0);
 
-  // Days in cycle
-  const { cycleStart: cs, cycleEnd: ce } = getCycleRange();
+  // Pace projection
+  const { cycleStart, cycleEnd } = getCycleRange();
+  const today = new Date(); today.setHours(0,0,0,0);
+  const daysElapsed = Math.max(1, Math.round((today - cycleStart) / 86400000) + 1);
+  const totalDaysInCycle = Math.round((cycleEnd - cycleStart) / 86400000) + 1;
+  const daysLeft = Math.max(0, Math.round((cycleEnd - today) / 86400000));
+  const dailyRate = total / daysElapsed;
+  const projected = Math.round(dailyRate * totalDaysInCycle);
+  const projDiff = projected - totalBudget;
+  const paceColor = totalBudget > 0 ? (projected > totalBudget ? 'var(--red)' : projected > totalBudget * 0.9 ? 'var(--orange)' : '#34C759') : 'var(--accent)';
+  const paceLabel = totalBudget > 0
+    ? (projected > totalBudget ? fmt(projDiff) + ' over budget' : fmt(Math.abs(projDiff)) + ' under budget')
+    : 'at current pace';
+
+  // Fixed/Variable 3-cycle trend arrows
+  function trendArrow(curr, prev) {
+    if (!prev || prev === 0) return '';
+    const delta = (curr - prev) / prev;
+    if (delta > 0.05) return ' <span style="color:var(--red);font-size:12px">↑</span>';
+    if (delta < -0.05) return ' <span style="color:#34C759;font-size:12px">↓</span>';
+    return ' <span style="color:var(--muted);font-size:12px">→</span>';
+  }
+  const prev = getMultiCycleData(2)[0];
+  const prevFixed = prev ? Object.entries(prev.bycat).filter(([cid]) => { const c=catById(cid); return c&&c.type==='fixed'; }).reduce((s,[,v])=>s+v,0) : 0;
+  const prevVar   = prev ? Object.entries(prev.bycat).filter(([cid]) => { const c=catById(cid); return c&&c.type==='variable'; }).reduce((s,[,v])=>s+v,0) : 0;
+
+  // Days in cycle bar chart data
   const dayMap = {};
-  const cur = new Date(cs);
-  while (cur <= ce) { dayMap[dateToStr(cur)] = 0; cur.setDate(cur.getDate()+1); }
+  const cur = new Date(cycleStart);
+  while (cur <= cycleEnd) { dayMap[dateToStr(cur)] = 0; cur.setDate(cur.getDate()+1); }
   expenses.forEach(e => { if (dayMap[e.date] !== undefined) dayMap[e.date] += e.amount; });
   const dayKeys = Object.keys(dayMap);
-  const dayLabels = dayKeys.map((d,i) => { const dt=new Date(d+'T00:00:00'); return (dt.getDate()===1||i===0) ? dt.toLocaleDateString('en-AU',{day:'numeric',month:'short'}) : dt.getDate()+''; });
+  const dayLabels = dayKeys.map((d,i) => { const dt=new Date(d+'T00:00:00'); return (dt.getDate()===1||i===0)?dt.toLocaleDateString('en-AU',{day:'numeric',month:'short'}):dt.getDate()+''; });
   const dayData = Object.values(dayMap);
-  const totalDays = dayLabels.length;
-
   const isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
   const textColor = isDark ? '#888' : '#999';
   const gridColor = isDark ? '#2a2a2a' : '#e8e8e0';
 
-  el.innerHTML =
-    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:8px 0 14px">' +
-      '<div style="background:var(--surface);border-radius:var(--r);padding:12px 14px"><div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:5px">Fixed</div><div style="font-size:20px;font-weight:700;letter-spacing:-0.5px;color:#60b0f0">' + fmt(fixedTotal) + '</div></div>' +
-      '<div style="background:var(--surface);border-radius:var(--r);padding:12px 14px"><div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:5px">Variable</div><div style="font-size:20px;font-weight:700;letter-spacing:-0.5px;color:#f0a860">' + fmt(varTotal) + '</div></div>' +
+  ab.innerHTML =
+    // KPI grid
+    '<div class="an-kpi-grid">' +
+      '<div class="an-kpi"><div class="an-kpi-label">Fixed' + trendArrow(fixedTotal, prevFixed) + '</div><div class="an-kpi-val" style="color:#60b0f0">' + fmt(fixedTotal) + '</div></div>' +
+      '<div class="an-kpi"><div class="an-kpi-label">Variable' + trendArrow(varTotal, prevVar) + '</div><div class="an-kpi-val" style="color:#f0a860">' + fmt(varTotal) + '</div></div>' +
     '</div>' +
-    '<div class="section-label">Spending by day (full cycle)</div>' +
-    '<div style="overflow-x:auto;overflow-y:hidden;margin:0 -20px;padding:0 20px 8px;"><div style="min-width:max-content"><div style="position:relative;height:170px;" id="barChartWrap"><canvas id="barChartCanvas"></canvas></div></div></div>' +
+    // Pace card
+    '<div class="an-card" style="margin-bottom:14px">' +
+      '<div class="an-card-title">Burn rate & projection</div>' +
+      '<div style="display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:10px">' +
+        '<div>' +
+          '<div style="font-size:11px;color:var(--muted);margin-bottom:2px">' + fmt(dailyRate) + '/day · ' + daysLeft + ' days left</div>' +
+          '<div style="font-size:22px;font-weight:700;letter-spacing:-0.5px;color:'+paceColor+'">' + fmt(projected) + '</div>' +
+          '<div style="font-size:11px;color:var(--muted);margin-top:2px">Projected total · ' + paceLabel + '</div>' +
+        '</div>' +
+        (totalBudget > 0 ?
+        '<div style="text-align:right">' +
+          '<div style="font-size:11px;color:var(--muted);margin-bottom:2px">Budget</div>' +
+          '<div style="font-size:18px;font-weight:700">' + fmt(totalBudget) + '</div>' +
+        '</div>' : '') +
+      '</div>' +
+      (totalBudget > 0 ? '<div style="background:var(--surface2);border-radius:100px;height:6px;overflow:hidden"><div style="width:'+Math.min(100,Math.round(projected/totalBudget*100))+'%;height:100%;border-radius:100px;background:'+paceColor+';transition:width 0.4s"></div></div>' : '') +
+    '</div>' +
+    // Bar chart
+    '<div class="section-label">Spending by day</div>' +
+    '<div style="overflow-x:auto;overflow-y:hidden;margin:0 -20px;padding:0 20px 8px"><div style="min-width:max-content"><div style="position:relative;height:150px" id="barChartWrap"><canvas id="barChartCanvas"></canvas></div></div></div>' +
+    // Donut
     '<div class="section-label" style="margin-top:6px">By category</div>' +
-    '<div class="donut-wrap"><canvas id="donutCanvas" width="120" height="120" style="flex-shrink:0"></canvas><div id="donutLegend" style="flex:1;min-width:0;"></div></div>' +
+    '<div class="donut-wrap"><canvas id="donutCanvas" width="120" height="120" style="flex-shrink:0"></canvas><div id="donutLegend" style="flex:1;min-width:0"></div></div>' +
+    // Category bars
     '<div class="section-label">Category breakdown</div>' +
     sortedCats.map(([cid,amt]) => {
-      const cat = catById(cid);
-      if (!cat) return '';
+      const cat = catById(cid); if (!cat) return '';
       const pct = (amt/total*100).toFixed(0);
       return '<div style="margin-bottom:12px"><div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:5px">' +
         '<span>' + cat.icon + ' ' + cat.name + '</span>' +
         '<span style="color:' + cat.color + '">' + fmt(amt) + ' <span style="color:var(--muted);font-size:11px">' + pct + '%</span></span></div>' +
-        '<div style="background:var(--surface2);border-radius:100px;height:4px;overflow:hidden"><div style="width:' + pct + '%;height:100%;background:' + cat.color + ';border-radius:100px"></div></div></div>';
+        '<div style="background:var(--surface2);border-radius:100px;height:4px;overflow:hidden"><div style="width:'+pct+'%;height:100%;background:'+cat.color+';border-radius:100px"></div></div></div>';
     }).join('');
 
   // Bar chart
-  if (barChart) barChart.destroy();
   const availW = document.getElementById('content').offsetWidth || 350;
+  const totalDays = dayLabels.length;
   const BAR_W = Math.max(26, Math.min(42, Math.floor((availW-60)/totalDays)));
   const chartW = Math.max(totalDays * BAR_W + 60, availW);
   const wrap = document.getElementById('barChartWrap');
   wrap.style.width = chartW + 'px';
   const todayD = new Date(); todayD.setHours(0,0,0,0);
-  const topCatColor = sortedCats[0] ? (catById(sortedCats[0][0]) || {color:'#4F8EF7'}).color : '#4F8EF7';
+  const topCatColor = sortedCats[0] ? (catById(sortedCats[0][0])||{color:'#4F8EF7'}).color : '#4F8EF7';
   const barColors = dayKeys.map(d => new Date(d+'T00:00:00').getTime()===todayD.getTime() ? '#4F8EF7cc' : topCatColor+'99');
   barChart = new Chart(document.getElementById('barChartCanvas'), {
     type:'bar',
@@ -2191,20 +2320,15 @@ function renderAnalytics() {
     options:{ responsive:false, maintainAspectRatio:false, animation:false,
       plugins:{ legend:{ display:false } },
       scales:{
-        x:{ ticks:{ color:textColor, font:{ size:10 }, autoSkip:false, maxRotation:45, minRotation:0 }, grid:{ display:false }, border:{ display:false } },
-        y:{ ticks:{ color:textColor, font:{ size:10 }, callback:v=>fmtShort(v) }, grid:{ color:gridColor }, border:{ display:false } }
+        x:{ ticks:{ color:textColor, font:{size:10}, autoSkip:false, maxRotation:45, minRotation:0 }, grid:{ display:false }, border:{ display:false } },
+        y:{ ticks:{ color:textColor, font:{size:10}, callback:v=>fmtShort(v) }, grid:{ color:gridColor }, border:{ display:false } }
       }
     }
   });
-  // Scroll to today
   const todayIdx = dayKeys.findIndex(d => new Date(d+'T00:00:00').getTime()===todayD.getTime());
-  if (todayIdx >= 0) {
-    const sp = wrap.parentElement && wrap.parentElement.parentElement;
-    if (sp) sp.scrollLeft = Math.max(0, todayIdx*BAR_W-80);
-  }
+  if (todayIdx >= 0) { const sp = wrap.parentElement && wrap.parentElement.parentElement; if (sp) sp.scrollLeft = Math.max(0, todayIdx*BAR_W-80); }
 
   // Donut
-  if (donutChart) donutChart.destroy();
   const donutColors = sortedCats.map(([cid]) => (catById(cid)||{color:'#888'}).color);
   donutChart = new Chart(document.getElementById('donutCanvas'), {
     type:'doughnut',
@@ -2212,9 +2336,312 @@ function renderAnalytics() {
     options:{ responsive:false, cutout:'68%', plugins:{ legend:{ display:false }, tooltip:{ callbacks:{ label:ctx=>' '+fmt(ctx.parsed) } } } }
   });
   document.getElementById('donutLegend').innerHTML = sortedCats.slice(0,6).map(([cid,amt]) => {
-    const cat = catById(cid); if(!cat) return '';
-    return '<div class="legend-item"><div class="legend-dot" style="background:' + cat.color + '"></div><span style="flex:1;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + cat.name + '</span><span style="font-weight:600;margin-left:6px">' + fmtShort(amt) + '</span></div>';
+    const cat = catById(cid); if (!cat) return '';
+    return '<div class="legend-item"><div class="legend-dot" style="background:'+cat.color+'"></div><span style="flex:1;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+cat.name+'</span><span style="font-weight:600;margin-left:6px">'+fmtShort(amt)+'</span></div>';
   }).join('');
+}
+
+// ── Trends ────────────────────────────────────────────────────────────────────
+function renderAnalyticsTrends() {
+  const ab = document.getElementById('anBody');
+  const NUM = 6;
+  const cycles = getMultiCycleData(NUM);
+  const hasSomeCycles = cycles.filter(c => c.total > 0).length >= 1;
+  if (!hasSomeCycles) {
+    ab.innerHTML = '<div class="empty" style="padding:40px 0"><div class="empty-icon">📈</div><div class="empty-text">Not enough history yet</div><div class="empty-sub">Keep tracking and trends will appear here</div></div>';
+    return;
+  }
+
+  const isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+  const textColor = isDark ? '#888' : '#999';
+  const gridColor = isDark ? '#2a2a2a' : '#e8e8e0';
+
+  const totals = cycles.map(c => c.total);
+  const budgets = cycles.map(c => c.budget);
+  const fixeds = cycles.map(c => Object.entries(c.bycat).filter(([cid])=>{ const cat=catById(cid); return cat&&cat.type==='fixed'; }).reduce((s,[,v])=>s+v,0));
+  const vars   = cycles.map(c => Object.entries(c.bycat).filter(([cid])=>{ const cat=catById(cid); return cat&&cat.type==='variable'; }).reduce((s,[,v])=>s+v,0));
+  const labels = cycles.map(c => c.label);
+
+  // Summary stats
+  const activeTotals = totals.filter(v => v > 0);
+  const avg = activeTotals.length ? activeTotals.reduce((a,b)=>a+b,0) / activeTotals.length : 0;
+  const maxMonth = cycles[totals.indexOf(Math.max(...totals))];
+  const minMonth = activeTotals.length ? cycles[totals.indexOf(Math.min(...activeTotals.filter(v=>v>0)))] : null;
+  const curr = cycles[cycles.length-1];
+  const prev = cycles[cycles.length-2];
+  const momDelta = prev && prev.total > 0 ? ((curr.total - prev.total) / prev.total * 100) : null;
+
+  ab.innerHTML =
+    '<div class="an-kpi-grid" style="margin-bottom:14px">' +
+      '<div class="an-kpi"><div class="an-kpi-label">6-cycle avg</div><div class="an-kpi-val">' + fmt(avg) + '</div></div>' +
+      '<div class="an-kpi"><div class="an-kpi-label">vs last cycle</div><div class="an-kpi-val" style="color:' + (momDelta===null?'var(--text)':momDelta>0?'var(--red)':'#34C759') + '">' + (momDelta===null?'—':(momDelta>0?'+':'')+momDelta.toFixed(1)+'%') + '</div></div>' +
+    '</div>' +
+    '<div class="an-card">' +
+      '<div class="an-card-title">Total spend per cycle</div>' +
+      '<div style="position:relative;height:180px"><canvas id="trendLineCanvas"></canvas></div>' +
+    '</div>' +
+    '<div class="an-card">' +
+      '<div class="an-card-title">Fixed vs variable split</div>' +
+      '<div style="position:relative;height:140px"><canvas id="stackedCanvas"></canvas></div>' +
+    '</div>' +
+    '<div class="an-kpi-grid" style="margin-top:4px">' +
+      '<div class="an-kpi"><div class="an-kpi-label">Highest cycle</div><div class="an-kpi-val" style="color:var(--red)">' + fmt(Math.max(...totals)) + '</div><div class="an-kpi-sub">' + (maxMonth?maxMonth.label:'') + '</div></div>' +
+      '<div class="an-kpi"><div class="an-kpi-label">Lowest cycle</div><div class="an-kpi-val" style="color:#34C759">' + (minMonth?fmt(Math.min(...activeTotals)):'—') + '</div><div class="an-kpi-sub">' + (minMonth?minMonth.label:'') + '</div></div>' +
+    '</div>';
+
+  // Line chart
+  const hasBudget = budgets.some(b => b > 0);
+  const datasets = [
+    { label:'Spent', data:totals, borderColor:'#4F8EF7', backgroundColor:'rgba(79,142,247,0.08)', tension:0.35, fill:true, pointBackgroundColor:'#4F8EF7', pointRadius:4, pointHoverRadius:6 },
+  ];
+  if (hasBudget) datasets.push({ label:'Budget', data:budgets, borderColor:'rgba(240,168,96,0.6)', borderDash:[4,4], tension:0, fill:false, pointRadius:0, borderWidth:1.5 });
+
+  trendChart = new Chart(document.getElementById('trendLineCanvas'), {
+    type:'line',
+    data:{ labels, datasets },
+    options:{ responsive:true, maintainAspectRatio:false, animation:false,
+      plugins:{ legend:{ display:hasBudget, position:'bottom', labels:{ color:textColor, font:{size:10}, boxWidth:10, padding:10 } }, tooltip:{ callbacks:{ label:ctx=>' '+fmt(ctx.parsed.y) } } },
+      scales:{
+        x:{ ticks:{ color:textColor, font:{size:10} }, grid:{ display:false }, border:{ display:false } },
+        y:{ ticks:{ color:textColor, font:{size:10}, callback:v=>fmtShort(v) }, grid:{ color:gridColor }, border:{ display:false } }
+      }
+    }
+  });
+
+  // Stacked bar
+  new Chart(document.getElementById('stackedCanvas'), {
+    type:'bar',
+    data:{ labels, datasets:[
+      { label:'Fixed',    data:fixeds, backgroundColor:'#60b0f099', borderRadius:3, borderSkipped:false },
+      { label:'Variable', data:vars,   backgroundColor:'#f0a86099', borderRadius:3, borderSkipped:false },
+    ]},
+    options:{ responsive:true, maintainAspectRatio:false, animation:false,
+      plugins:{ legend:{ position:'bottom', labels:{ color:textColor, font:{size:10}, boxWidth:10, padding:10 } } },
+      scales:{
+        x:{ stacked:true, ticks:{ color:textColor, font:{size:10} }, grid:{ display:false }, border:{ display:false } },
+        y:{ stacked:true, ticks:{ color:textColor, font:{size:10}, callback:v=>fmtShort(v) }, grid:{ color:gridColor }, border:{ display:false } }
+      }
+    }
+  });
+}
+
+// ── Movers ────────────────────────────────────────────────────────────────────
+function renderAnalyticsMovers() {
+  const ab = document.getElementById('anBody');
+  const cycles = getMultiCycleData(2);
+  const prev = cycles[0];
+  const curr = cycles[1];
+
+  if (!curr || curr.total === 0) {
+    ab.innerHTML = '<div class="empty" style="padding:40px 0"><div class="empty-icon">📉</div><div class="empty-text">No data this cycle</div></div>';
+    return;
+  }
+
+  // Build movers list across all categories that appear in either cycle
+  const allCatIds = new Set([...Object.keys(curr.bycat), ...Object.keys(prev.bycat)]);
+  const movers = [];
+  allCatIds.forEach(cid => {
+    const cat = catById(cid); if (!cat) return;
+    const c = curr.bycat[cid] || 0;
+    const p = prev.bycat[cid] || 0;
+    const delta = c - p;
+    const pct = p > 0 ? (delta / p * 100) : null;
+    movers.push({ cat, curr:c, prev:p, delta, pct });
+  });
+
+  const ups   = movers.filter(m => m.delta > 0).sort((a,b) => b.delta - a.delta).slice(0,5);
+  const downs = movers.filter(m => m.delta < 0).sort((a,b) => a.delta - b.delta).slice(0,5);
+  const newCats = movers.filter(m => m.prev === 0 && m.curr > 0);
+
+  function moverRow(m, dir) {
+    const badge = dir === 'up'
+      ? '<span class="mover-badge mover-up">↑ ' + (m.pct!==null ? m.pct.toFixed(0)+'%' : 'new') + '</span>'
+      : '<span class="mover-badge mover-down">↓ ' + (m.pct!==null ? Math.abs(m.pct).toFixed(0)+'%' : '') + '</span>';
+    return '<div class="mover-row">' +
+      '<span style="font-size:20px">' + m.cat.icon + '</span>' +
+      '<div style="flex:1;min-width:0">' +
+        '<div style="font-size:13px;font-weight:500">' + m.cat.name + '</div>' +
+        '<div style="font-size:11px;color:var(--muted)">' +
+          (m.prev > 0 ? fmt(m.prev) + ' → ' : '') + '<span style="color:' + m.cat.color + '">' + fmt(m.curr) + '</span>' +
+        '</div>' +
+      '</div>' +
+      badge +
+    '</div>';
+  }
+
+  const totalDelta = curr.total - prev.total;
+  const hasPrev = prev.total > 0;
+
+  ab.innerHTML =
+    (hasPrev ?
+    '<div class="an-kpi-grid" style="margin-bottom:14px">' +
+      '<div class="an-kpi"><div class="an-kpi-label">This cycle</div><div class="an-kpi-val">' + fmt(curr.total) + '</div></div>' +
+      '<div class="an-kpi"><div class="an-kpi-label">vs last cycle</div><div class="an-kpi-val" style="color:' + (totalDelta>0?'var(--red)':totalDelta<0?'#34C759':'var(--text)') + '">' + (totalDelta>0?'+':'') + fmt(totalDelta) + '</div></div>' +
+    '</div>' : '') +
+    (ups.length ?
+    '<div class="an-card"><div class="an-card-title">Biggest increases</div>' + ups.map(m=>moverRow(m,'up')).join('') + '</div>' : '') +
+    (downs.length ?
+    '<div class="an-card"><div class="an-card-title">Biggest decreases</div>' + downs.map(m=>moverRow(m,'down')).join('') + '</div>' : '') +
+    (newCats.length ?
+    '<div class="an-card"><div class="an-card-title">New this cycle</div>' +
+      newCats.map(m => '<div class="mover-row"><span style="font-size:20px">'+m.cat.icon+'</span><div style="flex:1"><div style="font-size:13px;font-weight:500">'+m.cat.name+'</div></div><span style="font-weight:600;color:'+m.cat.color+'">'+fmt(m.curr)+'</span></div>').join('') +
+    '</div>' : '') +
+    (!ups.length && !downs.length && !newCats.length ?
+    '<div class="empty" style="padding:40px 0"><div class="empty-icon">🤷</div><div class="empty-text">No previous cycle to compare</div><div class="empty-sub">Keep tracking for at least 2 cycles</div></div>' : '');
+}
+
+// ── Merchants ─────────────────────────────────────────────────────────────────
+function renderAnalyticsMerchants() {
+  const ab = document.getElementById('anBody');
+  const expenses = cycleExpenses();
+
+  // Aggregate by normalised merchant name (trim + lowercase for grouping)
+  const byMerchant = {};
+  expenses.forEach(e => {
+    if (!e.name || !e.name.trim()) return;
+    const key = e.name.trim();
+    if (!byMerchant[key]) byMerchant[key] = { name:key, total:0, count:0, categoryId:e.categoryId };
+    byMerchant[key].total += e.amount;
+    byMerchant[key].count++;
+  });
+
+  const merchants = Object.values(byMerchant).sort((a,b) => b.total - a.total);
+  const total = expenses.reduce((s,e) => s+e.amount, 0);
+
+  // Also show freq leaders
+  const byFreq = [...merchants].sort((a,b) => b.count - a.count).slice(0,5);
+
+  if (!merchants.length) {
+    ab.innerHTML = '<div class="empty" style="padding:40px 0"><div class="empty-icon">🏪</div><div class="empty-text">No named transactions yet</div><div class="empty-sub">Add a description when logging expenses to see merchants here</div></div>';
+    return;
+  }
+
+  const maxTotal = merchants[0].total;
+
+  function merchantRow(m, rank) {
+    const cat = catById(m.categoryId);
+    const pct = total > 0 ? (m.total/total*100) : 0;
+    const barPct = maxTotal > 0 ? (m.total/maxTotal*100) : 0;
+    return '<div class="merchant-row" style="flex-direction:column;align-items:stretch">' +
+      '<div style="display:flex;justify-content:space-between;align-items:center">' +
+        '<div style="display:flex;align-items:center;gap:8px;min-width:0">' +
+          (rank!==undefined ? '<span style="font-size:11px;color:var(--muted);width:16px;flex-shrink:0">' + (rank+1) + '</span>' : '') +
+          (cat ? '<span style="font-size:16px">' + cat.icon + '</span>' : '') +
+          '<span style="font-size:13px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + m.name + '</span>' +
+        '</div>' +
+        '<div style="text-align:right;flex-shrink:0;margin-left:8px">' +
+          '<span style="font-weight:700;font-size:14px">' + fmt(m.total) + '</span>' +
+          '<span style="color:var(--muted);font-size:11px;margin-left:5px">' + pct.toFixed(0) + '%</span>' +
+        '</div>' +
+      '</div>' +
+      '<div class="merchant-bar-wrap"><div class="merchant-bar" style="width:'+barPct.toFixed(0)+'%;background:'+(cat?cat.color:'var(--accent)')+'"></div></div>' +
+    '</div>';
+  }
+
+  ab.innerHTML =
+    '<div class="an-card">' +
+      '<div class="an-card-title">Top by spend — this cycle</div>' +
+      merchants.slice(0,10).map((m,i) => merchantRow(m,i)).join('') +
+    '</div>' +
+    (byFreq.length && byFreq[0].count > 1 ?
+    '<div class="an-card">' +
+      '<div class="an-card-title">Most frequent</div>' +
+      byFreq.map(m =>
+        '<div class="mover-row">' +
+          (catById(m.categoryId) ? '<span style="font-size:16px">' + catById(m.categoryId).icon + '</span>' : '') +
+          '<div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + m.name + '</div>' +
+          '<div style="font-size:11px;color:var(--muted)">' + fmt(m.total) + ' total</div></div>' +
+          '<span style="background:var(--surface2);border-radius:100px;padding:3px 9px;font-size:12px;font-weight:700;flex-shrink:0">' + m.count + '×</span>' +
+        '</div>'
+      ).join('') +
+    '</div>' : '');
+}
+
+// ── Heat Map ──────────────────────────────────────────────────────────────────
+function renderAnalyticsHeatmap() {
+  const ab = document.getElementById('anBody');
+  const NUM = 6;
+  const cycles = getMultiCycleData(NUM);
+  const hasSome = cycles.some(c => c.total > 0);
+  if (!hasSome) {
+    ab.innerHTML = '<div class="empty" style="padding:40px 0"><div class="empty-icon">🔥</div><div class="empty-text">Not enough history yet</div><div class="empty-sub">Keep tracking to see your heat map</div></div>';
+    return;
+  }
+
+  const cats = state.categories.slice().sort((a,b) => {
+    const aSum = cycles.reduce((s,c)=>s+(c.bycat[a.id]||0),0);
+    const bSum = cycles.reduce((s,c)=>s+(c.bycat[b.id]||0),0);
+    return bSum - aSum;
+  });
+
+  // Find global max for colour scaling
+  let globalMax = 0;
+  cats.forEach(cat => {
+    cycles.forEach(c => { const v = c.bycat[cat.id]||0; if (v>globalMax) globalMax=v; });
+  });
+
+  function cellColor(val, catColor, budget) {
+    if (!val) return 'transparent';
+    if (budget && budget > 0) {
+      const ratio = val / budget;
+      if (ratio >= 1) return 'rgba(255,92,92,0.75)';
+      if (ratio >= 0.8) return 'rgba(240,168,96,0.65)';
+      const hex = catColor || '#4F8EF7';
+      return hex + Math.round(40 + ratio * 100).toString(16).padStart(2,'0');
+    }
+    if (!globalMax) return 'var(--surface2)';
+    const intensity = val / globalMax;
+    const hex = catColor || '#4F8EF7';
+    return hex + Math.round(30 + intensity * 160).toString(16).padStart(2,'0');
+  }
+
+  // Legend
+  const budgetedCats = cats.filter(c=>c.budgetLimit>0).length;
+  const legendHtml = budgetedCats > 0
+    ? '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;font-size:11px">' +
+        '<span style="display:flex;align-items:center;gap:5px"><span style="width:12px;height:12px;border-radius:2px;background:rgba(255,92,92,0.75);display:inline-block"></span> Over budget</span>' +
+        '<span style="display:flex;align-items:center;gap:5px"><span style="width:12px;height:12px;border-radius:2px;background:rgba(240,168,96,0.65);display:inline-block"></span> Near limit</span>' +
+        '<span style="display:flex;align-items:center;gap:5px"><span style="width:12px;height:12px;border-radius:2px;background:rgba(79,142,247,0.45);display:inline-block"></span> On track</span>' +
+        '<span style="display:flex;align-items:center;gap:5px"><span style="width:12px;height:12px;border-radius:2px;background:var(--surface2);display:inline-block"></span> None</span>' +
+      '</div>'
+    : '';
+
+  // Table — header row (cycle labels)
+  const colLabelStyle = 'font-size:9px;color:var(--muted);text-align:center;padding:0 2px 6px;white-space:nowrap;';
+  let html = legendHtml + '<div style="overflow-x:auto;margin:0 -20px;padding:0 20px 16px"><table style="border-collapse:separate;border-spacing:3px;min-width:max-content">';
+  html += '<thead><tr><th style="text-align:left;font-size:10px;color:var(--muted);padding:0 8px 6px 0;font-weight:600;white-space:nowrap">Category</th>';
+  cycles.forEach(c => { html += '<th style="' + colLabelStyle + '">' + c.label + '</th>'; });
+  html += '<th style="' + colLabelStyle + 'padding-left:6px">Total</th></tr></thead><tbody>';
+
+  cats.forEach(cat => {
+    const catTotal = cycles.reduce((s,c)=>s+(c.bycat[cat.id]||0),0);
+    if (catTotal === 0) return; // skip empty cats
+    html += '<tr>';
+    html += '<td style="padding:0 8px 0 0;white-space:nowrap;font-size:12px">' + cat.icon + ' ' + cat.name + '</td>';
+    cycles.forEach(c => {
+      const val = c.bycat[cat.id] || 0;
+      const bg = cellColor(val, cat.color, cat.budgetLimit);
+      const display = val > 0 ? fmtShort(val) : '';
+      const textCol = val > 0 ? '#fff' : 'var(--muted)';
+      html += '<td style="background:' + bg + ';border-radius:5px;min-width:52px;height:28px;text-align:center;font-size:10px;font-weight:600;color:' + textCol + ';padding:0 3px">' + display + '</td>';
+    });
+    // Row total
+    html += '<td style="font-size:11px;font-weight:700;text-align:right;padding-left:6px;color:' + cat.color + '">' + fmtShort(catTotal) + '</td>';
+    html += '</tr>';
+  });
+
+  // Cycle totals footer row
+  html += '<tr style="border-top:1px solid var(--border)">';
+  html += '<td style="padding:6px 8px 2px 0;font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em">Total</td>';
+  let grandTotal = 0;
+  cycles.forEach(c => {
+    grandTotal += c.total;
+    html += '<td style="text-align:center;font-size:10px;font-weight:700;padding-top:6px;color:var(--text)">' + (c.total>0?fmtShort(c.total):'—') + '</td>';
+  });
+  html += '<td style="font-size:11px;font-weight:700;text-align:right;padding-left:6px">' + fmtShort(grandTotal) + '</td>';
+  html += '</tr></tbody></table></div>';
+
+  ab.innerHTML = html;
 }
 
 // ── Goals tab ─────────────────────────────────────────────────────────────────
