@@ -17,7 +17,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '1.2.0-202603201651';
+  const APP_VER = '1.2.0-202603201656';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -380,7 +380,7 @@ async function applyUpdate() {
 
   .spendly-tip { position:relative; display:inline-flex; align-items:center; }
   .spendly-tip-icon { width:16px;height:16px;border-radius:50%;background:none;border:1.5px solid var(--muted);color:var(--muted);font-size:10px;font-weight:700;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;margin-left:5px;line-height:1;font-style:normal;opacity:0.6; }
-  .spendly-tip-box { display:none;position:absolute;bottom:calc(100% + 6px);left:50%;transform:translateX(-50%);background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:10px 12px;font-size:11px;font-weight:400;color:var(--muted);line-height:1.6;width:240px;z-index:200;box-shadow:0 4px 16px rgba(0,0,0,0.2);pointer-events:none;text-transform:none;letter-spacing:normal; }
+  .spendly-tip-box { display:none;position:absolute;top:calc(100% + 6px);left:0;transform:none;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:10px 12px;font-size:11px;font-weight:400;color:var(--muted);line-height:1.6;width:240px;z-index:200;box-shadow:0 4px 16px rgba(0,0,0,0.2);pointer-events:none;text-transform:none;letter-spacing:normal; }
   .spendly-tip-box.visible { display:block; }
 </style>
 </head>
@@ -1364,7 +1364,7 @@ const PALETTE = [
 // ── State ─────────────────────────────────────────────────────────────────────
 const APP_VERSION = '1.2.0';
 const BUILD_DATE = '2026-03-20';
-const BUILD_TIME = '20 Mar 2026 4:51 PM AEDT';
+const BUILD_TIME = '20 Mar 2026 4:56 PM AEDT';
 const STORAGE_KEY = 'spendly_generic_v1';
 const LOCK_KEY = 'spendly_pin_hash';
 const BIOM_KEY = 'spendly_biometric';
