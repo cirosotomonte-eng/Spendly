@@ -17,7 +17,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '1.2.0-202603201414';
+  const APP_VER = '1.2.0-202603201422';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -1297,11 +1297,16 @@ async function applyUpdate() {
 <div class="modal-overlay" id="propertyModal">
   <div class="modal">
     <div class="modal-handle"></div>
-    <div class="modal-title">Property value</div>
-    <div style="font-size:12px;color:var(--muted);margin-bottom:14px;line-height:1.6">Enter your estimated current property value. Your equity is calculated as property value minus your remaining mortgage balance.</div>
-    <label>Estimated property value ($)</label>
+    <div class="modal-title" id="propertyModalTitle">Log property valuation</div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:14px;line-height:1.6">Log your estimated or bank-appraised property value. Each entry is saved to history so you can track growth over time.</div>
+    <label>Estimated value ($)</label>
     <input type="number" inputmode="decimal" id="propertyValue" placeholder="e.g. 850000">
-    <button class="btn-primary" onclick="savePropertyValue()">Save</button>
+    <label>Date of valuation</label>
+    <input type="date" id="propertyValDate">
+    <label>Source / note <span style="font-size:10px;color:var(--muted)">(optional)</span></label>
+    <input type="text" id="propertyValNote" placeholder="e.g. Bank valuation, Domain estimate, Agent appraisal">
+    <div id="propertyEquityPreview" style="background:var(--surface2);border-radius:10px;padding:10px 12px;margin-bottom:14px;font-size:12px;color:var(--muted);min-height:36px"></div>
+    <button class="btn-primary" onclick="savePropertyValue()">Save valuation</button>
     <button class="btn-ghost" onclick="closeModal('propertyModal')">Cancel</button>
   </div>
 </div>
@@ -1335,7 +1340,7 @@ const PALETTE = [
 // ── State ─────────────────────────────────────────────────────────────────────
 const APP_VERSION = '1.2.0';
 const BUILD_DATE = '2026-03-20';
-const BUILD_TIME = '20 Mar 2026 2:14 PM AEDT';
+const BUILD_TIME = '20 Mar 2026 2:22 PM AEDT';
 const STORAGE_KEY = 'spendly_generic_v1';
 const LOCK_KEY = 'spendly_pin_hash';
 const BIOM_KEY = 'spendly_biometric';
@@ -1400,6 +1405,7 @@ let state = {
     balanceHistory: [], // [{ date, balance }]
   },
   propertyValue: 0,     // estimated home value for net worth
+  propertyHistory: [],  // [{ date, value, note }] — valuation history
 };
 
 const BACKUP_KEY = 'spendly_backup_v1';
@@ -6575,13 +6581,46 @@ function saveSuperSettings() {
 }
 
 function openPropertySettings() {
+  const mg = state.mortgage || {};
+  const mortgageBalance = mg.currentBalance || 0;
+  document.getElementById('propertyModalTitle').textContent = 'Log property valuation';
   document.getElementById('propertyValue').value = state.propertyValue || '';
+  document.getElementById('propertyValDate').value = todayStr();
+  document.getElementById('propertyValNote').value = '';
+  // Live equity preview
+  const updatePreview = () => {
+    const val = parseFloat(document.getElementById('propertyValue').value) || 0;
+    const equity = Math.max(val - mortgageBalance, 0);
+    const el = document.getElementById('propertyEquityPreview');
+    if (val > 0) {
+      el.innerHTML = '🏠 <strong style="color:var(--text)">$' + Math.round(val).toLocaleString('en-AU') + '</strong> − <strong style="color:var(--text)">$' + Math.round(mortgageBalance).toLocaleString('en-AU') + '</strong> mortgage = <strong style="color:var(--accent)">$' + Math.round(equity).toLocaleString('en-AU') + ' equity</strong>';
+    } else {
+      el.innerHTML = 'Enter a value to see your equity calculation';
+    }
+  };
+  document.getElementById('propertyValue').oninput = updatePreview;
+  updatePreview();
   document.getElementById('propertyModal').classList.add('open');
+  setTimeout(() => document.getElementById('propertyValue').focus(), 350);
 }
 
 function savePropertyValue() {
-  state.propertyValue = parseFloat(document.getElementById('propertyValue').value) || 0;
+  const value = parseFloat(document.getElementById('propertyValue').value) || 0;
+  const date = document.getElementById('propertyValDate').value || todayStr();
+  const note = document.getElementById('propertyValNote').value.trim();
+  if (!value) return;
+  state.propertyValue = value;
+  if (!state.propertyHistory) state.propertyHistory = [];
+  // Don't duplicate same date
+  const existing = state.propertyHistory.find(h => h.date === date);
+  if (existing) {
+    existing.value = value; existing.note = note;
+  } else {
+    state.propertyHistory.push({ date, value, note });
+    state.propertyHistory.sort((a,b) => b.date.localeCompare(a.date));
+  }
   saveState(); closeModal('propertyModal'); renderContent();
+  showToast('🏠 Property valuation saved — $' + Math.round(value).toLocaleString('en-AU'), 3000);
 }
 
 // ── Render Net Worth ──────────────────────────────────────────────────────────
@@ -6660,6 +6699,68 @@ function renderNetWorth() {
   });
   html += '</div>';
 
+  // ── Property history card ─────────────────────────────────────────────────
+  const propHistory = (state.propertyHistory || []).slice().sort((a,b) => a.date.localeCompare(b.date));
+  html += '<div style="background:var(--surface);border-radius:var(--r);padding:14px;margin-bottom:12px">';
+  html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">' +
+    '<div>' +
+      '<div style="font-size:13px;font-weight:700">🏠 Property value history</div>' +
+      (propertyValue>0 ? '<div style="font-size:11px;color:var(--muted)">Current equity: <strong style="color:var(--accent)">' + fmt0(propertyEquity) + '</strong></div>' : '') +
+    '</div>' +
+    '<button onclick="openPropertySettings()" style="background:var(--accent-dim);color:var(--accent);border:none;border-radius:8px;padding:6px 12px;font-size:12px;font-weight:600;font-family:var(--font);cursor:pointer">+ Log valuation</button>' +
+  '</div>';
+
+  if (propHistory.length >= 2) {
+    // Chart
+    html += '<div style="position:relative;height:140px;margin-bottom:8px"><canvas id="propValueChart"></canvas></div>';
+    // First vs latest
+    const first = propHistory[0];
+    const latest = propHistory[propHistory.length-1];
+    const gain = latest.value - first.value;
+    const gainPct = first.value > 0 ? (gain/first.value)*100 : 0;
+    html += '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:12px">' +
+      '<div style="background:var(--surface2);border-radius:10px;padding:10px;text-align:center">' +
+        '<div style="font-size:10px;color:var(--muted);margin-bottom:3px">First logged</div>' +
+        '<div style="font-size:14px;font-weight:700">' + fmt0(first.value) + '</div>' +
+        '<div style="font-size:10px;color:var(--muted)">' + new Date(first.date+'T00:00:00').toLocaleDateString('en-AU',{month:'short',year:'numeric'}) + '</div>' +
+      '</div>' +
+      '<div style="background:var(--surface2);border-radius:10px;padding:10px;text-align:center">' +
+        '<div style="font-size:10px;color:var(--muted);margin-bottom:3px">Growth</div>' +
+        '<div style="font-size:14px;font-weight:700;color:' + (gain>=0?'var(--accent)':'var(--red)') + '">' + (gain>=0?'+':'') + fmt0(gain) + '</div>' +
+        '<div style="font-size:10px;color:' + (gain>=0?'var(--accent)':'var(--red)') + '">' + (gainPct>=0?'+':'') + gainPct.toFixed(1) + '%</div>' +
+      '</div>' +
+      '<div style="background:var(--accent-dim);border-radius:10px;padding:10px;text-align:center">' +
+        '<div style="font-size:10px;color:var(--accent);margin-bottom:3px">Current equity</div>' +
+        '<div style="font-size:14px;font-weight:700;color:var(--accent)">' + fmt0(propertyEquity) + '</div>' +
+        '<div style="font-size:10px;color:var(--muted)">value − mortgage</div>' +
+      '</div>' +
+    '</div>';
+  } else if (propHistory.length === 1) {
+    html += '<div style="background:var(--surface2);border-radius:10px;padding:10px 12px;font-size:12px;color:var(--muted);margin-bottom:10px">Log another valuation to see growth over time 📈</div>';
+  } else {
+    html += '<div style="text-align:center;padding:16px;color:var(--muted);font-size:13px">No valuations yet — tap "+ Log valuation" to start tracking your property\'s growth.</div>';
+  }
+
+  // Valuation history list
+  if (propHistory.length > 0) {
+    html += '<div style="border-top:1px solid var(--surface2);padding-top:10px">';
+    html += '<div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:8px">Valuation log</div>';
+    propHistory.slice().reverse().forEach((h, i) => {
+      const equity = Math.max(h.value - mortgageBalance, 0);
+      html += '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;' + (i>0?'border-top:1px solid var(--surface3)':'') + '">' +
+        '<div>' +
+          '<div style="font-size:13px;font-weight:600">' + fmt0(h.value) + '</div>' +
+          '<div style="font-size:11px;color:var(--muted)">' + new Date(h.date+'T00:00:00').toLocaleDateString('en-AU',{day:'numeric',month:'short',year:'numeric'}) + (h.note ? ' · ' + h.note : '') + '</div>' +
+        '</div>' +
+        '<div style="text-align:right">' +
+          '<div style="font-size:11px;font-weight:600;color:var(--accent)">Equity ' + fmt0(equity) + '</div>' +
+        '</div>' +
+      '</div>';
+    });
+    html += '</div>';
+  }
+  html += '</div>';
+
   // Super projection card
   if (sup.currentAge > 0 && sup.retirementAge > sup.currentAge) {
     const years = sup.retirementAge - sup.currentAge;
@@ -6696,6 +6797,37 @@ function renderNetWorth() {
   }
 
   el.innerHTML = html;
+
+  // ── Render property value chart ───────────────────────────────────────────
+  if (propHistory.length >= 2) {
+    const ctx2 = document.getElementById('propValueChart');
+    if (ctx2 && typeof Chart !== 'undefined') {
+      const isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+      const textColor = isDark ? '#888' : '#999';
+      const gridColor = isDark ? '#2a2a2a' : '#e8e8e0';
+      new Chart(ctx2, {
+        type: 'line',
+        data: {
+          labels: propHistory.map(h => new Date(h.date+'T00:00:00').toLocaleDateString('en-AU',{month:'short',year:'numeric'})),
+          datasets: [
+            { label: 'Property value', data: propHistory.map(h=>h.value), borderColor:'#4F8EF7', backgroundColor:'rgba(79,142,247,0.08)', borderWidth:2, fill:true, pointRadius:4, pointBackgroundColor:'#4F8EF7', tension:0.3 },
+            { label: 'Equity', data: propHistory.map(h=>Math.max(h.value - mortgageBalance, 0)), borderColor:'#34C759', backgroundColor:'rgba(52,199,89,0.06)', borderWidth:2, fill:true, pointRadius:4, pointBackgroundColor:'#34C759', tension:0.3 },
+          ]
+        },
+        options: {
+          responsive:true, maintainAspectRatio:false, animation:false,
+          plugins:{
+            legend:{ display:false },
+            tooltip:{ callbacks:{ label: ctx => ctx.dataset.label + ': $' + Math.round(ctx.parsed.y/1000) + 'k' } }
+          },
+          scales:{
+            x:{ ticks:{ color:textColor, font:{size:10} }, grid:{ display:false }, border:{ display:false } },
+            y:{ ticks:{ color:textColor, font:{size:10}, callback: v => '$'+Math.round(v/1000)+'k' }, grid:{ color:gridColor }, border:{ display:false } }
+          }
+        }
+      });
+    }
+  }
 }
 
 // ── Version & Update ──────────────────────────────────────────────────────────
