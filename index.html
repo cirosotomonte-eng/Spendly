@@ -33,7 +33,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '1.5.4-202603212013';
+  const APP_VER = '1.5.5-202603212154';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -355,9 +355,10 @@ async function applyUpdate() {
   .lock-title { font-size: 26px; font-weight: 700; letter-spacing: -0.5px; margin-bottom: 6px; }
   .lock-sub { font-size: 14px; color: var(--muted); margin-bottom: 36px; text-align: center; line-height: 1.5; }
   .pin-dots { display: flex; gap: 14px; margin-bottom: 32px; }
-  .pin-dot { width: 14px; height: 14px; border-radius: 50%; background: var(--surface3); transition: background 0.15s, transform 0.15s; }
-  .pin-dot.filled { background: var(--accent); transform: scale(1.15); }
-  .pin-dot.error { background: var(--red); }
+  .pin-dot { width: 16px; height: 16px; border-radius: 50%; background: var(--surface3); transition: background 0.1s, transform 0.15s; }
+  .pin-dot.filled { background: var(--accent); transform: scale(1.3); animation: dotPop 0.2s ease; }
+  .pin-dot.error { background: var(--red); transform: scale(1.3); }
+  @keyframes dotPop { 0% { transform: scale(1); } 60% { transform: scale(1.5); } 100% { transform: scale(1.3); } }
   .numpad { display: grid; grid-template-columns: repeat(3, 72px); gap: 12px; }
   .numpad-btn {
     width: 72px; height: 72px; border-radius: 50%;
@@ -365,12 +366,14 @@ async function applyUpdate() {
     font-size: 22px; font-weight: 600; font-family: var(--font);
     color: var(--text); cursor: pointer;
     display: flex; align-items: center; justify-content: center;
-    transition: background 0.1s, transform 0.08s;
+    transition: background 0.08s, transform 0.08s;
     -webkit-tap-highlight-color: transparent;
   }
-  .numpad-btn:active { background: var(--surface3); transform: scale(0.93); }
+  .numpad-btn:active { background: var(--surface3); transform: scale(0.91); }
+  .numpad-btn.pressed { background: var(--surface3) !important; transform: scale(0.91) !important; }
   .numpad-btn.action { font-size: 22px; color: var(--muted); background: none; }
   .numpad-btn.action:active { background: var(--surface2); }
+  .numpad-btn.action.pressed { background: var(--surface2) !important; }
   .lock-biometric-btn {
     margin-top: 20px; background: none; border: none;
     color: var(--accent); font-size: 14px; font-family: var(--font);
@@ -628,20 +631,20 @@ async function applyUpdate() {
   </div>
   <div class="lock-error-msg" id="lockError"></div>
   <div class="numpad">
-    <button class="numpad-btn" onclick="lockTap('1')">1</button>
-    <button class="numpad-btn" onclick="lockTap('2')">2</button>
-    <button class="numpad-btn" onclick="lockTap('3')">3</button>
-    <button class="numpad-btn" onclick="lockTap('4')">4</button>
-    <button class="numpad-btn" onclick="lockTap('5')">5</button>
-    <button class="numpad-btn" onclick="lockTap('6')">6</button>
-    <button class="numpad-btn" onclick="lockTap('7')">7</button>
-    <button class="numpad-btn" onclick="lockTap('8')">8</button>
-    <button class="numpad-btn" onclick="lockTap('9')">9</button>
+    <button class="numpad-btn" ontouchstart="lockTap('1',this)" onclick="lockTap('1',this)">1</button>
+    <button class="numpad-btn" ontouchstart="lockTap('2',this)" onclick="lockTap('2',this)">2</button>
+    <button class="numpad-btn" ontouchstart="lockTap('3',this)" onclick="lockTap('3',this)">3</button>
+    <button class="numpad-btn" ontouchstart="lockTap('4',this)" onclick="lockTap('4',this)">4</button>
+    <button class="numpad-btn" ontouchstart="lockTap('5',this)" onclick="lockTap('5',this)">5</button>
+    <button class="numpad-btn" ontouchstart="lockTap('6',this)" onclick="lockTap('6',this)">6</button>
+    <button class="numpad-btn" ontouchstart="lockTap('7',this)" onclick="lockTap('7',this)">7</button>
+    <button class="numpad-btn" ontouchstart="lockTap('8',this)" onclick="lockTap('8',this)">8</button>
+    <button class="numpad-btn" ontouchstart="lockTap('9',this)" onclick="lockTap('9',this)">9</button>
     <button class="numpad-btn action" id="lockBiomSmall" onclick="triggerBiometric()" style="display:none">
       <svg width="22" height="22" viewBox="0 0 22 22" fill="none"><path d="M7 9c0-2.2 1.8-4 4-4s4 1.8 4 4v2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><rect x="4" y="11" width="14" height="8" rx="3" stroke="currentColor" stroke-width="1.5"/><circle cx="11" cy="15" r="1.5" fill="currentColor"/></svg>
     </button>
-    <button class="numpad-btn" onclick="lockTap('0')">0</button>
-    <button class="numpad-btn action" onclick="lockBackspace()">⌫</button>
+    <button class="numpad-btn" ontouchstart="lockTap('0',this)" onclick="lockTap('0',this)">0</button>
+    <button class="numpad-btn action" ontouchstart="lockBackspace(this)" onclick="lockBackspace(this)">⌫</button>
   </div>
   <button class="lock-biometric-btn" id="lockBiomBtn" onclick="triggerBiometric()" style="display:none">
     <svg width="18" height="18" viewBox="0 0 22 22" fill="none"><path d="M7 9c0-2.2 1.8-4 4-4s4 1.8 4 4v2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><rect x="4" y="11" width="14" height="8" rx="3" stroke="currentColor" stroke-width="1.5"/><circle cx="11" cy="15" r="1.5" fill="currentColor"/></svg>
@@ -1489,9 +1492,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '1.5.4';
+const APP_VERSION = '1.5.5';
 const BUILD_DATE = '2026-03-21';
-const BUILD_TIME = '21 Mar 2026 8:13 PM AEDT';
+const BUILD_TIME = '21 Mar 2026 9:54 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -4097,18 +4100,35 @@ function skipLock() {
 function updateDots(n, error) {
   for (let i = 0; i < 4; i++) {
     const d = document.getElementById('dot' + i);
+    const wasFilled = d.classList.contains('filled');
     d.classList.toggle('filled', i < n);
     d.classList.toggle('error', error);
+    // Re-trigger pop animation on newly filled dot
+    if (!wasFilled && i < n && !error) {
+      d.classList.remove('filled');
+      void d.offsetWidth; // force reflow
+      d.classList.add('filled');
+    }
   }
 }
-function lockTap(digit) {
+let _lockTapTime = 0; // guard against ontouchstart + onclick double-fire
+function lockTap(digit, btn) {
+  const now = Date.now();
+  if (now - _lockTapTime < 300) return; // ignore duplicate within 300ms
+  _lockTapTime = now;
   if (lockBuf.length >= 4) return;
+  if (btn) { btn.classList.add('pressed'); setTimeout(() => btn.classList.remove('pressed'), 120); }
   lockBuf += digit;
   document.getElementById('lockError').textContent = '';
   updateDots(lockBuf.length, false);
   if (lockBuf.length === 4) setTimeout(() => processPin(lockBuf), 80);
 }
-function lockBackspace() {
+let _lockBackTime = 0;
+function lockBackspace(btn) {
+  const now = Date.now();
+  if (now - _lockBackTime < 300) return;
+  _lockBackTime = now;
+  if (btn) { btn.classList.add('pressed'); setTimeout(() => btn.classList.remove('pressed'), 120); }
   if (lockBuf.length > 0) { lockBuf = lockBuf.slice(0,-1); updateDots(lockBuf.length, false); }
 }
 function processPin(pin) {
