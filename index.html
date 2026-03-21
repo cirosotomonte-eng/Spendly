@@ -33,7 +33,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '1.4.6-202603211839';
+  const APP_VER = '1.4.7-202603211908';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -1074,8 +1074,11 @@ async function applyUpdate() {
     <div class="modal-title">Mortgage details</div>
     <label>Original loan amount ($)</label>
     <input type="number" inputmode="decimal" id="mgLoanAmount" placeholder="e.g. 604000">
-    <label>Current balance ($) — from your bank app</label>
-    <input type="number" inputmode="decimal" id="mgCurrentBalance" placeholder="e.g. 581418.61" step="0.01">
+    <label>Known balance ($) — from your bank app</label>
+    <input type="number" inputmode="decimal" id="mgCurrentBalance" placeholder="e.g. 583168.61" step="0.01">
+    <label>Balance as of (date from bank app)</label>
+    <input type="date" id="mgBalanceAsOf">
+    <div style="font-size:11px;color:var(--muted);margin-top:-8px;margin-bottom:14px;line-height:1.5">Spendly will calculate your estimated current balance from this date using your repayments and interest charges.</div>
     <label>Annual interest rate (%)</label>
     <input type="number" inputmode="decimal" id="mgRate" placeholder="e.g. 5.35" step="0.01">
     <label>Loan start date</label>
@@ -1464,9 +1467,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '1.4.6';
+const APP_VERSION = '1.4.7';
 const BUILD_DATE = '2026-03-21';
-const BUILD_TIME = '21 Mar 2026 6:39 PM AEDT';
+const BUILD_TIME = '21 Mar 2026 7:08 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -4825,12 +4828,77 @@ function startConfetti() {
 // ── Mortgage tab ──────────────────────────────────────────────────────────────
 let editingMortgageExtraId = null;
 
+// Calculates estimated current balance from a known anchor point
+function getEstimatedBalance() {
+  const mg = state.mortgage || {};
+  const anchorBalance = mg.currentBalance || 0;
+  const anchorDate = mg.balanceAsOf || mg.startDate || '';
+  if (!anchorBalance || !anchorDate) return { balance: anchorBalance, anchorDate, dataPoints: 0, isEstimated: false };
+
+  const anchor = new Date(anchorDate + 'T00:00:00');
+  const today = new Date(); today.setHours(0,0,0,0);
+
+  // Find the mortgage category to identify repayment expenses
+  const mortgageCat = state.categories.find(c =>
+    c.name.toLowerCase().includes('mortgage') ||
+    c.name.toLowerCase().includes('home loan') ||
+    c.icon === '🏠'
+  );
+
+  // SUM repayments: mortgage recurring expenses logged after anchor date
+  let totalRepayments = 0;
+  if (mortgageCat) {
+    (state.expenses || []).forEach(e => {
+      if (e.categoryId !== mortgageCat.id) return;
+      const d = new Date(e.date + 'T00:00:00');
+      if (d > anchor && d <= today) totalRepayments += e.amount;
+    });
+  }
+
+  // SUM extra repayments logged after anchor date
+  let totalExtras = 0;
+  (state.mortgageExtras || []).forEach(e => {
+    const d = new Date(e.date + 'T00:00:00');
+    if (d > anchor && d <= today) totalExtras += e.amount;
+  });
+
+  // SUM interest charges from interest log after anchor date
+  let totalInterest = 0;
+  (state.mortgageInterestLog || []).forEach(e => {
+    // month field is YYYY-MM — use end of that month
+    try {
+      const [y, m] = e.month.split('-').map(Number);
+      const monthEnd = new Date(y, m, 0); // last day of month
+      if (monthEnd > anchor && monthEnd <= today) totalInterest += e.interest;
+    } catch(err) {}
+  });
+
+  const estimated = anchorBalance - totalRepayments - totalExtras + totalInterest;
+  const dataPoints = totalRepayments > 0 || totalExtras > 0 || totalInterest > 0;
+
+  return {
+    balance: Math.max(0, estimated),
+    anchorDate,
+    anchorBalance,
+    totalRepayments,
+    totalExtras,
+    totalInterest,
+    isEstimated: dataPoints,
+    breakdown: {
+      repayments: totalRepayments,
+      extras: totalExtras,
+      interest: totalInterest,
+    }
+  };
+}
+
 function mortgageCalc() {
   const mg = state.mortgage || {};
   if (!mg.loanAmount || !mg.interestRate || !mg.termYears) return null;
 
   const principal = mg.loanAmount;
-  const startBalance = mg.currentBalance > 0 ? mg.currentBalance : principal;
+  const est = getEstimatedBalance();
+  const startBalance = est.balance > 0 ? est.balance : (mg.currentBalance > 0 ? mg.currentBalance : principal);
   const annualRate = mg.interestRate / 100;
   const weeklyRate = annualRate / 52;
   const totalWeeks = mg.termYears * 52;
@@ -4917,6 +4985,7 @@ function openMortgageSettings() {
   const mg = state.mortgage || {};
   document.getElementById('mgLoanAmount').value = mg.loanAmount || '';
   document.getElementById('mgCurrentBalance').value = mg.currentBalance || '';
+  document.getElementById('mgBalanceAsOf').value = mg.balanceAsOf || '';
   document.getElementById('mgRate').value = mg.interestRate || '';
   document.getElementById('mgStartDate').value = mg.startDate || '';
   document.getElementById('mgTerm').value = mg.termYears || 30;
@@ -4930,6 +4999,7 @@ function saveMortgageSettings() {
   if (!state.mortgage) state.mortgage = {};
   state.mortgage.loanAmount      = parseFloat(document.getElementById('mgLoanAmount').value) || 0;
   state.mortgage.currentBalance  = parseFloat(document.getElementById('mgCurrentBalance').value) || 0;
+  state.mortgage.balanceAsOf     = document.getElementById('mgBalanceAsOf').value || '';
   state.mortgage.interestRate    = parseFloat(document.getElementById('mgRate').value) || 0;
   state.mortgage.startDate       = document.getElementById('mgStartDate').value || '';
   state.mortgage.termYears       = parseInt(document.getElementById('mgTerm').value) || 30;
@@ -5258,7 +5328,8 @@ function deleteMortgageInterest() {
 function mortgageProjectionData(extraOffsetAmt) {
   const mg = state.mortgage || {};
   if (!mg.loanAmount || !mg.interestRate || !mg.termYears) return null;
-  const startBalance = mg.currentBalance > 0 ? mg.currentBalance : mg.loanAmount;
+  const est = getEstimatedBalance();
+  const startBalance = est.balance > 0 ? est.balance : (mg.currentBalance > 0 ? mg.currentBalance : mg.loanAmount);
   const annualRate = mg.interestRate / 100;
   const weeklyRate = annualRate / 52;
   if (weeklyRate <= 0) return null;
@@ -5371,7 +5442,11 @@ function renderMortgage() {
   const fmtF = (n) => '$' + n.toLocaleString('en-AU', {minimumFractionDigits:2,maximumFractionDigits:2});
   const timeLeft = (c.yearsLeft > 0 ? c.yearsLeft + 'y ' : '') + (c.monthsLeft > 0 ? c.monthsLeft + 'm' : '') || '< 1 month';
   const paidOffStr = c.paidOffDate ? c.paidOffDate.toLocaleDateString('en-AU',{month:'short',year:'numeric'}) : '—';
-  const pctPaid = (mg.loanAmount > 0 ? Math.min(((mg.loanAmount - c.remaining) / mg.loanAmount) * 100, 100) : 0).toFixed(1);
+
+  const est = getEstimatedBalance();
+  const displayBalance = est.balance > 0 ? est.balance : (mg.currentBalance || 0);
+  const pctPaid = (mg.loanAmount > 0 ? Math.min(((mg.loanAmount - displayBalance) / mg.loanAmount) * 100, 100) : 0).toFixed(1);
+  const anchorDateStr = est.anchorDate ? new Date(est.anchorDate+'T00:00:00').toLocaleDateString('en-AU',{day:'numeric',month:'short',year:'numeric'}) : '';
 
   let html = headerRow;
 
@@ -5379,23 +5454,37 @@ function renderMortgage() {
   html += '<div style="background:var(--surface);border-radius:var(--r);padding:16px;margin-bottom:8px">' +
     '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px">' +
       '<div>' +
-        '<div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:4px">Current balance</div>' +
-        '<div style="font-size:32px;font-weight:800;letter-spacing:-1px">' + fmtF(c.remaining) + '</div>' +
+        '<div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:4px">' +
+          (est.isEstimated ? 'Estimated balance' : 'Current balance') +
+        '</div>' +
+        '<div style="font-size:32px;font-weight:800;letter-spacing:-1px">' + fmtF(displayBalance) + '</div>' +
         '<div style="font-size:12px;color:var(--muted);margin-top:2px">of ' + fmtD(mg.loanAmount) + ' original loan</div>' +
       '</div>' +
       '<div style="text-align:right">' +
         '<div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:4px">Paid off</div>' +
-        '<div style="font-size:20px;font-weight:700">' + fmtD(mg.loanAmount - c.remaining) + '</div>' +
+        '<div style="font-size:20px;font-weight:700">' + fmtD(mg.loanAmount - displayBalance) + '</div>' +
         '<div style="font-size:11px;color:var(--muted)">' + pctPaid + '%</div>' +
       '</div>' +
     '</div>' +
     '<div style="background:var(--surface2);border-radius:100px;height:8px;overflow:hidden;margin-bottom:6px">' +
       '<div style="width:' + pctPaid + '%;height:100%;background:var(--accent);border-radius:100px;transition:width 0.4s"></div>' +
     '</div>' +
-    '<div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted)">' +
+    '<div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-bottom:' + (est.isEstimated ? '12' : '0') + 'px">' +
       '<span>' + (mg.startDate ? 'Started ' + new Date(mg.startDate+'T00:00:00').toLocaleDateString('en-AU',{month:'short',year:'numeric'}) : '') + '</span>' +
       '<span>Free ' + paidOffStr + '</span>' +
     '</div>' +
+    (est.isEstimated ? (
+      '<div style="border-top:1px solid var(--surface2);padding-top:10px">' +
+        '<div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:6px">How we calculated this</div>' +
+        '<div style="display:grid;grid-template-columns:1fr auto;gap:3px 12px;font-size:12px">' +
+          '<span style="color:var(--muted)">Balance on ' + anchorDateStr + '</span><span style="font-weight:600;text-align:right">' + fmtF(est.anchorBalance) + '</span>' +
+          (est.totalRepayments > 0 ? '<span style="color:var(--muted)">Repayments since</span><span style="font-weight:600;color:#34C759;text-align:right">-' + fmtF(est.totalRepayments) + '</span>' : '') +
+          (est.totalExtras > 0 ? '<span style="color:var(--muted)">Extra repayments</span><span style="font-weight:600;color:#34C759;text-align:right">-' + fmtF(est.totalExtras) + '</span>' : '') +
+          (est.totalInterest > 0 ? '<span style="color:var(--muted)">Interest charged</span><span style="font-weight:600;color:var(--red);text-align:right">+' + fmtF(est.totalInterest) + '</span>' : '') +
+        '</div>' +
+        '<div style="margin-top:8px;font-size:11px;color:var(--muted)">💡 Update the known balance in <button onclick="openMortgageSettings()" style="background:none;border:none;color:var(--accent);font-size:11px;font-family:var(--font);cursor:pointer;padding:0">Edit details</button> after checking your bank app to keep this accurate.</div>' +
+      '</div>'
+    ) : (anchorDateStr ? '<div style="font-size:11px;color:var(--muted)">Balance as of ' + anchorDateStr + ' — add repayments and interest to track changes</div>' : '')) +
   '</div>';
 
   // ── Time + repayment cards ─────────────────────────────────────────────────
@@ -7783,8 +7872,7 @@ function saveSuperSettings() {
 
 function openPropertySettings() {
   const mg = state.mortgage || {};
-  const mortgageBalance = mg.currentBalance || 0;
-  document.getElementById('propertyModalTitle').textContent = 'Log property valuation';
+  const mortgageBalance = getEstimatedBalance().balance || mg.currentBalance || 0;
   document.getElementById('propertyValue').value = state.propertyValue || '';
   document.getElementById('propertyValDate').value = todayStr();
   document.getElementById('propertyValNote').value = '';
@@ -7833,8 +7921,7 @@ function renderNetWorth() {
   const fmt0s = n => (n<0?'-':'') + fmt0(n);
 
   // Components
-  const mortgageBalance = mg.currentBalance || 0;
-  const propertyValue = state.propertyValue || 0;
+  const mortgageBalance = getEstimatedBalance().balance || mg.currentBalance || 0;
   const propertyEquity = Math.max(propertyValue - mortgageBalance, 0);
   const offsetBalance = getOffsetBalance();
   const portfolioValue = (state.portfolio||[]).reduce((s,h)=>s+h.units*h.currentPrice,0);
