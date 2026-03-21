@@ -33,7 +33,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '1.5.0-202603211926';
+  const APP_VER = '1.5.1-202603211938';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -778,6 +778,9 @@ async function applyUpdate() {
   <div id="tabsContainer">
     <!-- Rendered dynamically by renderTabs() -->
   </div>
+  <div id="tabsHint" style="text-align:center;font-size:11px;color:var(--muted);padding:0 16px 6px;display:none">
+    More tabs available in <button onclick="openSettings()" style="background:none;border:none;color:var(--accent);font-size:11px;font-family:var(--font);cursor:pointer;padding:0">Settings ⚙️</button>
+  </div>
 
   <div class="content" id="content"></div>
 
@@ -825,6 +828,11 @@ async function applyUpdate() {
     </div>
     <button class="btn-primary" onclick="saveSettings()">Save settings</button>
     <button class="btn-ghost" onclick="closeModal('settingsModal')">Cancel</button>
+    <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--surface2)">
+      <div style="font-size:13px;font-weight:700;margin-bottom:4px">Tabs</div>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:12px;line-height:1.5">Choose which tabs to show and drag to reorder them. Spendly has 12 tabs in total — only your selected ones appear in the tab bar.</div>
+      <button onclick="closeModal('settingsModal');openTabCustomise()" style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:11px 16px;font-size:13px;font-weight:600;color:var(--text);font-family:var(--font);cursor:pointer;width:100%">⚙️ Manage tabs</button>
+    </div>
     <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--surface2)">
       <div style="font-size:13px;font-weight:700;margin-bottom:4px">Backup & restore</div>
       <div style="font-size:11px;color:var(--muted);margin-bottom:12px;line-height:1.5">Export a copy of all your data to your device. You can use it to restore Spendly on a new phone or browser.</div>
@@ -1481,9 +1489,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '1.5.0';
+const APP_VERSION = '1.5.1';
 const BUILD_DATE = '2026-03-21';
-const BUILD_TIME = '21 Mar 2026 7:26 PM AEDT';
+const BUILD_TIME = '21 Mar 2026 7:38 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -2098,10 +2106,21 @@ const ALL_TABS = [
   { id:'notes',     icon:'📝', label:'Notes'               },
 ];
 
+const DEFAULT_TAB_IDS = ['expenses', 'goals', 'savings', 'analytics'];
+
 function getTabConfig() {
   // Returns ordered array of { id, icon, label, enabled, locked }
   // Merges saved state.tabConfig with ALL_TABS (handles new tabs added later)
   const saved = state.tabConfig || [];
+
+  // Brand new user — no saved config yet: enable only default tabs
+  if (saved.length === 0) {
+    return ALL_TABS.map(t => ({
+      ...t,
+      enabled: DEFAULT_TAB_IDS.includes(t.id),
+    }));
+  }
+
   const savedMap = {};
   saved.forEach(t => { savedMap[t.id] = t; });
 
@@ -2128,6 +2147,7 @@ function renderTabs() {
   if (!container) return;
   const config = getTabConfig();
   const enabled = config.filter(t => t.enabled);
+  const hasHidden = config.some(t => !t.enabled);
 
   let html = '<div class="tabs">';
   enabled.forEach(t => {
@@ -2136,12 +2156,12 @@ function renderTabs() {
       '<span class="tab-icon">' + t.icon + '</span>' + t.label +
       '</button>';
   });
-  // Customise button at end
-  html += '<button class="tab" onclick="openTabCustomise()" style="flex-shrink:0" title="Customise tabs">' +
-    '<span class="tab-icon">⚙️</span>Tabs' +
-    '</button>';
   html += '</div>';
   container.innerHTML = html;
+
+  // Show hint if some tabs are hidden
+  const hint = document.getElementById('tabsHint');
+  if (hint) hint.style.display = hasHidden ? '' : 'none';
 }
 
 // ── Tab customise modal ───────────────────────────────────────────────────────
