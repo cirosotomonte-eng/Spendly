@@ -33,7 +33,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '1.7.0-202603221022';
+  const APP_VER = '1.7.1-202603221033';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -275,6 +275,18 @@ async function applyUpdate() {
   .tab-config-toggle.on::after { left:21px; }
   .tab-config-toggle.off::after { left:3px; }
   .tab-config-locked { font-size:11px; color:var(--muted); flex-shrink:0; }
+
+  /* Settings */
+  .settings-section-label { font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;padding:20px 4px 8px; }
+  .settings-group { background:var(--surface);border-radius:16px;overflow:hidden;margin-bottom:4px; }
+  .settings-row { display:flex;align-items:center;gap:14px;padding:14px 16px;cursor:pointer;transition:background 0.1s;-webkit-tap-highlight-color:transparent; }
+  .settings-row:not(:last-child) { border-bottom:1px solid var(--surface2); }
+  .settings-row:active { background:var(--surface2); }
+  .settings-row-icon { width:34px;height:34px;border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:17px;flex-shrink:0;filter:drop-shadow(0 1px 2px rgba(0,0,0,0.15)); }
+  .settings-row-label { flex:1;font-size:15px;font-weight:500;color:var(--text); }
+  .settings-row-sub { font-size:12px;color:var(--muted);flex-shrink:0;margin-right:4px; }
+  .settings-row-chevron { font-size:18px;color:var(--border);flex-shrink:0;line-height:1;font-weight:300; }
+  .settings-row-value { font-size:13px;color:var(--muted);flex-shrink:0;margin-right:2px; }
 
   /* Analytics */
   .chart-container { position: relative; width: 100%; height: 180px; margin-bottom: 16px; }
@@ -831,53 +843,128 @@ async function applyUpdate() {
 <div class="modal-overlay" id="settingsModal">
   <div class="modal">
     <div class="modal-handle"></div>
-    <div class="modal-title" id="settingsTitle">Settings</div>
-    <label>App name (optional)</label>
-    <input type="text" id="setAppName" placeholder="e.g. My Budget">
-    <label>Monthly budget ($)</label>
-    <input type="number" inputmode="decimal" id="setBudget" placeholder="e.g. 3000">
-    <label>CC statement starts on day</label>
-    <input type="number" inputmode="numeric" id="setCycleDay" placeholder="e.g. 1" min="1" max="28">
-    <div style="background:var(--surface2);border-radius:10px;padding:12px 14px;margin-bottom:14px;font-size:12px;color:var(--muted);line-height:1.6">
-      Example: if your statement closes on the 17th, enter <strong style="color:var(--text)">18</strong> (the day the new cycle starts).
-    </div>
-    <label>City</label>
-    <input type="text" id="setCity" placeholder="e.g. Sydney">
-    <label>Country</label>
-    <input type="text" id="setCountry" placeholder="e.g. Australia">
-    <div id="setTimezoneDisplay" style="font-size:11px;color:var(--muted);margin-top:-8px;margin-bottom:14px"></div>
-    <div style="margin-top:4px;padding-top:16px;border-top:1px solid var(--surface2)">
-      <div style="font-size:13px;font-weight:700;margin-bottom:12px">Expense amount colours</div>
-      <div style="font-size:11px;color:var(--muted);margin-bottom:12px;line-height:1.5">Colours shown on expense amounts based on how much of the category budget has been spent.</div>
+    <div class="modal-title" id="settingsTitle" style="text-align:center">Settings</div>
+
+    <!-- Hidden form fields still needed by saveSettings() -->
+    <div style="display:none">
+      <input type="text" id="setAppName">
+      <input type="number" id="setBudget">
+      <input type="number" id="setCycleDay">
+      <input type="text" id="setCity">
+      <input type="text" id="setCountry">
+      <div id="setTimezoneDisplay"></div>
       <div id="spendColorRows"></div>
     </div>
-    <button class="btn-primary" onclick="saveSettings()">Save settings</button>
-    <button class="btn-ghost" onclick="closeModal('settingsModal')">Cancel</button>
-    <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--surface2)" id="faceIdSettingsSection">
-      <div style="font-size:13px;font-weight:700;margin-bottom:4px">Face ID / Biometrics</div>
-      <div style="font-size:11px;color:var(--muted);margin-bottom:12px;line-height:1.5">Use Face ID or fingerprint to unlock Spendly instead of typing your PIN. Your PIN remains as a fallback.</div>
-      <button id="faceIdSettingsBtn" onclick="setupFaceId()" style="border-radius:10px;padding:11px 16px;font-size:13px;font-weight:600;font-family:var(--font);cursor:pointer;width:100%;border:1px solid var(--accent-dim);background:var(--accent-dim);color:var(--accent)">🔐 Enable Face ID</button>
+
+    <!-- ── App identity card ─────────────────────────────── -->
+    <div style="display:flex;flex-direction:column;align-items:center;padding:8px 0 24px">
+      <div style="width:72px;height:72px;border-radius:20px;background:linear-gradient(135deg,#1a5cff,#34C759);display:flex;align-items:center;justify-content:center;font-size:36px;margin-bottom:10px;box-shadow:0 4px 20px rgba(79,142,247,0.3)">💚</div>
+      <div style="font-size:20px;font-weight:800;letter-spacing:-0.5px">Spendly</div>
+      <div style="font-size:12px;color:var(--muted);margin-top:3px">v<span id="appVersionDisplay"></span> · <span id="appBuildTime"></span></div>
     </div>
-    <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--surface2)">
-      <div style="font-size:13px;font-weight:700;margin-bottom:4px">Tabs</div>
-      <div style="font-size:11px;color:var(--muted);margin-bottom:12px;line-height:1.5">Choose which tabs to show and drag to reorder them. Spendly has 12 tabs in total — only your selected ones appear in the tab bar.</div>
-      <button onclick="closeModal('settingsModal');openTabCustomise()" style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:11px 16px;font-size:13px;font-weight:600;color:var(--text);font-family:var(--font);cursor:pointer;width:100%">⚙️ Manage tabs</button>
+
+    <!-- ── Preferences group ─────────────────────────────── -->
+    <div class="settings-section-label">Preferences</div>
+    <div class="settings-group">
+      <div class="settings-row" onclick="openSettingsSheet('budget')">
+        <span class="settings-row-icon" style="background:#4F8EF7">💰</span>
+        <span class="settings-row-label">Budget & cycle</span>
+        <span class="settings-row-chevron">›</span>
+      </div>
+      <div class="settings-row" onclick="openSettingsSheet('appearance')">
+        <span class="settings-row-icon" style="background:#FF9F0A">🎨</span>
+        <span class="settings-row-label">Amount colours</span>
+        <span class="settings-row-chevron">›</span>
+      </div>
+      <div class="settings-row" onclick="closeModal('settingsModal');openTabCustomise()">
+        <span class="settings-row-icon" style="background:#8E8E93">⚙️</span>
+        <span class="settings-row-label">Manage tabs</span>
+        <span class="settings-row-chevron">›</span>
+      </div>
     </div>
-    <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--surface2)">
-      <div style="font-size:13px;font-weight:700;margin-bottom:4px">Backup & restore</div>
-      <div style="font-size:11px;color:var(--muted);margin-bottom:12px;line-height:1.5">Export a copy of all your data to your device. You can use it to restore Spendly on a new phone or browser.</div>
-      <button onclick="exportBackup()" style="background:var(--accent-dim);border:1px solid var(--accent);border-radius:10px;padding:11px 16px;font-size:13px;font-weight:600;color:var(--accent);font-family:var(--font);cursor:pointer;width:100%;margin-bottom:8px">⬇️ Export backup</button>
-      <button onclick="document.getElementById('importFileInput').click()" style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:11px 16px;font-size:13px;font-weight:600;color:var(--text);font-family:var(--font);cursor:pointer;width:100%">⬆️ Restore from backup</button>
+
+    <!-- ── Security group ────────────────────────────────── -->
+    <div class="settings-section-label">Security</div>
+    <div class="settings-group" id="faceIdSettingsSection">
+      <div class="settings-row" onclick="setupFaceId()">
+        <span class="settings-row-icon" style="background:#30D158">🔐</span>
+        <span class="settings-row-label" id="faceIdSettingsLabel">Enable Face ID</span>
+        <span class="settings-row-chevron" id="faceIdSettingsChevron">›</span>
+      </div>
+    </div>
+
+    <!-- ── Data group ─────────────────────────────────────── -->
+    <div class="settings-section-label">Data</div>
+    <div class="settings-group">
+      <div class="settings-row" onclick="exportBackup()">
+        <span class="settings-row-icon" style="background:#4F8EF7">⬇️</span>
+        <span class="settings-row-label">Export backup</span>
+        <span class="settings-row-chevron">›</span>
+      </div>
+      <div class="settings-row" onclick="document.getElementById('importFileInput').click()">
+        <span class="settings-row-icon" style="background:#FF9F0A">⬆️</span>
+        <span class="settings-row-label">Restore from backup</span>
+        <span class="settings-row-chevron">›</span>
+      </div>
       <input type="file" id="importFileInput" accept=".spendly,.json" style="display:none" onchange="importBackup(this)">
     </div>
-    <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--surface2);text-align:center">
-      <div style="background:var(--surface2);border-radius:10px;padding:12px 14px;margin-bottom:10px">
-        <div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:4px">Spendly v<span id="appVersionDisplay"></span></div>
-        <div style="font-size:11px;color:var(--muted)">Built <span id="appBuildTime"></span></div>
+
+    <!-- ── About group ────────────────────────────────────── -->
+    <div class="settings-section-label">About</div>
+    <div class="settings-group">
+      <div class="settings-row" onclick="forceAppUpdate()">
+        <span class="settings-row-icon" style="background:#34C759">🔄</span>
+        <span class="settings-row-label">Check for update</span>
+        <span class="settings-row-sub" id="appVersionDisplay2"></span>
+        <span class="settings-row-chevron">›</span>
       </div>
-      <button onclick="forceAppUpdate()" style="background:none;border:1px solid var(--border);border-radius:8px;padding:8px 16px;font-size:12px;color:var(--muted);font-family:var(--font);cursor:pointer;width:100%;margin-bottom:8px">🔄 Check for update</button>
-      <button id="signOutBtn" onclick="signOut()" style="background:none;border:1px solid var(--red-dim);border-radius:8px;padding:8px 16px;font-size:12px;color:var(--red);font-family:var(--font);cursor:pointer;width:100%">Sign out</button>
     </div>
+
+    <!-- ── Sign out ───────────────────────────────────────── -->
+    <div id="signOutBtn" class="settings-group" style="margin-top:24px">
+      <div class="settings-row" onclick="signOut()">
+        <span class="settings-row-icon" style="background:#FF5C5C">🚪</span>
+        <span class="settings-row-label" style="color:var(--red)">Sign out</span>
+      </div>
+    </div>
+
+    <div style="height:16px"></div>
+  </div>
+</div>
+
+<!-- Settings sub-sheet: Budget & cycle -->
+<div class="modal-overlay" id="settingsBudgetModal">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title">Budget & cycle</div>
+    <label>App name (optional)</label>
+    <input type="text" id="setAppName2" placeholder="e.g. Ciro's Budget">
+    <label>Monthly budget ($)</label>
+    <input type="number" inputmode="decimal" id="setBudget2" placeholder="e.g. 8000">
+    <label>CC cycle starts on day</label>
+    <input type="number" inputmode="numeric" id="setCycleDay2" placeholder="e.g. 18" min="1" max="28">
+    <div style="background:var(--surface2);border-radius:10px;padding:12px 14px;margin-bottom:14px;font-size:12px;color:var(--muted);line-height:1.6">
+      Example: if your statement closes on the 17th, enter <strong style="color:var(--text)">18</strong>.
+    </div>
+    <label>City</label>
+    <input type="text" id="setCity2" placeholder="e.g. Sydney">
+    <label>Country</label>
+    <input type="text" id="setCountry2" placeholder="e.g. Australia">
+    <div id="setTimezoneDisplay2" style="font-size:11px;color:var(--muted);margin-top:-8px;margin-bottom:14px"></div>
+    <button class="btn-primary" onclick="saveBudgetSettings()">Save</button>
+    <button class="btn-ghost" onclick="closeModal('settingsBudgetModal')">Cancel</button>
+  </div>
+</div>
+
+<!-- Settings sub-sheet: Appearance -->
+<div class="modal-overlay" id="settingsAppearanceModal">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title">Amount colours</div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:14px;line-height:1.5">Colours shown on expense amounts based on how much of the category budget has been spent.</div>
+    <div id="spendColorRows2"></div>
+    <button class="btn-primary" onclick="saveAppearanceSettings()">Save</button>
+    <button class="btn-ghost" onclick="closeModal('settingsAppearanceModal')">Cancel</button>
   </div>
 </div>
 
@@ -1524,9 +1611,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '1.7.0';
+const APP_VERSION = '1.7.1';
 const BUILD_DATE = '2026-03-22';
-const BUILD_TIME = '22 Mar 2026 10:22 AM AEDT';
+const BUILD_TIME = '22 Mar 2026 10:33 AM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -3598,25 +3685,119 @@ function renderCalendar() {
 
 // ── Settings modal ────────────────────────────────────────────────────────────
 function openSettings() {
-  document.getElementById('settingsTitle').textContent = isSetupComplete() ? 'Settings' : 'Welcome! Let\'s set up';
+  document.getElementById('settingsTitle').textContent = isSetupComplete() ? 'Settings' : 'Set up Spendly';
+  // Populate hidden fields (still used by legacy saveSettings path during onboarding)
   document.getElementById('setAppName').value = state.appName || '';
   document.getElementById('setBudget').value = state.budget || '';
   document.getElementById('setCycleDay').value = state.cycleDay || '';
   document.getElementById('setCity').value = state.city || '';
   document.getElementById('setCountry').value = state.country || 'Australia';
-  const tz = state.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone;
-  const tzEl = document.getElementById('setTimezoneDisplay');
-  if (tzEl) tzEl.textContent = '🌏 Detected timezone: ' + tz;
   initVersionDisplay();
-  buildSpendColorRows();
-  // Face ID section — only show if PIN is set and biometrics supported
+  // Update version display in new location
+  const v2 = document.getElementById('appVersionDisplay2');
+  if (v2) v2.textContent = APP_VERSION;
+  // Face ID section
   const faceIdSection = document.getElementById('faceIdSettingsSection');
   const hasPin = !!localStorage.getItem(LOCK_KEY);
-  if (faceIdSection) {
-    faceIdSection.style.display = (isBiometricSupported() && hasPin) ? '' : 'none';
-  }
+  if (faceIdSection) faceIdSection.style.display = (isBiometricSupported() && hasPin) ? '' : 'none';
   renderSettingsFaceIdBtn();
+  // applyModeUI handles signOut/syncIndicator visibility
+  applyModeUI();
   openModal('settingsModal');
+}
+
+function openSettingsSheet(sheet) {
+  if (sheet === 'budget') {
+    document.getElementById('setAppName2').value = state.appName || '';
+    document.getElementById('setBudget2').value = state.budget || '';
+    document.getElementById('setCycleDay2').value = state.cycleDay || '';
+    document.getElementById('setCity2').value = state.city || '';
+    document.getElementById('setCountry2').value = state.country || 'Australia';
+    const tz = state.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const tzEl = document.getElementById('setTimezoneDisplay2');
+    if (tzEl) tzEl.textContent = '🌏 Detected timezone: ' + tz;
+    openModal('settingsBudgetModal');
+  } else if (sheet === 'appearance') {
+    buildSpendColorRowsIn('spendColorRows2');
+    openModal('settingsAppearanceModal');
+  }
+}
+
+function saveBudgetSettings() {
+  const name = document.getElementById('setAppName2').value.trim();
+  const budget = parseFloat(document.getElementById('setBudget2').value) || 0;
+  const cycleDay = parseInt(document.getElementById('setCycleDay2').value) || 1;
+  const city = document.getElementById('setCity2').value.trim();
+  const country = document.getElementById('setCountry2').value.trim();
+  if (budget <= 0) { showToast('Please enter a budget amount', 2500); return; }
+  state.appName = name;
+  state.budget = budget;
+  state.cycleDay = Math.min(Math.max(cycleDay, 1), 28);
+  state.city = city;
+  state.country = country;
+  state.timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  state.setupDone = true;
+  saveState();
+  closeModal('settingsBudgetModal');
+  updateHeader();
+  renderContent();
+  showToast('✅ Settings saved', 2000);
+}
+
+function saveAppearanceSettings() {
+  saveSpendColorsFrom('spendColorRows2');
+  saveState();
+  closeModal('settingsAppearanceModal');
+  renderContent();
+  showToast('✅ Colours saved', 2000);
+}
+
+function buildSpendColorRowsIn(containerId) {
+  const sc = state.spendingColors || {};
+  const rows = document.getElementById(containerId);
+  if (!rows) return;
+  const tiers = [
+    { key:'t1', label:'0% – ', maxKey:'t1Max', defaultMax:50, defaultColor:'#34C759', suffix:'%' },
+    { key:'t2', label:'', maxKey:'t2Max', defaultMax:70, defaultColor:'#f0d860', suffix:'%', prevKey:'t1Max' },
+    { key:'t3', label:'', maxKey:'t3Max', defaultMax:100, defaultColor:'#f0a860', suffix:'%', prevKey:'t2Max' },
+    { key:'t4', label:'100%+', defaultColor:'#ff5c5c', isOver:true },
+  ];
+  rows.innerHTML = tiers.map((t, i) => {
+    const color = sc[t.key+'Color'] || t.defaultColor;
+    const max = sc[t.maxKey] ?? t.defaultMax;
+    const prevMax = t.prevKey ? (sc[t.prevKey] ?? (i===1?50:70)) : null;
+    const rangeLabel = t.isOver ? '100%+' : (prevMax!==null ? prevMax+'% – '+max+'%' : '0% – '+max+'%');
+    return '<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">' +
+      '<input type="color" id="sc2_'+t.key+'_color" value="'+color+'" style="width:38px;height:38px;border-radius:8px;border:2px solid var(--border);cursor:pointer;padding:2px;background:var(--surface2)" onchange="updateSpendColorPreview2()">' +
+      (t.isOver
+        ? '<div style="flex:1;font-size:13px;font-weight:600;color:'+color+'" id="sc2_'+t.key+'_label">100%+ · Over budget</div>'
+        : '<div style="flex:1;display:flex;align-items:center;gap:6px">' +
+            (prevMax!==null ? '<span style="font-size:12px;color:var(--muted)">'+(sc[t.prevKey]??prevMax)+'% –</span>' : '<span style="font-size:12px;color:var(--muted)">0% –</span>') +
+            '<input type="number" id="sc2_'+t.key+'_max" value="'+(sc[t.maxKey]??t.defaultMax)+'" min="1" max="100" style="width:52px;margin-bottom:0;padding:6px 8px;font-size:13px" onchange="updateSpendColorPreview2()">' +
+            '<span style="font-size:12px;color:var(--muted)">%</span>' +
+          '</div>') +
+    '</div>';
+  }).join('');
+}
+
+function updateSpendColorPreview2() {
+  const tiers = ['t1','t2','t3','t4'];
+  tiers.forEach(t => {
+    const colorEl = document.getElementById('sc2_'+t+'_color');
+    const labelEl = document.getElementById('sc2_'+t+'_label');
+    if (colorEl && labelEl) labelEl.style.color = colorEl.value;
+  });
+}
+
+function saveSpendColorsFrom(containerId) {
+  const sc = state.spendingColors || {};
+  ['t1','t2','t3','t4'].forEach(t => {
+    const c = document.getElementById('sc2_'+t+'_color');
+    const m = document.getElementById('sc2_'+t+'_max');
+    if (c) sc[t+'Color'] = c.value;
+    if (m) sc[t+'Max'] = parseInt(m.value) || undefined;
+  });
+  state.spendingColors = sc;
 }
 
 function buildSpendColorRows() {
@@ -4403,13 +4584,19 @@ async function setupFaceId() {
 }
 
 function renderSettingsFaceIdBtn() {
+  const has = hasBiometricRegistered();
+  const label = document.getElementById('faceIdSettingsLabel');
+  const chevron = document.getElementById('faceIdSettingsChevron');
+  if (label) {
+    label.textContent = has ? 'Disable Face ID' : 'Enable Face ID';
+    label.style.color = has ? 'var(--red)' : 'var(--text)';
+  }
+  if (chevron) chevron.style.color = has ? 'var(--red)' : 'var(--muted)';
+  // Legacy btn (kept for compat)
   const el = document.getElementById('faceIdSettingsBtn');
   if (!el) return;
-  const has = hasBiometricRegistered();
   el.textContent = has ? '🔓 Disable Face ID' : '🔐 Enable Face ID';
   el.style.color = has ? 'var(--red)' : 'var(--accent)';
-  el.style.borderColor = has ? 'var(--red-dim)' : 'var(--accent-dim)';
-  el.style.background = has ? 'var(--red-dim)' : 'var(--accent-dim)';
 }
 
 
@@ -9188,13 +9375,10 @@ async function init() {
 // Apply mode-specific UI — hide cloud-only elements in local mode
 function applyModeUI() {
   const isCloud = SPENDLY_MODE === 'cloud';
-  // Sync indicator
   const syncEl = document.getElementById('syncIndicator');
   if (syncEl) syncEl.style.display = isCloud ? '' : 'none';
-  // Sign out button
   const signOutBtn = document.getElementById('signOutBtn');
   if (signOutBtn) signOutBtn.style.display = isCloud ? '' : 'none';
-  // Auth screen (only relevant in cloud mode)
   const authScreen = document.getElementById('authScreen');
   if (authScreen && !isCloud) authScreen.style.display = 'none';
 }
