@@ -33,7 +33,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '1.4.5-202603211826';
+  const APP_VER = '1.4.6-202603211839';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -1028,15 +1028,19 @@ async function applyUpdate() {
 <div class="modal-overlay" id="mortgageRateModal">
   <div class="modal">
     <div class="modal-handle"></div>
-    <div class="modal-title">Update interest rate</div>
-    <div style="background:var(--surface2);border-radius:10px;padding:12px 14px;margin-bottom:16px;font-size:12px;color:var(--muted);line-height:1.6">
+    <div class="modal-title" id="mortgageRateModalTitle">Update interest rate</div>
+    <div id="mortgageRateModalInfo" style="background:var(--surface2);border-radius:10px;padding:12px 14px;margin-bottom:16px;font-size:12px;color:var(--muted);line-height:1.6">
       Changing the rate only affects calculations <strong style="color:var(--text)">from today forward</strong>. All previous repayments and interest savings are preserved.
     </div>
-    <label>New annual interest rate (%)</label>
+    <label>Annual interest rate (%)</label>
     <input type="number" inputmode="decimal" id="mgNewRate" placeholder="e.g. 5.89" step="0.01" oninput="checkRateChanged()">
-    <label>Effective from (today or future only)</label>
-    <input type="date" id="mgRateFromDate" min="" oninput="checkRateChanged()">
+    <label id="mgRateDateLabel">Effective from (today or future only)</label>
+    <input type="date" id="mgRateFromDate" oninput="checkRateChanged()">
+    <label>Minimum weekly repayment ($) <span style="color:var(--muted);font-weight:400;font-size:11px">— optional</span></label>
+    <input type="number" inputmode="decimal" id="mgRateMinRepayment" placeholder="e.g. 650.00" step="0.01" min="0">
+    <div style="font-size:11px;color:var(--muted);margin-top:-8px;margin-bottom:14px;line-height:1.5">The bank's minimum required repayment at this rate. Useful for tracking how it changed over time.</div>
     <button class="btn-primary" id="mgRateSaveBtn" onclick="saveMortgageRate()" disabled style="opacity:0.4">Update rate</button>
+    <button class="btn-danger" id="mgRateDeleteBtn" onclick="deleteMortgageRateEntry()" style="display:none">Remove entry</button>
     <button class="btn-ghost" onclick="closeModal('mortgageRateModal')">Cancel</button>
   </div>
 </div>
@@ -1460,9 +1464,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '1.4.5';
+const APP_VERSION = '1.4.6';
 const BUILD_DATE = '2026-03-21';
-const BUILD_TIME = '21 Mar 2026 6:26 PM AEDT';
+const BUILD_TIME = '21 Mar 2026 6:39 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -4941,6 +4945,8 @@ function saveMortgageSettings() {
 }
 
 
+let editingRateFromDate = null; // null = new entry, string = editing existing
+
 function checkRateChanged() {
   const currentRate = (state.mortgage && state.mortgage.interestRate) || 0;
   const newRate = parseFloat(document.getElementById('mgNewRate').value);
@@ -4948,32 +4954,109 @@ function checkRateChanged() {
   const today = todayStr();
   const btn = document.getElementById('mgRateSaveBtn');
   if (!btn) return;
-  const isNew = !isNaN(newRate) && newRate > 0 && newRate !== currentRate;
-  const validDate = fromDate && fromDate >= today;
-  btn.disabled = !(isNew && validDate);
-  btn.style.opacity = (isNew && validDate) ? '1' : '0.4';
+  const isHistorical = editingRateFromDate !== null && fromDate < today;
+  const isNew = !isNaN(newRate) && newRate > 0;
+  const validDate = !!fromDate;
+  // For future/current changes: rate must be different; for historical: any valid rate+date
+  const isCurrentFlow = !editingRateFromDate || fromDate >= today;
+  const enabled = isHistorical
+    ? (isNew && validDate)
+    : (isNew && validDate && newRate !== currentRate && fromDate >= today);
+  btn.disabled = !enabled;
+  btn.style.opacity = enabled ? '1' : '0.4';
 }
+
 function openMortgageRateModal() {
+  editingRateFromDate = null;
+  document.getElementById('mortgageRateModalTitle').textContent = 'Update interest rate';
+  document.getElementById('mortgageRateModalInfo').style.display = 'block';
+  document.getElementById('mgRateDateLabel').textContent = 'Effective from (today or future only)';
   document.getElementById('mgNewRate').value = (state.mortgage && state.mortgage.interestRate) || '';
   const today = todayStr();
   const dateField = document.getElementById('mgRateFromDate');
   dateField.value = today;
-  dateField.min = today; // prevent selecting past dates
+  dateField.min = today;
+  dateField.removeAttribute('max');
+  document.getElementById('mgRateMinRepayment').value = '';
+  document.getElementById('mgRateSaveBtn').textContent = 'Update rate';
   document.getElementById('mgRateSaveBtn').disabled = true;
   document.getElementById('mgRateSaveBtn').style.opacity = '0.4';
+  document.getElementById('mgRateDeleteBtn').style.display = 'none';
   openModal('mortgageRateModal');
   setTimeout(() => document.getElementById('mgNewRate').focus(), 350);
 }
+
+function openAddHistoricalRate() {
+  editingRateFromDate = null;
+  document.getElementById('mortgageRateModalTitle').textContent = 'Add historical rate';
+  document.getElementById('mortgageRateModalInfo').style.display = 'none';
+  document.getElementById('mgRateDateLabel').textContent = 'Effective from (past date)';
+  document.getElementById('mgNewRate').value = '';
+  const dateField = document.getElementById('mgRateFromDate');
+  dateField.value = '';
+  dateField.removeAttribute('min');
+  dateField.max = todayStr();
+  document.getElementById('mgRateMinRepayment').value = '';
+  document.getElementById('mgRateSaveBtn').textContent = 'Save entry';
+  document.getElementById('mgRateSaveBtn').disabled = true;
+  document.getElementById('mgRateSaveBtn').style.opacity = '0.4';
+  document.getElementById('mgRateDeleteBtn').style.display = 'none';
+  openModal('mortgageRateModal');
+  setTimeout(() => document.getElementById('mgNewRate').focus(), 350);
+}
+
+function openEditHistoricalRate(fromDate) {
+  const entry = (state.mortgage.rateHistory || []).find(r => r.fromDate === fromDate);
+  if (!entry) return;
+  editingRateFromDate = fromDate;
+  document.getElementById('mortgageRateModalTitle').textContent = 'Edit rate entry';
+  document.getElementById('mortgageRateModalInfo').style.display = 'none';
+  document.getElementById('mgRateDateLabel').textContent = 'Effective from';
+  document.getElementById('mgNewRate').value = entry.rate || '';
+  const dateField = document.getElementById('mgRateFromDate');
+  dateField.value = fromDate;
+  dateField.removeAttribute('min');
+  dateField.removeAttribute('max');
+  document.getElementById('mgRateMinRepayment').value = entry.minWeeklyRepayment || '';
+  document.getElementById('mgRateSaveBtn').textContent = 'Save changes';
+  document.getElementById('mgRateSaveBtn').disabled = false;
+  document.getElementById('mgRateSaveBtn').style.opacity = '1';
+  // Show delete for all entries except the current rate
+  const isCurrent = (state.mortgage.rateHistory || []).sort((a,b)=>b.fromDate.localeCompare(a.fromDate))[0]?.fromDate === fromDate;
+  document.getElementById('mgRateDeleteBtn').style.display = isCurrent ? 'none' : 'block';
+  openModal('mortgageRateModal');
+  setTimeout(() => document.getElementById('mgNewRate').focus(), 350);
+}
+
 function saveMortgageRate() {
   const newRate = parseFloat(document.getElementById('mgNewRate').value);
   const fromDate = document.getElementById('mgRateFromDate').value;
+  const minRepayment = parseFloat(document.getElementById('mgRateMinRepayment').value) || null;
   if (!newRate || newRate <= 0 || !fromDate) return;
   if (!state.mortgage.rateHistory) state.mortgage.rateHistory = [];
-  // Remove any future entries on same date and add new one
+  // If editing an existing entry, remove old one first
+  if (editingRateFromDate) {
+    state.mortgage.rateHistory = state.mortgage.rateHistory.filter(r => r.fromDate !== editingRateFromDate);
+  }
+  // Remove any entry with same date and add new one
   state.mortgage.rateHistory = state.mortgage.rateHistory.filter(r => r.fromDate !== fromDate);
-  state.mortgage.rateHistory.push({ rate: newRate, fromDate });
+  state.mortgage.rateHistory.push({ rate: newRate, fromDate, minWeeklyRepayment: minRepayment });
   state.mortgage.rateHistory.sort((a,b) => a.fromDate.localeCompare(b.fromDate));
-  state.mortgage.interestRate = newRate; // update current rate too
+  // Update current rate to the most recent entry
+  const latest = state.mortgage.rateHistory[state.mortgage.rateHistory.length - 1];
+  state.mortgage.interestRate = latest.rate;
+  saveState(); closeModal('mortgageRateModal'); renderContent();
+}
+
+function deleteMortgageRateEntry() {
+  if (!editingRateFromDate) return;
+  if (!confirm('Remove this rate entry?')) return;
+  state.mortgage.rateHistory = (state.mortgage.rateHistory || []).filter(r => r.fromDate !== editingRateFromDate);
+  // Update current rate to most recent remaining entry
+  if (state.mortgage.rateHistory.length > 0) {
+    state.mortgage.rateHistory.sort((a,b) => a.fromDate.localeCompare(b.fromDate));
+    state.mortgage.interestRate = state.mortgage.rateHistory[state.mortgage.rateHistory.length - 1].rate;
+  }
   saveState(); closeModal('mortgageRateModal'); renderContent();
 }
 
@@ -5455,23 +5538,37 @@ function renderMortgage() {
   // ── Interest rate card ────────────────────────────────────────────────────
   const rateHistory = (mg.rateHistory || []).slice().sort((a,b) => b.fromDate.localeCompare(a.fromDate));
   html += '<div style="background:var(--surface);border-radius:var(--r);padding:14px;margin-bottom:8px">' +
-    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:' + (rateHistory.length > 1 ? '12' : '0') + 'px">' +
+    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">' +
       '<div>' +
         '<div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:4px">Interest rate</div>' +
         '<div style="font-size:26px;font-weight:800;letter-spacing:-0.5px">' + (mg.interestRate || '—') + '%</div>' +
         '<div style="font-size:11px;color:var(--muted)">per annum</div>' +
       '</div>' +
-      '<button onclick="openMortgageRateModal()" style="background:var(--accent-dim);color:var(--accent);border:none;border-radius:10px;padding:10px 16px;font-size:13px;font-weight:600;font-family:var(--font);cursor:pointer">Change rate</button>' +
+      '<div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end">' +
+        '<button onclick="openMortgageRateModal()" style="background:var(--accent-dim);color:var(--accent);border:none;border-radius:10px;padding:8px 14px;font-size:12px;font-weight:600;font-family:var(--font);cursor:pointer">Change rate</button>' +
+        '<button onclick="openAddHistoricalRate()" style="background:var(--surface2);color:var(--muted);border:none;border-radius:10px;padding:8px 14px;font-size:12px;font-weight:600;font-family:var(--font);cursor:pointer">+ Historical</button>' +
+      '</div>' +
     '</div>' +
-    (rateHistory.length > 1 ?
+    (rateHistory.length > 0 ?
       '<div style="border-top:1px solid var(--surface2);padding-top:10px">' +
         '<div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:8px">Rate history</div>' +
-        rateHistory.map((r, i) =>
-          '<div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:5px">' +
-          '<span style="color:var(--muted)">' + new Date(r.fromDate+'T00:00:00').toLocaleDateString('en-AU',{day:'numeric',month:'short',year:'numeric'}) + '</span>' +
-          '<span style="font-weight:600' + (i===0?';color:var(--text)':'') + '">' + r.rate + '%' + (i===0?' (current)':'') + '</span>' +
-          '</div>'
-        ).join('') +
+        '<div style="display:grid;grid-template-columns:auto 1fr auto auto;gap:4px 10px;align-items:center">' +
+          '<div style="font-size:10px;color:var(--muted);font-weight:600">DATE</div>' +
+          '<div></div>' +
+          '<div style="font-size:10px;color:var(--muted);font-weight:600;text-align:right">RATE</div>' +
+          '<div style="font-size:10px;color:var(--muted);font-weight:600;text-align:right">MIN/WK</div>' +
+          rateHistory.map((r, i) => {
+            const isCurrentRate = i === 0;
+            const minRep = r.minWeeklyRepayment ? '$' + parseFloat(r.minWeeklyRepayment).toLocaleString('en-AU', {minimumFractionDigits:2,maximumFractionDigits:2}) : '—';
+            return '<div style="font-size:12px;color:var(--muted)">' + new Date(r.fromDate+'T00:00:00').toLocaleDateString('en-AU',{day:'numeric',month:'short',year:'numeric'}) + '</div>' +
+              '<div>' + (isCurrentRate ? '<span style="font-size:10px;background:var(--accent-dim);color:var(--accent);border-radius:4px;padding:1px 6px;font-weight:700">current</span>' : '') + '</div>' +
+              '<div style="font-size:12px;font-weight:700;text-align:right;color:' + (isCurrentRate?'var(--text)':'var(--muted)') + '">' + r.rate + '%</div>' +
+              '<div style="display:flex;align-items:center;gap:6px;justify-content:flex-end">' +
+                '<span style="font-size:12px;font-weight:600;color:' + (isCurrentRate?'var(--text)':'var(--muted)') + '">' + minRep + '</span>' +
+                '<button onclick="openEditHistoricalRate(\'' + r.fromDate + '\')" style="background:var(--surface2);border:none;border-radius:6px;padding:3px 8px;font-size:11px;color:var(--muted);cursor:pointer;font-family:var(--font)">Edit</button>' +
+              '</div>';
+          }).join('') +
+        '</div>' +
       '</div>'
       : '') +
   '</div>';
