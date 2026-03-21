@@ -33,7 +33,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '1.6.5-202603220932';
+  const APP_VER = '1.6.6-202603220940';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -1213,7 +1213,10 @@ async function applyUpdate() {
     <div class="modal-handle"></div>
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
       <div class="modal-title" style="margin-bottom:0">Recurring expenses</div>
-      <button onclick="openAddRecurring()" style="background:var(--accent-dim);color:var(--accent);border:none;border-radius:8px;padding:7px 12px;font-size:12px;font-weight:600;font-family:var(--font);cursor:pointer">+ Add</button>
+      <div style="display:flex;gap:6px">
+        <button onclick="repairMissingRecurringExpenses();showToast('✅ Checked for missed recurring expenses',2500)" style="background:var(--surface2);color:var(--muted);border:none;border-radius:8px;padding:7px 10px;font-size:12px;font-weight:600;font-family:var(--font);cursor:pointer" title="Apply any missed transactions for today">↻ Apply today</button>
+        <button onclick="openAddRecurring()" style="background:var(--accent-dim);color:var(--accent);border:none;border-radius:8px;padding:7px 12px;font-size:12px;font-weight:600;font-family:var(--font);cursor:pointer">+ Add</button>
+      </div>
     </div>
     <div id="recurringListContent"></div>
     <button class="btn-ghost" onclick="closeModal('recurringListModal')">Close</button>
@@ -1517,9 +1520,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '1.6.5';
+const APP_VERSION = '1.6.6';
 const BUILD_DATE = '2026-03-22';
-const BUILD_TIME = '22 Mar 2026 9:32 AM AEDT';
+const BUILD_TIME = '22 Mar 2026 9:40 AM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -7134,11 +7137,16 @@ function openRecurringList() {
 }
 
 function repairMissingRecurringExpenses() {
-  // Clear lastAdded if the expense is actually missing — fixes cases where
-  // lastAdded was set but the expense never made it into state.expenses
   const todayStr_ = todayStr();
-  (state.recurringExpenses || []).forEach(r => {
-    if (r.lastAdded !== todayStr_) return;
+  const today = new Date(); today.setHours(0,0,0,0);
+  let repaired = false;
+  (state.recurringExpenses || []).filter(r => r.active !== false).forEach(r => {
+    // Check if this recurring is due today
+    const next = getRecNextDate(r);
+    if (!next) return;
+    next.setHours(0,0,0,0);
+    if (next.getTime() !== today.getTime()) return;
+    // Check if the expense is actually in state
     const exists = (state.expenses || []).some(e =>
       e.categoryId === r.categoryId &&
       e.date === todayStr_ &&
@@ -7146,9 +7154,33 @@ function repairMissingRecurringExpenses() {
       e.name === r.name
     );
     if (!exists) {
-      r.lastAdded = null; // reset so applyRecurringExpenses will re-add it
+      // Force-add the missing expense regardless of lastAdded
+      state.expenses.push({
+        id: uid(),
+        amount: r.amount,
+        name: r.name,
+        categoryId: r.categoryId,
+        date: todayStr_,
+      });
+      r.lastAdded = todayStr_;
+      repaired = true;
+      // Auto offset if enabled
+      if (r.autoOffset) {
+        if (!state.offsetTransactions) state.offsetTransactions = [];
+        // Only add offset withdrawal if not already logged today for this item
+        const offsetExists = (state.offsetTransactions || []).some(t =>
+          t.date === todayStr_ && t.amount === r.amount && t.note === r.name + ' (auto)'
+        );
+        if (!offsetExists) {
+          state.offsetTransactions.push({
+            id: uid(), type: 'withdrawal', amount: r.amount,
+            date: todayStr_, note: r.name + ' (auto)',
+          });
+        }
+      }
     }
   });
+  if (repaired) { saveState(); renderContent(); }
 }
 
 function applyRecurringExpenses(force) {
