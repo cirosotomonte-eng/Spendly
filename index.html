@@ -26,7 +26,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '1.4.3-202603211734';
+  const APP_VER = '1.4.4-202603211757';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -800,6 +800,13 @@ async function applyUpdate() {
     </div>
     <button class="btn-primary" onclick="saveSettings()">Save settings</button>
     <button class="btn-ghost" onclick="closeModal('settingsModal')">Cancel</button>
+    <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--surface2)">
+      <div style="font-size:13px;font-weight:700;margin-bottom:4px">Backup & restore</div>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:12px;line-height:1.5">Export a copy of all your data to your device. You can use it to restore Spendly on a new phone or browser.</div>
+      <button onclick="exportBackup()" style="background:var(--accent-dim);border:1px solid var(--accent);border-radius:10px;padding:11px 16px;font-size:13px;font-weight:600;color:var(--accent);font-family:var(--font);cursor:pointer;width:100%;margin-bottom:8px">⬇️ Export backup</button>
+      <button onclick="document.getElementById('importFileInput').click()" style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:11px 16px;font-size:13px;font-weight:600;color:var(--text);font-family:var(--font);cursor:pointer;width:100%">⬆️ Restore from backup</button>
+      <input type="file" id="importFileInput" accept=".spendly,.json" style="display:none" onchange="importBackup(this)">
+    </div>
     <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--surface2);text-align:center">
       <div style="background:var(--surface2);border-radius:10px;padding:12px 14px;margin-bottom:10px">
         <div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:4px">Spendly v<span id="appVersionDisplay"></span></div>
@@ -1442,9 +1449,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '1.4.3';
+const APP_VERSION = '1.4.4';
 const BUILD_DATE = '2026-03-21';
-const BUILD_TIME = '21 Mar 2026 5:34 PM AEDT';
+const BUILD_TIME = '21 Mar 2026 5:57 PM AEDT';
 const STORAGE_KEY = 'spendly_generic_v1';
 const LOCK_KEY = 'spendly_pin_hash';
 const BIOM_KEY = 'spendly_biometric';
@@ -8184,6 +8191,72 @@ function initVersionDisplay() {
 }
 
 async function forceAppUpdate() { await applyUpdate(); }
+
+// ── Backup & Restore ──────────────────────────────────────────────────────────
+function exportBackup() {
+  try {
+    const { currentTab, viewingCycleOffset, mortgageCycleOffset, editingExpenseId, editingCatId, ...persistState } = state;
+    const backup = {
+      _spendly: true,
+      _version: APP_VERSION,
+      _exported: new Date().toISOString(),
+      _user: state.appName || 'Spendly user',
+      data: persistState,
+    };
+    const json = JSON.stringify(backup, null, 2);
+    const blob = new Blob([json], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const date = new Date().toISOString().slice(0, 10);
+    a.href = url;
+    a.download = 'spendly-backup-' + date + '.spendly';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    showToast('✅ Backup exported — save it somewhere safe!', 4000);
+  } catch(e) {
+    showToast('❌ Export failed. Please try again.', 3000);
+  }
+}
+
+function importBackup(input) {
+  const file = input.files[0];
+  if (!file) return;
+  // Reset input so same file can be re-selected
+  input.value = '';
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      const parsed = JSON.parse(e.target.result);
+      // Validate it's a Spendly backup
+      if (!parsed._spendly || !parsed.data) {
+        showToast('❌ Invalid backup file. Please select a valid Spendly backup.', 4000);
+        return;
+      }
+      // Confirm before overwriting
+      const exportedDate = parsed._exported ? new Date(parsed._exported).toLocaleDateString('en-AU', { day:'numeric', month:'short', year:'numeric' }) : 'unknown date';
+      const userName = parsed._user || 'unknown';
+      const confirmed = confirm(
+        'Restore backup from ' + exportedDate + '?\n\n' +
+        'This will REPLACE all your current data with the backup.\n\n' +
+        'Your current data will be overwritten. This cannot be undone.'
+      );
+      if (!confirmed) return;
+      // Apply backup data
+      state = { ...state, ...parsed.data };
+      saveState();
+      updateHeader();
+      renderContent();
+      closeModal('settingsModal');
+      showToast('✅ Backup restored from ' + exportedDate, 4000);
+    } catch(err) {
+      showToast('❌ Could not read backup file. It may be corrupted.', 4000);
+    }
+  };
+  reader.onerror = () => showToast('❌ Could not read file.', 3000);
+  reader.readAsText(file);
+}
 
 // ── Offset Daily Savings Log ──────────────────────────────────────────────────
 function recordTodayOffsetSaving() {
