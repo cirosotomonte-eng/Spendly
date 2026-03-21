@@ -33,7 +33,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '1.6.6-202603220940';
+  const APP_VER = '1.6.7-202603220953';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -1216,6 +1216,7 @@ async function applyUpdate() {
       <div style="display:flex;gap:6px">
         <button onclick="repairMissingRecurringExpenses();showToast('✅ Checked for missed recurring expenses',2500)" style="background:var(--surface2);color:var(--muted);border:none;border-radius:8px;padding:7px 10px;font-size:12px;font-weight:600;font-family:var(--font);cursor:pointer" title="Apply any missed transactions for today">↻ Apply today</button>
         <button onclick="openAddRecurring()" style="background:var(--accent-dim);color:var(--accent);border:none;border-radius:8px;padding:7px 12px;font-size:12px;font-weight:600;font-family:var(--font);cursor:pointer">+ Add</button>
+        <button onclick="showRecurringDiagnostic()" style="background:var(--surface2);color:var(--muted);border:none;border-radius:8px;padding:7px 10px;font-size:11px;font-family:var(--font);cursor:pointer" title="Diagnostic">🔍</button>
       </div>
     </div>
     <div id="recurringListContent"></div>
@@ -1520,9 +1521,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '1.6.6';
+const APP_VERSION = '1.6.7';
 const BUILD_DATE = '2026-03-22';
-const BUILD_TIME = '22 Mar 2026 9:40 AM AEDT';
+const BUILD_TIME = '22 Mar 2026 9:53 AM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -7246,8 +7247,47 @@ function applyRecurringExpenses(force) {
   }
 }
 
+function showRecurringDiagnostic() {
+  const todayStr_ = todayStr();
+  const today = new Date(); today.setHours(0,0,0,0);
+  const recs = (state.recurringExpenses || []).filter(r => r.active !== false);
+  let html = '<div style="font-size:11px;font-family:monospace;background:var(--surface2);border-radius:10px;padding:12px;margin-bottom:14px;max-height:60vh;overflow-y:auto">';
+  html += '<div style="font-weight:700;margin-bottom:8px;font-size:12px">Today: ' + todayStr_ + '</div>';
+  recs.forEach(r => {
+    const next = getRecNextDate(r);
+    const nextStr = next ? dateToStr(next) : 'null';
+    const isToday = next && next.getTime() === today.getTime();
+    const expExists = (state.expenses || []).some(e =>
+      e.categoryId === r.categoryId && e.date === todayStr_ &&
+      e.amount === r.amount && e.name === r.name
+    );
+    html += '<div style="border-top:1px solid var(--border);padding:6px 0;color:' + (isToday ? 'var(--accent)' : 'var(--text)') + '">' +
+      '<strong>' + r.name + '</strong><br>' +
+      'freq: ' + r.frequency + (r.monthDay ? ' day=' + r.monthDay : '') + (r.weekday !== undefined ? ' wd=' + r.weekday : '') + '<br>' +
+      'nextDate computed: ' + nextStr + '<br>' +
+      'lastAdded: ' + (r.lastAdded || 'null') + '<br>' +
+      'expenseExists: ' + expExists + '<br>' +
+      (isToday ? '→ DUE TODAY' : '') +
+    '</div>';
+  });
+  html += '</div>';
+  html += '<button class="btn-primary" onclick="repairMissingRecurringExpenses();renderContent();closeModal(\'recurringDiagModal\');showToast(\'✅ Repair ran\',2000)">Run repair now</button>';
+  html += '<button class="btn-ghost" onclick="closeModal(\'recurringDiagModal\')">Close</button>';
+
+  // Create modal dynamically
+  let m = document.getElementById('recurringDiagModal');
+  if (!m) {
+    m = document.createElement('div');
+    m.id = 'recurringDiagModal';
+    m.className = 'modal-overlay';
+    m.innerHTML = '<div class="modal"><div class="modal-handle"></div><div class="modal-title">Recurring diagnostic</div><div id="recurringDiagContent"></div></div>';
+    document.body.appendChild(m);
+  }
+  document.getElementById('recurringDiagContent').innerHTML = html;
+  openModal('recurringDiagModal');
+}
+
 function showToast(message, duration) {
-  duration = duration || 3000;
   // Remove existing toast
   const existing = document.getElementById('spendlyToast');
   if (existing) existing.remove();
