@@ -33,7 +33,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '1.4.8-202603211914';
+  const APP_VER = '1.4.9-202603211918';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -1481,9 +1481,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '1.4.8';
+const APP_VERSION = '1.4.9';
 const BUILD_DATE = '2026-03-21';
-const BUILD_TIME = '21 Mar 2026 7:14 PM AEDT';
+const BUILD_TIME = '21 Mar 2026 7:18 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -5221,20 +5221,26 @@ function saveMortgageSettings() {
 let editingRateFromDate = null; // null = new entry, string = editing existing
 
 function checkRateChanged() {
-  const currentRate = (state.mortgage && state.mortgage.interestRate) || 0;
   const newRate = parseFloat(document.getElementById('mgNewRate').value);
   const fromDate = document.getElementById('mgRateFromDate').value;
   const today = todayStr();
   const btn = document.getElementById('mgRateSaveBtn');
   if (!btn) return;
-  const isHistorical = editingRateFromDate !== null && fromDate < today;
-  const isNew = !isNaN(newRate) && newRate > 0;
-  const validDate = !!fromDate;
-  // For future/current changes: rate must be different; for historical: any valid rate+date
-  const isCurrentFlow = !editingRateFromDate || fromDate >= today;
-  const enabled = isHistorical
-    ? (isNew && validDate)
-    : (isNew && validDate && newRate !== currentRate && fromDate >= today);
+  const hasRate = !isNaN(newRate) && newRate > 0;
+  const hasDate = !!fromDate;
+
+  let enabled = false;
+  if (editingRateFromDate !== null) {
+    // Edit mode — any valid rate + date
+    enabled = hasRate && hasDate;
+  } else if (document.getElementById('mgRateModalInfo') && document.getElementById('mortgageRateModalInfo').style.display !== 'none') {
+    // Current rate change — must be today or future, and different from current rate
+    const currentRate = (state.mortgage && state.mortgage.interestRate) || 0;
+    enabled = hasRate && hasDate && fromDate >= today && newRate !== currentRate;
+  } else {
+    // Historical add — any valid rate + past date
+    enabled = hasRate && hasDate;
+  }
   btn.disabled = !enabled;
   btn.style.opacity = enabled ? '1' : '0.4';
 }
@@ -5275,7 +5281,7 @@ function openAddHistoricalRate() {
   document.getElementById('mgRateSaveBtn').style.opacity = '0.4';
   document.getElementById('mgRateDeleteBtn').style.display = 'none';
   openModal('mortgageRateModal');
-  setTimeout(() => document.getElementById('mgNewRate').focus(), 350);
+  setTimeout(() => { document.getElementById('mgNewRate').focus(); checkRateChanged(); }, 350);
 }
 
 function openEditHistoricalRate(fromDate) {
@@ -5298,7 +5304,7 @@ function openEditHistoricalRate(fromDate) {
   const isCurrent = (state.mortgage.rateHistory || []).sort((a,b)=>b.fromDate.localeCompare(a.fromDate))[0]?.fromDate === fromDate;
   document.getElementById('mgRateDeleteBtn').style.display = isCurrent ? 'none' : 'block';
   openModal('mortgageRateModal');
-  setTimeout(() => document.getElementById('mgNewRate').focus(), 350);
+  setTimeout(() => { document.getElementById('mgNewRate').focus(); checkRateChanged(); }, 350);
 }
 
 function saveMortgageRate() {
