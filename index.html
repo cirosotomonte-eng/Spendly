@@ -11,13 +11,20 @@
 <title>Spendly — Expense Tracker</title>
 <link rel="manifest" id="pwaManifest">
 <script>
-// Supabase loader — dynamically inject so we can wait for it reliably
-(function() {
+// ─────────────────────────────────────────────────────────────────────────────
+// SPENDLY MODE — change this ONE line when deploying to friends repo
+// ⚠️  'cloud' = Supabase auth + sync (your personal version)
+// ⚠️  'local' = localStorage only, no accounts (friends version)
+// ─────────────────────────────────────────────────────────────────────────────
+const SPENDLY_MODE = 'cloud';
+
+// Only load Supabase SDK in cloud mode
+if (SPENDLY_MODE === 'cloud') {
   const s = document.createElement('script');
   s.src = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js';
   s.id = 'sbScript';
   document.head.appendChild(s);
-})();
+}
 </script>
 <script>
 const manifestData = { name:"Spendly — Expense Tracker", short_name:"Spendly", start_url:"./", display:"standalone", background_color:"#0f0f0f", theme_color:"#0f0f0f", orientation:"any" };
@@ -26,7 +33,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '1.4.4-202603211757';
+  const APP_VER = '1.4.5-202603211826';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -433,6 +440,10 @@ async function applyUpdate() {
     0%,100% { transform: translate(0,0); }
     50% { transform: translate(-15px,15px); }
   }
+  @keyframes slideUp {
+    from { transform: translateY(20px); opacity: 0; }
+    to { transform: translateY(0); opacity: 1; }
+  }
   #launchScreen { -webkit-transform: translateZ(0); }
 
   .spendly-tip { position:relative; display:inline-flex; align-items:center; }
@@ -813,7 +824,7 @@ async function applyUpdate() {
         <div style="font-size:11px;color:var(--muted)">Built <span id="appBuildTime"></span></div>
       </div>
       <button onclick="forceAppUpdate()" style="background:none;border:1px solid var(--border);border-radius:8px;padding:8px 16px;font-size:12px;color:var(--muted);font-family:var(--font);cursor:pointer;width:100%;margin-bottom:8px">🔄 Check for update</button>
-      <button onclick="signOut()" style="background:none;border:1px solid var(--red-dim);border-radius:8px;padding:8px 16px;font-size:12px;color:var(--red);font-family:var(--font);cursor:pointer;width:100%">Sign out</button>
+      <button id="signOutBtn" onclick="signOut()" style="background:none;border:1px solid var(--red-dim);border-radius:8px;padding:8px 16px;font-size:12px;color:var(--red);font-family:var(--font);cursor:pointer;width:100%">Sign out</button>
     </div>
   </div>
 </div>
@@ -1449,9 +1460,12 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '1.4.4';
+const APP_VERSION = '1.4.5';
 const BUILD_DATE = '2026-03-21';
-const BUILD_TIME = '21 Mar 2026 5:57 PM AEDT';
+const BUILD_TIME = '21 Mar 2026 6:26 PM AEDT';
+const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
+const LAST_EXPORT_KEY = 'spendly_last_export';
+
 const STORAGE_KEY = 'spendly_generic_v1';
 const LOCK_KEY = 'spendly_pin_hash';
 const BIOM_KEY = 'spendly_biometric';
@@ -1717,31 +1731,34 @@ function saveState() {
   try { localStorage.setItem(BACKUP_KEY, data); } catch(e) {}
   try { sessionStorage.setItem(BACKUP_KEY2, data); } catch(e) {}
   try { localStorage.setItem(BACKUP_TS_KEY, new Date().toISOString()); } catch(e) {}
-  // Debounce cloud sync — wait 1.5s after last change
-  clearTimeout(syncTimer);
-  syncTimer = setTimeout(() => syncToSupabase(persistState), 1500);
+  // Cloud sync only in cloud mode
+  if (SPENDLY_MODE === 'cloud') {
+    clearTimeout(syncTimer);
+    syncTimer = setTimeout(() => syncToSupabase(persistState), 1500);
+  }
 }
 
 async function loadState() {
-  // Try cloud first
-  const cloudData = await loadFromSupabase();
-  if (cloudData && typeof cloudData === 'object') {
-    const hasData = cloudData.budget > 0 ||
-      (cloudData.categories && cloudData.categories.length > 0) ||
-      (cloudData.expenses && cloudData.expenses.length > 0) ||
-      (cloudData.savingsCategories && cloudData.savingsCategories.length > 0);
-    if (hasData) {
-      state = { ...state, ...cloudData };
-      // If they have data they're clearly onboarded — mark it
-      if (!state.setupDone) { state.setupDone = true; }
-      localStorage.setItem(ONBOARDED_KEY, '1');
-      saveState();
-      setSyncStatus('saved');
-      setTimeout(() => setSyncStatus('idle'), 2000);
-      return;
+  // In cloud mode — try Supabase first
+  if (SPENDLY_MODE === 'cloud') {
+    const cloudData = await loadFromSupabase();
+    if (cloudData && typeof cloudData === 'object') {
+      const hasData = cloudData.budget > 0 ||
+        (cloudData.categories && cloudData.categories.length > 0) ||
+        (cloudData.expenses && cloudData.expenses.length > 0) ||
+        (cloudData.savingsCategories && cloudData.savingsCategories.length > 0);
+      if (hasData) {
+        state = { ...state, ...cloudData };
+        if (!state.setupDone) { state.setupDone = true; }
+        localStorage.setItem(ONBOARDED_KEY, '1');
+        saveState();
+        setSyncStatus('saved');
+        setTimeout(() => setSyncStatus('idle'), 2000);
+        return;
+      }
     }
   }
-  // Fall back to localStorage
+  // Local mode or cloud fallback — read from localStorage
   const sources = [
     () => localStorage.getItem(STORAGE_KEY),
     () => localStorage.getItem(BACKUP_KEY),
@@ -1754,7 +1771,7 @@ async function loadState() {
         const parsed = JSON.parse(saved);
         if (parsed && (parsed.budget > 0 || (parsed.categories && parsed.categories.length > 0) || (parsed.expenses && parsed.expenses.length > 0))) {
           state = { ...state, ...parsed };
-          saveState(); // push to cloud too
+          if (SPENDLY_MODE === 'cloud') saveState(); // push to cloud too
           return;
         }
       }
@@ -1763,7 +1780,7 @@ async function loadState() {
   for (const src of sources) {
     try {
       const saved = src();
-      if (saved) { state = { ...state, ...JSON.parse(saved) }; saveState(); return; }
+      if (saved) { state = { ...state, ...JSON.parse(saved) }; return; }
     } catch(e) {}
   }
 }
@@ -8214,6 +8231,8 @@ function exportBackup() {
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
+    try { localStorage.setItem(LAST_EXPORT_KEY, Date.now().toString()); } catch(e) {}
+    dismissBackupNudge();
     showToast('✅ Backup exported — save it somewhere safe!', 4000);
   } catch(e) {
     showToast('❌ Export failed. Please try again.', 3000);
@@ -8314,79 +8333,163 @@ function hideLaunchScreen(callback) {
 
 async function init() {
   state.currentTab = 'expenses';
-  // Safety net — if init crashes, hide launch screen after 6s
-  const safetyTimer = setTimeout(() => {
-    const ls = document.getElementById('launchScreen');
-    if (ls && ls.style.display !== 'none') {
-      ls.style.display = 'none';
-      showAuthScreen();
-    }
-  }, 6000);
-  try {
-    // Check for existing Supabase session
-    const { data: { session } } = await getSB().auth.getSession();
-    _sbSession = session;
+  applyModeUI(); // hide/show cloud-only UI elements
 
-    if (!_sbSession) {
-      // No session — show auth screen
-      hideLaunchScreen(() => { showAuthScreen(); });
-      clearTimeout(safetyTimer);
-      return;
-    }
-
-    // Session exists — load data and enter app
-    await loadState();
-    state.currentTab = 'expenses';
-    updateHeader();
-    renderContent();
-    initVersionDisplay();
-    hideLaunchScreen(() => {
-      if (!initWelcome()) {
-        showApp();
-        initLock();
-      }
-    });
-    // Force hide launch screen in case it's already gone (returning session)
-    const ls = document.getElementById('launchScreen');
-    if (ls) { ls.style.opacity = '0'; ls.style.display = 'none'; }
-    if (!initWelcome()) { showApp(); initLock(); }
-    applyRecurringExpenses();
-    recordTodayOffsetSaving();
-    setTimeout(checkCycleComplete, 2000);
-    setTimeout(checkExpiryAlerts, 1500);
-    setTimeout(initModalSwipeDown, 600);
-  } catch(e) {
-    console.error('Init error:', e);
-    hideLaunchScreen(() => { showAuthScreen(); });
-  } finally {
-    clearTimeout(safetyTimer);
-  }
-}
-// Wait for Supabase CDN script AND DOM to be ready before initialising
-// Polls up to 5 seconds for window.supabase to appear (CDN load)
-function waitForSupabaseThenInit() {
-  const start = Date.now();
-  function attempt() {
-    if (window.supabase && window.supabase.createClient) {
-      init();
-    } else if (Date.now() - start > 5000) {
-      // CDN failed to load — show auth screen with error
+  if (SPENDLY_MODE === 'cloud') {
+    // ── Cloud mode: check Supabase session first ───────────────────────────
+    const safetyTimer = setTimeout(() => {
       const ls = document.getElementById('launchScreen');
-      if (ls) { ls.style.opacity = '0'; setTimeout(() => { ls.style.display = 'none'; }, 500); }
-      showAuthScreen();
-      const err = document.getElementById('authError');
-      if (err) err.textContent = 'Could not connect. Please check your internet connection and reload.';
-    } else {
-      setTimeout(attempt, 50);
+      if (ls && ls.style.display !== 'none') {
+        ls.style.display = 'none';
+        showAuthScreen();
+      }
+    }, 6000);
+    try {
+      const { data: { session } } = await getSB().auth.getSession();
+      _sbSession = session;
+      if (!_sbSession) {
+        hideLaunchScreen(() => { showAuthScreen(); });
+        clearTimeout(safetyTimer);
+        return;
+      }
+      await loadState();
+      state.currentTab = 'expenses';
+      updateHeader();
+      renderContent();
+      initVersionDisplay();
+      hideLaunchScreen(() => { if (!initWelcome()) { showApp(); initLock(); } });
+      const ls = document.getElementById('launchScreen');
+      if (ls) { ls.style.opacity = '0'; ls.style.display = 'none'; }
+      if (!initWelcome()) { showApp(); initLock(); }
+      applyRecurringExpenses();
+      recordTodayOffsetSaving();
+      setTimeout(checkCycleComplete, 2000);
+      setTimeout(checkExpiryAlerts, 1500);
+      setTimeout(initModalSwipeDown, 600);
+    } catch(e) {
+      console.error('Init error:', e);
+      hideLaunchScreen(() => { showAuthScreen(); });
+    } finally {
+      clearTimeout(safetyTimer);
+    }
+  } else {
+    // ── Local mode: go straight in, no auth ───────────────────────────────
+    const safetyTimer = setTimeout(() => {
+      const ls = document.getElementById('launchScreen');
+      if (ls && ls.style.display !== 'none') {
+        ls.style.display = 'none';
+        showApp();
+      }
+    }, 4000);
+    try {
+      await loadState();
+      state.currentTab = 'expenses';
+      updateHeader();
+      renderContent();
+      initVersionDisplay();
+      hideLaunchScreen(() => { if (!initWelcome()) { showApp(); initLock(); } });
+      const ls = document.getElementById('launchScreen');
+      if (ls) { ls.style.opacity = '0'; ls.style.display = 'none'; }
+      if (!initWelcome()) { showApp(); initLock(); }
+      applyRecurringExpenses();
+      recordTodayOffsetSaving();
+      setTimeout(checkCycleComplete, 2000);
+      setTimeout(checkExpiryAlerts, 1500);
+      setTimeout(initModalSwipeDown, 600);
+      setTimeout(checkBackupNudge, 3000); // local mode only
+    } catch(e) {
+      console.error('Init error:', e);
+      hideLaunchScreen(() => { showApp(); });
+    } finally {
+      clearTimeout(safetyTimer);
     }
   }
-  attempt();
 }
 
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', waitForSupabaseThenInit);
+// Apply mode-specific UI — hide cloud-only elements in local mode
+function applyModeUI() {
+  const isCloud = SPENDLY_MODE === 'cloud';
+  // Sync indicator
+  const syncEl = document.getElementById('syncIndicator');
+  if (syncEl) syncEl.style.display = isCloud ? '' : 'none';
+  // Sign out button
+  const signOutBtn = document.getElementById('signOutBtn');
+  if (signOutBtn) signOutBtn.style.display = isCloud ? '' : 'none';
+  // Auth screen (only relevant in cloud mode)
+  const authScreen = document.getElementById('authScreen');
+  if (authScreen && !isCloud) authScreen.style.display = 'none';
+}
+
+// ── Backup nudge (local mode only) ────────────────────────────────────────────
+function checkBackupNudge() {
+  if (SPENDLY_MODE !== 'local') return;
+  // Only nudge if they have meaningful data
+  const hasData = state.budget > 0 || (state.expenses && state.expenses.length > 0);
+  if (!hasData) return;
+  const lastNudge = localStorage.getItem(LAST_BACKUP_NUDGE_KEY);
+  const lastExport = localStorage.getItem(LAST_EXPORT_KEY);
+  const now = Date.now();
+  const thirtyDays = 30 * 24 * 60 * 60 * 1000;
+  // Don't nudge if exported within 30 days
+  if (lastExport && (now - parseInt(lastExport)) < thirtyDays) return;
+  // Don't nudge more than once every 7 days
+  const sevenDays = 7 * 24 * 60 * 60 * 1000;
+  if (lastNudge && (now - parseInt(lastNudge)) < sevenDays) return;
+  localStorage.setItem(LAST_BACKUP_NUDGE_KEY, now.toString());
+  // Show nudge banner
+  const banner = document.createElement('div');
+  banner.id = 'backupNudge';
+  banner.style.cssText = 'position:fixed;bottom:90px;left:16px;right:16px;z-index:800;background:var(--surface);border:1.5px solid var(--accent);border-radius:14px;padding:13px 16px;display:flex;align-items:center;gap:12px;box-shadow:0 4px 20px rgba(0,0,0,0.2);animation:slideUp 0.3s ease';
+  banner.innerHTML =
+    '<span style="font-size:22px">💾</span>' +
+    '<div style="flex:1;min-width:0">' +
+      '<div style="font-size:13px;font-weight:700;margin-bottom:2px">Back up your data</div>' +
+      '<div style="font-size:11px;color:var(--muted);line-height:1.4">Your data is stored on this device only. Export a backup to keep it safe.</div>' +
+    '</div>' +
+    '<div style="display:flex;gap:6px;flex-shrink:0">' +
+      '<button onclick="exportBackup();dismissBackupNudge()" style="background:var(--accent);border:none;border-radius:8px;padding:7px 12px;font-size:12px;font-weight:700;color:#fff;cursor:pointer;font-family:var(--font);white-space:nowrap">Export now</button>' +
+      '<button onclick="dismissBackupNudge()" style="background:var(--surface2);border:none;border-radius:8px;padding:7px 10px;font-size:12px;color:var(--muted);cursor:pointer;font-family:var(--font)">Later</button>' +
+    '</div>';
+  document.body.appendChild(banner);
+}
+
+function dismissBackupNudge() {
+  const el = document.getElementById('backupNudge');
+  if (el) { el.style.opacity = '0'; el.style.transition = 'opacity 0.2s'; setTimeout(() => el.remove(), 200); }
+}
+
+// Boot sequence
+if (SPENDLY_MODE === 'cloud') {
+  // Wait for Supabase CDN to load before initialising
+  function waitForSupabaseThenInit() {
+    const start = Date.now();
+    function attempt() {
+      if (window.supabase && window.supabase.createClient) {
+        init();
+      } else if (Date.now() - start > 5000) {
+        const ls = document.getElementById('launchScreen');
+        if (ls) { ls.style.opacity = '0'; setTimeout(() => { ls.style.display = 'none'; }, 500); }
+        showAuthScreen();
+        const err = document.getElementById('authError');
+        if (err) err.textContent = 'Could not connect. Please check your internet connection and reload.';
+      } else {
+        setTimeout(attempt, 50);
+      }
+    }
+    attempt();
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', waitForSupabaseThenInit);
+  } else {
+    waitForSupabaseThenInit();
+  }
 } else {
-  waitForSupabaseThenInit();
+  // Local mode — no Supabase needed, init immediately
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
 }
 
 // ── Data protection ───────────────────────────────────────────────────────────
