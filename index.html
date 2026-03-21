@@ -33,7 +33,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '1.6.8-202603221002';
+  const APP_VER = '1.6.9-202603221011';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -1521,9 +1521,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '1.6.8';
+const APP_VERSION = '1.6.9';
 const BUILD_DATE = '2026-03-22';
-const BUILD_TIME = '22 Mar 2026 10:02 AM AEDT';
+const BUILD_TIME = '22 Mar 2026 10:11 AM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -7112,17 +7112,31 @@ function openRecurringList() {
   if (recs.length === 0) {
     content.innerHTML = '<div style="text-align:center;padding:20px;color:var(--muted);font-size:13px">No recurring expenses yet.<br>Tap + to add one.</div>';
   } else {
-    content.innerHTML = recs.map(r => {
+    // Sort by next due date ascending
+    const sorted = recs.slice().sort((a, b) => {
+      const na = getRecNextDate(a);
+      const nb = getRecNextDate(b);
+      if (!na && !nb) return 0;
+      if (!na) return 1;
+      if (!nb) return -1;
+      return na - nb;
+    });
+    const todayStr_ = todayStr();
+    content.innerHTML = sorted.map(r => {
       const cat = catById(r.categoryId);
       const next = getRecNextDate(r);
       const nextStr = next ? next.toLocaleDateString('en-AU',{weekday:'short',day:'numeric',month:'short'}) : '—';
+      const nextDate = next ? dateToStr(next) : '';
+      const isDueToday = nextDate === todayStr_;
+      const isOverdue = next && next < new Date(todayStr_ + 'T00:00:00');
       const autoOffsetBadge = r.autoOffset ? '<span style="font-size:9px;background:rgba(79,142,247,0.15);color:var(--accent);border-radius:4px;padding:2px 5px;font-weight:700;margin-left:4px">🏦 AUTO</span>' : '';
       const pausedBadge = r.active===false ? '<span style="font-size:10px;color:var(--orange);font-weight:400"> · Paused</span>' : '';
+      const dueBadge = isDueToday ? '<span style="font-size:9px;background:rgba(52,199,89,0.15);color:#34C759;border-radius:4px;padding:2px 5px;font-weight:700;margin-left:4px">TODAY</span>' : '';
       return '<div style="display:flex;align-items:center;gap:12px;padding:13px 0;border-bottom:1px solid var(--surface2)">' +
         '<div style="width:38px;height:38px;border-radius:10px;background:'+(cat?cat.color:'#888')+'22;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">'+(cat?cat.icon:'❓')+'</div>' +
         '<div style="flex:1;min-width:0">' +
-          '<div style="font-size:13px;font-weight:600">' + r.name + autoOffsetBadge + pausedBadge + '</div>' +
-          '<div style="font-size:11px;color:var(--muted)">' + recFreqLabel(r) + ' · Next: ' + nextStr + '</div>' +
+          '<div style="font-size:13px;font-weight:600">' + r.name + autoOffsetBadge + pausedBadge + dueBadge + '</div>' +
+          '<div style="font-size:11px;color:'+(isDueToday?'#34C759':isOverdue?'var(--red)':'var(--muted)')+'">' + recFreqLabel(r) + ' · Next: ' + nextStr + '</div>' +
         '</div>' +
         '<div style="display:flex;align-items:center;gap:10px;flex-shrink:0">' +
           '<div style="text-align:right">' +
