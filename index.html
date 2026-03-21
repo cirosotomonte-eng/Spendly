@@ -33,7 +33,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '1.6.7-202603220953';
+  const APP_VER = '1.6.8-202603221002';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -1521,9 +1521,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '1.6.7';
+const APP_VERSION = '1.6.8';
 const BUILD_DATE = '2026-03-22';
-const BUILD_TIME = '22 Mar 2026 9:53 AM AEDT';
+const BUILD_TIME = '22 Mar 2026 10:02 AM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -2014,7 +2014,7 @@ function getUpcomingRecurring() {
       const key = dateToStr(d);
       if (visited.has(key)) break;
       visited.add(key);
-      // Include today IF the expense hasn't been logged yet (fell through the gap)
+      // Include today ONLY if the expense hasn't been logged yet
       const isDueToday = key === todayStr_;
       const alreadyLoggedToday = isDueToday && (state.expenses || []).some(e =>
         e.categoryId === r.categoryId &&
@@ -7138,53 +7138,12 @@ function openRecurringList() {
 }
 
 function repairMissingRecurringExpenses() {
-  const todayStr_ = todayStr();
-  const today = new Date(); today.setHours(0,0,0,0);
-  let repaired = false;
-  (state.recurringExpenses || []).filter(r => r.active !== false).forEach(r => {
-    // Check if this recurring is due today
-    const next = getRecNextDate(r);
-    if (!next) return;
-    next.setHours(0,0,0,0);
-    if (next.getTime() !== today.getTime()) return;
-    // Check if the expense is actually in state
-    const exists = (state.expenses || []).some(e =>
-      e.categoryId === r.categoryId &&
-      e.date === todayStr_ &&
-      e.amount === r.amount &&
-      e.name === r.name
-    );
-    if (!exists) {
-      // Force-add the missing expense regardless of lastAdded
-      state.expenses.push({
-        id: uid(),
-        amount: r.amount,
-        name: r.name,
-        categoryId: r.categoryId,
-        date: todayStr_,
-      });
-      r.lastAdded = todayStr_;
-      repaired = true;
-      // Auto offset if enabled
-      if (r.autoOffset) {
-        if (!state.offsetTransactions) state.offsetTransactions = [];
-        // Only add offset withdrawal if not already logged today for this item
-        const offsetExists = (state.offsetTransactions || []).some(t =>
-          t.date === todayStr_ && t.amount === r.amount && t.note === r.name + ' (auto)'
-        );
-        if (!offsetExists) {
-          state.offsetTransactions.push({
-            id: uid(), type: 'withdrawal', amount: r.amount,
-            date: todayStr_, note: r.name + ' (auto)',
-          });
-        }
-      }
-    }
-  });
-  if (repaired) { saveState(); renderContent(); }
+  // Now just delegates to applyRecurringExpenses which uses expense-existence
+  // as its only guard — no lastAdded dependency
+  applyRecurringExpenses();
 }
 
-function applyRecurringExpenses(force) {
+function applyRecurringExpenses() {
   const recs = (state.recurringExpenses||[]).filter(r=>r.active!==false);
   if (!recs.length) return;
   const today = new Date(); today.setHours(0,0,0,0);
@@ -7193,22 +7152,19 @@ function applyRecurringExpenses(force) {
   const autoOffsetFired = [];
 
   recs.forEach(r => {
-    // Skip if already added today — but verify the expense actually exists
-    if (r.lastAdded === todayDateStr && !force) {
-      // Double-check the expense is actually there; if not, re-add it
-      const alreadyExists = (state.expenses||[]).some(e =>
-        e.categoryId === r.categoryId &&
-        e.date === todayDateStr &&
-        e.amount === r.amount &&
-        e.name === r.name
-      );
-      if (alreadyExists) return; // genuinely already added, skip
-      // Expense missing despite lastAdded being set — re-add it
-    }
     const next = getRecNextDate(r);
     if (!next) return;
     next.setHours(0,0,0,0);
     if (next.getTime() !== today.getTime()) return;
+
+    // Skip if expense already exists for today — this is the only guard we need
+    const alreadyExists = (state.expenses||[]).some(e =>
+      e.categoryId === r.categoryId &&
+      e.date === todayDateStr &&
+      e.amount === r.amount &&
+      e.name === r.name
+    );
+    if (alreadyExists) { r.lastAdded = todayDateStr; return; }
 
     // Add the expense dated today
     state.expenses.push({
@@ -7221,17 +7177,19 @@ function applyRecurringExpenses(force) {
     r.lastAdded = todayDateStr;
     added = true;
 
-    // Auto offset withdrawal if enabled
+    // Auto offset withdrawal if enabled — guard against duplicates too
     if (r.autoOffset) {
       if (!state.offsetTransactions) state.offsetTransactions = [];
-      state.offsetTransactions.push({
-        id: uid(),
-        type: 'withdrawal',
-        amount: r.amount,
-        date: todayDateStr,
-        note: r.name + ' (auto)',
-      });
-      autoOffsetFired.push({ name: r.name, amount: r.amount });
+      const offsetExists = (state.offsetTransactions||[]).some(t =>
+        t.date === todayDateStr && t.amount === r.amount && t.note === r.name + ' (auto)'
+      );
+      if (!offsetExists) {
+        state.offsetTransactions.push({
+          id: uid(), type: 'withdrawal', amount: r.amount,
+          date: todayDateStr, note: r.name + ' (auto)',
+        });
+        autoOffsetFired.push({ name: r.name, amount: r.amount });
+      }
     }
   });
 
@@ -9354,10 +9312,13 @@ document.addEventListener('visibilitychange', () => {
     const currentDate = todayStr();
     if (currentDate !== _lastRecurringCheckDate) {
       _lastRecurringCheckDate = currentDate;
-      repairMissingRecurringExpenses();
-      applyRecurringExpenses();
-      recordTodayOffsetSaving();
-      renderContent(); // refresh UI to show newly added expenses
+      // Reload state from cloud first so we're working with fresh data,
+      // then apply recurring on top of it
+      loadState().then(() => {
+        applyRecurringExpenses();
+        recordTodayOffsetSaving();
+        renderContent();
+      });
     }
 
     const hasPin = !!localStorage.getItem(LOCK_KEY);
