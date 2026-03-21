@@ -33,7 +33,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '1.5.2-202603211949';
+  const APP_VER = '1.5.3-202603211958';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -795,7 +795,7 @@ async function applyUpdate() {
   <div class="modal">
     <div class="modal-handle"></div>
     <div class="modal-title">Customise tabs</div>
-    <div style="font-size:12px;color:var(--muted);margin-bottom:14px;line-height:1.5">Drag to reorder · tap toggle to show/hide. Expenses is always first.</div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:14px;line-height:1.5">Use ▲▼ to reorder · tap toggle to show/hide. Expenses is always first.</div>
     <div id="tabCustomiseList"></div>
     <button class="btn-primary" onclick="saveTabConfig()">Save</button>
     <button class="btn-ghost" onclick="closeModal('tabCustomiseModal')">Cancel</button>
@@ -1489,9 +1489,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '1.5.2';
+const APP_VERSION = '1.5.3';
 const BUILD_DATE = '2026-03-21';
-const BUILD_TIME = '21 Mar 2026 7:49 PM AEDT';
+const BUILD_TIME = '21 Mar 2026 7:58 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -2178,25 +2178,36 @@ function renderTabCustomiseList() {
   const list = document.getElementById('tabCustomiseList');
   if (!list) return;
   list.innerHTML = _tabDraftConfig.map((t, i) =>
-    '<div class="tab-config-item" draggable="true" data-idx="' + i + '" ' +
-      'ondragstart="tabDragStart(event,' + i + ')" ' +
-      'ondragover="tabDragOver(event,' + i + ')" ' +
-      'ondragleave="tabDragLeave(event)" ' +
-      'ondrop="tabDrop(event,' + i + ')" ' +
-      'ondragend="tabDragEnd()" ' +
-      // Touch support
-      'ontouchstart="tabTouchStart(event,' + i + ')" ' +
-      'ontouchmove="tabTouchMove(event)" ' +
-      'ontouchend="tabTouchEnd(event,' + i + ')">' +
-      '<span class="tab-config-drag">☰</span>' +
-      '<span style="font-size:20px">' + t.icon + '</span>' +
+    '<div class="tab-config-item" data-idx="' + i + '">' +
+      '<span style="font-size:20px;flex-shrink:0">' + t.icon + '</span>' +
       '<span style="flex:1;font-size:14px;font-weight:500">' + t.label + '</span>' +
+      '<div style="display:flex;flex-direction:column;gap:3px;margin-right:10px">' +
+        '<button onclick="tabMoveUp(' + i + ')" ' + (i <= 1 ? 'disabled style="opacity:0.2"' : 'style="opacity:0.8"') + ' style="background:var(--surface2);border:none;border-radius:5px;width:26px;height:22px;font-size:12px;cursor:pointer;color:var(--text);font-family:var(--font);line-height:1' + (i <= 1 ? ';opacity:0.2' : '') + '">▲</button>' +
+        '<button onclick="tabMoveDown(' + i + ')" ' + (i === _tabDraftConfig.length - 1 ? 'disabled style="opacity:0.2"' : 'style="opacity:0.8"') + ' style="background:var(--surface2);border:none;border-radius:5px;width:26px;height:22px;font-size:12px;cursor:pointer;color:var(--text);font-family:var(--font);line-height:1' + (i === _tabDraftConfig.length - 1 ? ';opacity:0.2' : '') + '">▼</button>' +
+      '</div>' +
       (t.locked
         ? '<span class="tab-config-locked">Always on</span>'
         : '<button class="tab-config-toggle ' + (t.enabled ? 'on' : 'off') + '" onclick="toggleTabDraft(' + i + ')" ontouchend="event.stopPropagation();toggleTabDraft(' + i + ')" ontouchstart="event.stopPropagation()"></button>'
       ) +
     '</div>'
   ).join('');
+}
+
+function tabMoveUp(idx) {
+  if (idx <= 1) return; // can't move above expenses (idx 0) or to idx 0
+  const temp = _tabDraftConfig[idx];
+  _tabDraftConfig[idx] = _tabDraftConfig[idx - 1];
+  _tabDraftConfig[idx - 1] = temp;
+  renderTabCustomiseList();
+}
+
+function tabMoveDown(idx) {
+  if (idx >= _tabDraftConfig.length - 1) return;
+  if (idx === 0) return; // can't move expenses down
+  const temp = _tabDraftConfig[idx];
+  _tabDraftConfig[idx] = _tabDraftConfig[idx + 1];
+  _tabDraftConfig[idx + 1] = temp;
+  renderTabCustomiseList();
 }
 
 function toggleTabDraft(idx) {
