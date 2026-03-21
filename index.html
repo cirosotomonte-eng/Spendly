@@ -33,7 +33,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '1.6.1-202603212313';
+  const APP_VER = '1.6.2-202603212319';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -1461,7 +1461,8 @@ async function applyUpdate() {
     <label>Source / note <span style="font-size:10px;color:var(--muted)">(optional)</span></label>
     <input type="text" id="propertyValNote" placeholder="e.g. Bank valuation, Domain estimate, Agent appraisal">
     <div id="propertyEquityPreview" style="background:var(--surface2);border-radius:10px;padding:10px 12px;margin-bottom:14px;font-size:12px;color:var(--muted);min-height:36px"></div>
-    <button class="btn-primary" onclick="savePropertyValue()">Save valuation</button>
+    <button class="btn-primary" id="propertyValSaveBtn" onclick="savePropertyValue()">Save valuation</button>
+    <button class="btn-danger" id="propertyValDeleteBtn" onclick="deletePropertyValuation()" style="display:none">Delete valuation</button>
     <button class="btn-ghost" onclick="closeModal('propertyModal')">Cancel</button>
   </div>
 </div>
@@ -1516,9 +1517,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '1.6.1';
+const APP_VERSION = '1.6.2';
 const BUILD_DATE = '2026-03-21';
-const BUILD_TIME = '21 Mar 2026 11:13 PM AEDT';
+const BUILD_TIME = '21 Mar 2026 11:19 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -8370,13 +8371,9 @@ function saveSuperSettings() {
   saveState(); closeModal('superModal'); renderContent();
 }
 
-function openPropertySettings() {
-  const mg = state.mortgage || {};
-  const mortgageBalance = getEstimatedBalance().balance || mg.currentBalance || 0;
-  document.getElementById('propertyValue').value = state.propertyValue || '';
-  document.getElementById('propertyValDate').value = todayStr();
-  document.getElementById('propertyValNote').value = '';
-  // Live equity preview
+let _editingValDate = null; // null = new, date string = editing existing
+
+function _propertyModalSetup(mortgageBalance) {
   const updatePreview = () => {
     const val = parseFloat(document.getElementById('propertyValue').value) || 0;
     const equity = Math.max(val - mortgageBalance, 0);
@@ -8389,8 +8386,36 @@ function openPropertySettings() {
   };
   document.getElementById('propertyValue').oninput = updatePreview;
   updatePreview();
-  document.getElementById('propertyModal').classList.add('open');
+  openModal('propertyModal');
   setTimeout(() => document.getElementById('propertyValue').focus(), 350);
+}
+
+function openPropertySettings() {
+  _editingValDate = null;
+  const mg = state.mortgage || {};
+  const mortgageBalance = getEstimatedBalance().balance || mg.currentBalance || 0;
+  document.getElementById('propertyModalTitle').textContent = 'Log property valuation';
+  document.getElementById('propertyValue').value = state.propertyValue || '';
+  document.getElementById('propertyValDate').value = todayStr();
+  document.getElementById('propertyValNote').value = '';
+  document.getElementById('propertyValSaveBtn').textContent = 'Save valuation';
+  document.getElementById('propertyValDeleteBtn').style.display = 'none';
+  _propertyModalSetup(mortgageBalance);
+}
+
+function openEditValuation(date) {
+  const entry = (state.propertyHistory || []).find(h => h.date === date);
+  if (!entry) return;
+  _editingValDate = date;
+  const mg = state.mortgage || {};
+  const mortgageBalance = getEstimatedBalance().balance || mg.currentBalance || 0;
+  document.getElementById('propertyModalTitle').textContent = 'Edit valuation';
+  document.getElementById('propertyValue').value = entry.value || '';
+  document.getElementById('propertyValDate').value = entry.date || '';
+  document.getElementById('propertyValNote').value = entry.note || '';
+  document.getElementById('propertyValSaveBtn').textContent = 'Save changes';
+  document.getElementById('propertyValDeleteBtn').style.display = 'block';
+  _propertyModalSetup(mortgageBalance);
 }
 
 function savePropertyValue() {
@@ -8398,18 +8423,28 @@ function savePropertyValue() {
   const date = document.getElementById('propertyValDate').value || todayStr();
   const note = document.getElementById('propertyValNote').value.trim();
   if (!value) return;
-  state.propertyValue = value;
   if (!state.propertyHistory) state.propertyHistory = [];
-  // Don't duplicate same date
-  const existing = state.propertyHistory.find(h => h.date === date);
-  if (existing) {
-    existing.value = value; existing.note = note;
+  if (_editingValDate) {
+    const idx = state.propertyHistory.findIndex(h => h.date === _editingValDate);
+    if (idx >= 0) state.propertyHistory[idx] = { value, date, note };
   } else {
-    state.propertyHistory.push({ date, value, note });
-    state.propertyHistory.sort((a,b) => b.date.localeCompare(a.date));
+    const existing = state.propertyHistory.find(h => h.date === date);
+    if (existing) { existing.value = value; existing.note = note; }
+    else state.propertyHistory.push({ date, value, note });
   }
+  state.propertyHistory.sort((a,b) => b.date.localeCompare(a.date));
+  state.propertyValue = state.propertyHistory[0].value;
   saveState(); closeModal('propertyModal'); renderContent();
-  showToast('🏠 Property valuation saved — $' + Math.round(value).toLocaleString('en-AU'), 3000);
+  showToast('🏠 Valuation saved — $' + Math.round(value).toLocaleString('en-AU'), 3000);
+}
+
+function deletePropertyValuation() {
+  if (!_editingValDate) return;
+  if (!confirm('Delete this valuation?')) return;
+  state.propertyHistory = (state.propertyHistory || []).filter(h => h.date !== _editingValDate);
+  state.propertyValue = state.propertyHistory.length > 0 ? state.propertyHistory[0].value : 0;
+  saveState(); closeModal('propertyModal'); renderContent();
+  showToast('Valuation deleted', 2000);
 }
 
 // ── Render Net Worth ──────────────────────────────────────────────────────────
@@ -8537,12 +8572,15 @@ function renderNetWorth() {
     propHistory.slice().reverse().forEach((h, i) => {
       const equity = Math.max(h.value - mortgageBalance, 0);
       html += '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;' + (i>0?'border-top:1px solid var(--surface3)':'') + '">' +
-        '<div>' +
+        '<div style="flex:1;min-width:0">' +
           '<div style="font-size:13px;font-weight:600">' + fmt0(h.value) + '</div>' +
           '<div style="font-size:11px;color:var(--muted)">' + new Date(h.date+'T00:00:00').toLocaleDateString('en-AU',{day:'numeric',month:'short',year:'numeric'}) + (h.note ? ' · ' + h.note : '') + '</div>' +
         '</div>' +
-        '<div style="text-align:right">' +
-          '<div style="font-size:11px;font-weight:600;color:var(--accent)">Equity ' + fmt0(equity) + '</div>' +
+        '<div style="display:flex;align-items:center;gap:8px">' +
+          '<div style="text-align:right">' +
+            '<div style="font-size:11px;font-weight:600;color:var(--accent)">Equity ' + fmt0(equity) + '</div>' +
+          '</div>' +
+          '<button onclick="openEditValuation(\'' + h.date + '\')" style="background:var(--surface2);border:none;border-radius:8px;padding:5px 10px;font-size:12px;color:var(--muted);cursor:pointer;font-family:var(--font);flex-shrink:0">Edit</button>' +
         '</div>' +
       '</div>';
     });
