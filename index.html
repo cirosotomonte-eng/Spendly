@@ -33,7 +33,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '1.5.7-202603212221';
+  const APP_VER = '1.5.8-202603212227';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -1492,9 +1492,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '1.5.7';
+const APP_VERSION = '1.5.8';
 const BUILD_DATE = '2026-03-21';
-const BUILD_TIME = '21 Mar 2026 10:21 PM AEDT';
+const BUILD_TIME = '21 Mar 2026 10:27 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -3397,16 +3397,19 @@ function renderGoals() {
     const tipId = 'tip-budget-warn-' + type;
     const warningHtml = showWarning
       ? ' <span style="position:relative;display:inline-flex;align-items:center">' +
-          '<span onclick="event.stopPropagation();toggleBudgetWarnTip(\'' + tipId + '\')" style="cursor:pointer;font-size:13px;line-height:1" title="Budget warning">⚠️</span>' +
-          '<div id="' + tipId + '" style="display:none;position:absolute;top:calc(100% + 6px);left:0;z-index:200;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:10px 12px;font-size:11px;font-weight:400;color:var(--muted);line-height:1.6;width:240px;box-shadow:0 4px 16px rgba(0,0,0,0.2);text-transform:none;letter-spacing:normal">' +
-            'Your total budget only has <strong style="color:var(--text)">' + fmt(totalLeft) + '</strong> left, but these categories show <strong style="color:var(--text)">' + fmt(sumCatLefts) + '</strong> available. Spending all category headroom would put you <strong style="color:var(--red)">' + fmt(sumCatLefts - totalLeft) + ' over budget</strong>.' +
-          '</div>' +
+          '<span onclick="event.stopPropagation();toggleBudgetWarnTip(\'' + tipId + '\')" style="cursor:pointer;font-size:13px;line-height:1">⚠️</span>' +
         '</span>'
+      : '';
+    const tooltipHtml = showWarning
+      ? '<div id="' + tipId + '" style="display:none;background:var(--surface);border:1px solid var(--orange);border-radius:10px;padding:12px 14px;margin:6px 0 10px;font-size:12px;color:var(--muted);line-height:1.6">' +
+          'Your total budget only has <strong style="color:var(--text)">' + fmt(totalLeft) + '</strong> left, but these categories show <strong style="color:var(--text)">' + fmt(sumCatLefts) + '</strong> available to spend. Using all that headroom would put you <strong style="color:var(--red)">' + fmt(sumCatLefts - totalLeft) + ' over budget</strong>.' +
+        '</div>'
       : '';
 
     html += '<div class="section-label">' + (type==='fixed'?'Fixed':'Variable') + '</div>';
     html += '<div class="goals-table">';
     html += '<div class="goals-table-header"><span>Category</span><span>Budget</span><span>Spent' + warningHtml + '</span><span>Left</span></div>';
+    html += tooltipHtml;
     cats.forEach(cat => {
       const spent = bycat[cat.id] || 0;
       const budget = cat.budgetLimit || 0;
