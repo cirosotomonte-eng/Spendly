@@ -33,7 +33,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '1.6.3-202603220912';
+  const APP_VER = '1.6.4-202603220925';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -1517,9 +1517,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '1.6.3';
+const APP_VERSION = '1.6.4';
 const BUILD_DATE = '2026-03-22';
-const BUILD_TIME = '22 Mar 2026 9:12 AM AEDT';
+const BUILD_TIME = '22 Mar 2026 9:25 AM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -1993,25 +1993,32 @@ function cycleExpenses() {
   });
 }
 
-// Returns recurring expenses due AFTER today but before cycle end (upcoming/committed)
+// Returns recurring expenses due TODAY (not yet logged) or AFTER today — within cycle
 function getUpcomingRecurring() {
   if (!isCurrentCycle()) return [];
   const { cycleStart, cycleEnd } = getCycleRange(0);
   const today = new Date(); today.setHours(0,0,0,0);
+  const todayStr_ = todayStr();
   const recs = (state.recurringExpenses || []).filter(r => r.active !== false);
   const upcoming = [];
   recs.forEach(r => {
-    // Get all occurrences within the cycle that are strictly after today
     let d = getRecNextDate(r);
     if (!d) return;
     d.setHours(0,0,0,0);
-    // Walk forward through all occurrences within this cycle that are future
     const visited = new Set();
     while (d <= cycleEnd) {
       const key = dateToStr(d);
       if (visited.has(key)) break;
       visited.add(key);
-      if (d > today && d >= cycleStart) {
+      // Include today IF the expense hasn't been logged yet (fell through the gap)
+      const isDueToday = key === todayStr_;
+      const alreadyLoggedToday = isDueToday && (state.expenses || []).some(e =>
+        e.categoryId === r.categoryId &&
+        e.date === todayStr_ &&
+        e.amount === r.amount &&
+        e.name === r.name
+      );
+      if (d >= cycleStart && (d > today || (isDueToday && !alreadyLoggedToday))) {
         upcoming.push({
           id: r.id + '_' + key,
           recurringId: r.id,
