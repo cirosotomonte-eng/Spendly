@@ -33,7 +33,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '1.6.0-202603212246';
+  const APP_VER = '1.6.1-202603212313';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -1516,9 +1516,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '1.6.0';
+const APP_VERSION = '1.6.1';
 const BUILD_DATE = '2026-03-21';
-const BUILD_TIME = '21 Mar 2026 10:46 PM AEDT';
+const BUILD_TIME = '21 Mar 2026 11:13 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -8422,6 +8422,7 @@ function renderNetWorth() {
 
   // Components
   const mortgageBalance = getEstimatedBalance().balance || mg.currentBalance || 0;
+  const propertyValue = state.propertyValue || 0;
   const propertyEquity = Math.max(propertyValue - mortgageBalance, 0);
   const offsetBalance = getOffsetBalance();
   const portfolioValue = (state.portfolio||[]).reduce((s,h)=>s+h.units*h.currentPrice,0);
