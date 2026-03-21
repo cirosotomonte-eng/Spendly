@@ -26,7 +26,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '1.4.2-202603211724';
+  const APP_VER = '1.4.3-202603211734';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -1152,11 +1152,11 @@ async function applyUpdate() {
     <div class="modal-handle"></div>
     <div class="modal-title" id="recurringModalTitle">New recurring expense</div>
     <label>Description</label>
-    <input type="text" id="recName" placeholder="e.g. Netflix, Mortgage, Strata">
+    <input type="text" id="recName" placeholder="e.g. Netflix, Mortgage, Strata" oninput="checkRecChanged()">
     <label>Amount ($)</label>
-    <input type="number" inputmode="decimal" id="recAmount" placeholder="0.00" step="0.01" min="0">
+    <input type="number" inputmode="decimal" id="recAmount" placeholder="0.00" step="0.01" min="0" oninput="checkRecChanged()">
     <label>Category</label>
-    <select id="recCat" onchange="updateRecOffsetVisibility()"></select>
+    <select id="recCat" onchange="updateRecOffsetVisibility();checkRecChanged()"></select>
     <label>Frequency</label>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px" id="recFreqBtns">
       <button type="button" onclick="setRecFreq('weekly')" id="recFreqWeekly" style="padding:10px;border-radius:10px;border:2px solid var(--accent);background:var(--accent-dim);color:var(--accent);font-weight:700;font-family:var(--font);cursor:pointer;font-size:13px">Weekly</button>
@@ -1181,26 +1181,26 @@ async function applyUpdate() {
     <!-- Every X weeks: pick number of weeks + start date -->
     <div id="recXweeksSection" style="display:none;margin-bottom:14px">
       <label>Repeat every how many weeks?</label>
-      <input type="number" inputmode="numeric" id="recXweeksNum" placeholder="e.g. 3" min="1" max="52" oninput="updateRecPreview()" style="margin-bottom:10px">
+      <input type="number" inputmode="numeric" id="recXweeksNum" placeholder="e.g. 3" min="1" max="52" oninput="updateRecPreview();checkRecChanged()" style="margin-bottom:10px">
       <label>Last done / start date</label>
-      <input type="date" id="recXweeksDate" oninput="updateRecPreview()">
+      <input type="date" id="recXweeksDate" oninput="updateRecPreview();checkRecChanged()">
       <div style="font-size:11px;color:var(--muted);margin-top:-8px">Next occurrence will be calculated from this date</div>
     </div>
     <!-- Monthly: pick day of month -->
     <div id="recMonthlySection" style="display:none;margin-bottom:14px">
       <label>Day of month</label>
-      <input type="number" inputmode="numeric" id="recMonthDay" placeholder="e.g. 28" min="1" max="31" oninput="updateRecPreview()">
+      <input type="number" inputmode="numeric" id="recMonthDay" placeholder="e.g. 28" min="1" max="31" oninput="updateRecPreview();checkRecChanged()">
     </div>
     <!-- Quarterly: pick start date -->
     <div id="recQuarterlySection" style="display:none;margin-bottom:14px">
       <label>Next due date</label>
-      <input type="date" id="recQuarterlyDate">
+      <input type="date" id="recQuarterlyDate" oninput="checkRecChanged()">
       <div style="font-size:11px;color:var(--muted);margin-top:-8px">Will repeat every 3 months from this date</div>
     </div>
     <!-- Yearly: pick date -->
     <div id="recYearlySection" style="display:none;margin-bottom:14px">
       <label>Next due date</label>
-      <input type="date" id="recYearlyDate" oninput="updateRecPreview()">
+      <input type="date" id="recYearlyDate" oninput="updateRecPreview();checkRecChanged()">
       <div style="font-size:11px;color:var(--muted);margin-top:-8px">Will repeat every year on this date</div>
     </div>
     <div id="recPreview" style="font-size:12px;color:var(--muted);margin-bottom:14px;min-height:16px;background:var(--surface2);border-radius:8px;padding:8px 10px;display:none"></div>
@@ -1219,7 +1219,7 @@ async function applyUpdate() {
     </div>
     <button class="btn-primary" id="recSaveBtn" onclick="saveRecurring()">Save</button>
     <button class="btn-danger" id="recDeleteBtn" onclick="deleteRecurring()" style="display:none">Delete</button>
-    <button class="btn-ghost" onclick="closeModal('recurringModal')">Cancel</button>
+    <button class="btn-ghost" onclick="cancelRecurring()">Cancel</button>
   </div>
 </div>
 
@@ -1442,9 +1442,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '1.4.2';
+const APP_VERSION = '1.4.3';
 const BUILD_DATE = '2026-03-21';
-const BUILD_TIME = '21 Mar 2026 5:24 PM AEDT';
+const BUILD_TIME = '21 Mar 2026 5:34 PM AEDT';
 const STORAGE_KEY = 'spendly_generic_v1';
 const LOCK_KEY = 'spendly_pin_hash';
 const BIOM_KEY = 'spendly_biometric';
@@ -6000,6 +6000,7 @@ function toggleRecActive() {
   el.textContent = recActiveState ? '✓' : '';
   el.style.background = recActiveState ? 'var(--accent)' : 'var(--surface3)';
   el.style.border = '2px solid ' + (recActiveState ? 'var(--accent)' : 'var(--border)');
+  checkRecChanged();
 }
 
 function toggleRecOffset() {
@@ -6009,6 +6010,7 @@ function toggleRecOffset() {
   el.textContent = recOffsetState ? '✓' : '';
   el.style.background = recOffsetState ? 'var(--accent)' : 'var(--surface3)';
   el.style.border = '2px solid ' + (recOffsetState ? 'var(--accent)' : 'var(--border)');
+  checkRecChanged();
 }
 
 function updateRecOffsetVisibility() {
@@ -6048,6 +6050,7 @@ function setRecFreq(freq) {
   document.getElementById('recQuarterlySection').style.display = freq === 'quarterly' ? 'block' : 'none';
   document.getElementById('recYearlySection').style.display = freq === 'yearly' ? 'block' : 'none';
   updateRecPreview();
+  checkRecChanged();
 }
 
 function setRecWeekday(day) {
@@ -6058,6 +6061,7 @@ function setRecWeekday(day) {
     btn.classList.toggle('selected', d === day);
   });
   updateRecPreview();
+  checkRecChanged();
 }
 
 function updateRecPreview() {
@@ -6136,13 +6140,64 @@ function populateRecCatSelect() {
   }
 }
 
+let recOriginalSnapshot = null; // snapshot of record when editing opens
+
+function cancelRecurring() {
+  closeModal('recurringModal');
+  setTimeout(() => openRecurringList(), 50);
+}
+
+function getRecCurrentSnapshot() {
+  return {
+    name: document.getElementById('recName').value.trim(),
+    amount: parseFloat(document.getElementById('recAmount').value) || 0,
+    categoryId: document.getElementById('recCat').value,
+    frequency: recFreqState,
+    active: recActiveState,
+    autoOffset: recOffsetState,
+    weekday: recWeekdayState,
+    monthDay: parseInt(document.getElementById('recMonthDay').value) || null,
+    xweeksNum: parseInt(document.getElementById('recXweeksNum').value) || null,
+    xweeksDate: document.getElementById('recXweeksDate').value || null,
+    quarterlyDate: document.getElementById('recQuarterlyDate').value || null,
+    yearlyDate: document.getElementById('recYearlyDate').value || null,
+  };
+}
+
+function checkRecChanged() {
+  if (!editingRecurringId || !recOriginalSnapshot) return;
+  const curr = getRecCurrentSnapshot();
+  const orig = recOriginalSnapshot;
+  const changed = curr.name !== orig.name ||
+    curr.amount !== orig.amount ||
+    curr.categoryId !== orig.categoryId ||
+    curr.frequency !== orig.frequency ||
+    curr.active !== orig.active ||
+    curr.autoOffset !== orig.autoOffset ||
+    curr.weekday !== orig.weekday ||
+    curr.monthDay !== orig.monthDay ||
+    curr.xweeksNum !== orig.xweeksNum ||
+    curr.xweeksDate !== orig.xweeksDate ||
+    curr.quarterlyDate !== orig.quarterlyDate ||
+    curr.yearlyDate !== orig.yearlyDate;
+  const btn = document.getElementById('recSaveBtn');
+  if (btn) {
+    btn.disabled = !changed;
+    btn.style.opacity = changed ? '1' : '0.4';
+    btn.style.cursor = changed ? 'pointer' : 'default';
+  }
+}
+
 function openAddRecurring() {
   editingRecurringId = null; recActiveState = true; recOffsetState = false;
+  recOriginalSnapshot = null;
   document.getElementById('recurringModalTitle').textContent = 'New recurring expense';
   document.getElementById('recName').value = '';
   document.getElementById('recAmount').value = '';
   document.getElementById('recDeleteBtn').style.display = 'none';
-  document.getElementById('recSaveBtn').textContent = 'Save';
+  const saveBtn = document.getElementById('recSaveBtn');
+  saveBtn.textContent = 'Save';
+  saveBtn.disabled = false; saveBtn.style.opacity = '1'; saveBtn.style.cursor = 'pointer';
   const check = document.getElementById('recActiveCheck');
   check.textContent = '✓'; check.style.background = 'var(--accent)'; check.style.border = '2px solid var(--accent)';
   const ocheck = document.getElementById('recOffsetCheck');
@@ -6200,6 +6255,10 @@ function openEditRecurring(id) {
     document.getElementById('recYearlyDate').value = rec.nextDate || '';
   }
   updateRecPreview();
+  // Capture snapshot AFTER all fields are set, disable Update until change detected
+  recOriginalSnapshot = getRecCurrentSnapshot();
+  const saveBtn = document.getElementById('recSaveBtn');
+  saveBtn.disabled = true; saveBtn.style.opacity = '0.4'; saveBtn.style.cursor = 'default';
   closeModal('recurringListModal');
   openModal('recurringModal');
 }
