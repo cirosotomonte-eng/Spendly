@@ -10,6 +10,7 @@
 <meta name="theme-color" content="#f5f5f0" media="(prefers-color-scheme: light)">
 <title>Spendly — Expense Tracker</title>
 <link rel="manifest" id="pwaManifest">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script>
 const manifestData = { name:"Spendly — Expense Tracker", short_name:"Spendly", start_url:"./", display:"standalone", background_color:"#0f0f0f", theme_color:"#0f0f0f", orientation:"any" };
 const mblob = new Blob([JSON.stringify(manifestData)], {type:'application/json'});
@@ -17,7 +18,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '1.3.7-202603211041';
+  const APP_VER = '1.4.0-202603211210';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -225,6 +226,24 @@ async function applyUpdate() {
   .color-grid { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
   .color-swatch { width: 32px; height: 32px; border-radius: 50%; cursor: pointer; border: 2px solid transparent; transition: all 0.15s; }
   .color-swatch.selected { border-color: #fff; transform: scale(1.15); }
+
+  /* Auth screen */
+  #authScreen { position:fixed;inset:0;z-index:1500;background:var(--bg);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:40px 32px;overflow-y:auto; }
+  #authScreen.hidden { display:none; }
+  .auth-logo { font-size:52px;margin-bottom:4px; }
+  .auth-title { font-size:28px;font-weight:800;letter-spacing:-1px;margin-bottom:6px; }
+  .auth-sub { font-size:14px;color:var(--muted);margin-bottom:32px;text-align:center;line-height:1.5; }
+  .auth-tabs { display:flex;gap:0;background:var(--surface);border-radius:12px;padding:4px;margin-bottom:24px;width:100%;max-width:320px; }
+  .auth-tab { flex:1;padding:9px;border:none;border-radius:9px;font-size:14px;font-weight:600;font-family:var(--font);cursor:pointer;background:none;color:var(--muted);transition:all 0.2s; }
+  .auth-tab.active { background:var(--accent);color:#fff; }
+  .auth-form { width:100%;max-width:320px;display:flex;flex-direction:column;gap:0; }
+  .auth-input { width:100%;background:var(--surface);border:1.5px solid var(--border);border-radius:12px;color:var(--text);font-size:16px;font-family:var(--font);padding:13px 15px;outline:none;margin-bottom:12px;transition:border-color 0.2s;-webkit-appearance:none; }
+  .auth-input:focus { border-color:var(--accent); }
+  .auth-btn { width:100%;background:var(--accent);color:#fff;border:none;border-radius:12px;padding:15px;font-size:16px;font-weight:700;font-family:var(--font);cursor:pointer;margin-bottom:8px;transition:opacity 0.15s; }
+  .auth-btn:active { opacity:0.85; }
+  .auth-btn:disabled { opacity:0.4;cursor:default; }
+  .auth-error { font-size:13px;color:var(--red);text-align:center;min-height:18px;margin-bottom:8px;line-height:1.4; }
+  .auth-hint { font-size:12px;color:var(--muted);text-align:center;line-height:1.5;margin-top:4px; }
 
   /* Analytics */
   .chart-container { position: relative; width: 100%; height: 180px; margin-bottom: 16px; }
@@ -663,6 +682,25 @@ async function applyUpdate() {
 
 </div>
 
+<!-- Auth screen -->
+<div id="authScreen" class="hidden">
+  <div class="auth-logo">💚</div>
+  <div class="auth-title">Spendly</div>
+  <div class="auth-sub">Your personal finance companion.<br>Sign in to access your data.</div>
+  <div class="auth-tabs">
+    <button class="auth-tab active" id="authTabLogin" onclick="switchAuthTab('login')">Sign in</button>
+    <button class="auth-tab" id="authTabSignup" onclick="switchAuthTab('signup')">Create account</button>
+  </div>
+  <div class="auth-form">
+    <input class="auth-input" type="email" id="authEmail" placeholder="Email address" autocomplete="email" inputmode="email">
+    <input class="auth-input" type="password" id="authPassword" placeholder="Password" autocomplete="current-password">
+    <input class="auth-input" type="password" id="authPasswordConfirm" placeholder="Confirm password" autocomplete="new-password" style="display:none">
+    <div class="auth-error" id="authError"></div>
+    <button class="auth-btn" id="authSubmitBtn" onclick="handleAuthSubmit()">Sign in</button>
+    <div class="auth-hint" id="authHint">Your data is private and encrypted.<br>Only you can access it.</div>
+  </div>
+</div>
+
 <div id="app">
   <div class="header">
     <div class="header-top">
@@ -759,7 +797,8 @@ async function applyUpdate() {
         <div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:4px">Spendly v<span id="appVersionDisplay"></span></div>
         <div style="font-size:11px;color:var(--muted)">Built <span id="appBuildTime"></span></div>
       </div>
-      <button onclick="forceAppUpdate()" style="background:none;border:1px solid var(--border);border-radius:8px;padding:8px 16px;font-size:12px;color:var(--muted);font-family:var(--font);cursor:pointer;width:100%">🔄 Check for update</button>
+      <button onclick="forceAppUpdate()" style="background:none;border:1px solid var(--border);border-radius:8px;padding:8px 16px;font-size:12px;color:var(--muted);font-family:var(--font);cursor:pointer;width:100%;margin-bottom:8px">🔄 Check for update</button>
+      <button onclick="signOut()" style="background:none;border:1px solid var(--red-dim);border-radius:8px;padding:8px 16px;font-size:12px;color:var(--red);font-family:var(--font);cursor:pointer;width:100%">Sign out</button>
     </div>
   </div>
 </div>
@@ -1395,9 +1434,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '1.3.7';
+const APP_VERSION = '1.4.0';
 const BUILD_DATE = '2026-03-21';
-const BUILD_TIME = '21 Mar 2026 10:41 AM AEDT';
+const BUILD_TIME = '21 Mar 2026 12:10 PM AEDT';
 const STORAGE_KEY = 'spendly_generic_v1';
 const LOCK_KEY = 'spendly_pin_hash';
 const BIOM_KEY = 'spendly_biometric';
@@ -1473,10 +1512,138 @@ const BACKUP_TS_KEY = 'spendly_backup_ts';
 // ── Supabase sync ─────────────────────────────────────────────────────────────
 const SB_URL = 'https://cebpejgbszahdnhitibh.supabase.co';
 const SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNlYnBlamdic3phaGRuaGl0aWJoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM1MzA4NDcsImV4cCI6MjA4OTEwNjg0N30.JyLWB4lNUWhPetG4o6DGPxHWcd2CmGAWx0LHzqwEnfo';
-const SB_HEADERS = { 'Content-Type': 'application/json', 'apikey': SB_KEY, 'Authorization': 'Bearer ' + SB_KEY };
-let syncTimer = null;
-let syncStatus = 'idle'; // 'idle' | 'saving' | 'saved' | 'error'
 
+// Initialise Supabase client (includes auth)
+const _sb = window.supabase.createClient(SB_URL, SB_KEY, {
+  auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false }
+});
+
+let syncTimer = null;
+let syncStatus = 'idle';
+let _sbSession = null; // current auth session
+
+// ── Auth helpers ───────────────────────────────────────────────────────────────
+function getAuthHeaders() {
+  const token = _sbSession ? _sbSession.access_token : SB_KEY;
+  return { 'Content-Type': 'application/json', 'apikey': SB_KEY, 'Authorization': 'Bearer ' + token };
+}
+
+function getCurrentUserId() {
+  return _sbSession ? _sbSession.user.id : null;
+}
+
+// ── Auth UI ────────────────────────────────────────────────────────────────────
+let authMode = 'login';
+
+function showAuthScreen() {
+  document.getElementById('authScreen').classList.remove('hidden');
+  document.getElementById('app').style.visibility = 'hidden';
+  switchAuthTab('login');
+}
+
+function hideAuthScreen() {
+  document.getElementById('authScreen').classList.add('hidden');
+}
+
+function switchAuthTab(mode) {
+  authMode = mode;
+  document.getElementById('authTabLogin').classList.toggle('active', mode === 'login');
+  document.getElementById('authTabSignup').classList.toggle('active', mode === 'signup');
+  document.getElementById('authPasswordConfirm').style.display = mode === 'signup' ? '' : 'none';
+  document.getElementById('authSubmitBtn').textContent = mode === 'login' ? 'Sign in' : 'Create account';
+  document.getElementById('authError').textContent = '';
+  document.getElementById('authHint').textContent = mode === 'login'
+    ? 'Your data is private and encrypted. Only you can access it.'
+    : 'Choose a strong password with letters, numbers and symbols.';
+}
+
+async function handleAuthSubmit() {
+  const email = document.getElementById('authEmail').value.trim();
+  const password = document.getElementById('authPassword').value;
+  const confirm = document.getElementById('authPasswordConfirm').value;
+  const errEl = document.getElementById('authError');
+  const btn = document.getElementById('authSubmitBtn');
+  errEl.textContent = '';
+
+  if (!email || !password) { errEl.textContent = 'Please enter your email and password.'; return; }
+  if (authMode === 'signup' && password !== confirm) { errEl.textContent = 'Passwords don\'t match.'; return; }
+  if (authMode === 'signup' && password.length < 8) { errEl.textContent = 'Password must be at least 8 characters.'; return; }
+
+  btn.disabled = true;
+  btn.textContent = authMode === 'login' ? 'Signing in…' : 'Creating account…';
+
+  try {
+    let result;
+    if (authMode === 'login') {
+      result = await _sb.auth.signInWithPassword({ email, password });
+    } else {
+      result = await _sb.auth.signUp({ email, password });
+    }
+
+    if (result.error) {
+      errEl.textContent = friendlyAuthError(result.error.message);
+      btn.disabled = false;
+      btn.textContent = authMode === 'login' ? 'Sign in' : 'Create account';
+      return;
+    }
+
+    _sbSession = result.data.session;
+    if (!_sbSession) {
+      // Signup succeeded but no session yet (shouldn't happen with confirm off, but handle it)
+      errEl.textContent = '';
+      errEl.style.color = 'var(--accent)';
+      errEl.textContent = 'Account created! Please sign in.';
+      switchAuthTab('login');
+      btn.disabled = false;
+      return;
+    }
+
+    // Signed in — load data and enter app
+    hideAuthScreen();
+    await loadState();
+    state.currentTab = 'expenses';
+    updateHeader();
+    renderContent();
+    initVersionDisplay();
+    if (!initWelcome()) { showApp(); initLock(); }
+    applyRecurringExpenses();
+    recordTodayOffsetSaving();
+    setTimeout(checkCycleComplete, 2000);
+    setTimeout(checkExpiryAlerts, 1500);
+  } catch(e) {
+    errEl.textContent = 'Something went wrong. Please try again.';
+    btn.disabled = false;
+    btn.textContent = authMode === 'login' ? 'Sign in' : 'Create account';
+  }
+}
+
+function friendlyAuthError(msg) {
+  if (!msg) return 'Something went wrong.';
+  const m = msg.toLowerCase();
+  if (m.includes('invalid login') || m.includes('invalid credentials')) return 'Incorrect email or password.';
+  if (m.includes('email not confirmed')) return 'Please confirm your email first.';
+  if (m.includes('user already registered')) return 'An account with this email already exists. Try signing in.';
+  if (m.includes('password should')) return 'Password must include uppercase, lowercase, numbers and symbols.';
+  if (m.includes('unable to validate')) return 'Invalid email address.';
+  if (m.includes('rate limit')) return 'Too many attempts. Please wait a moment.';
+  return msg;
+}
+
+async function signOut() {
+  closeModal('settingsModal');
+  await _sb.auth.signOut();
+  _sbSession = null;
+  // Clear local state
+  try { localStorage.removeItem('spendly_state'); } catch(e) {}
+  try { localStorage.removeItem('spendly_backup'); } catch(e) {}
+  try { sessionStorage.clear(); } catch(e) {}
+  // Reset state and show auth screen
+  state = { currentTab:'expenses', viewingCycleOffset:0, budget:0, cycleDay:1, appName:'', categories:[], expenses:[], recurringExpenses:[], savingsCategories:[], savingsSubcategories:[], savingsDeposits:[], recyclingTrips:[], mortgage:{}, taxCategories:[], taxTransactions:[], giftCards:[], portfolio:[], netWorth:[], notes:[], setupDone:false };
+  showAuthScreen();
+  document.getElementById('app').style.visibility = 'hidden';
+}
+
+// ── Sync ───────────────────────────────────────────────────────────────────────
 function setSyncStatus(s) {
   syncStatus = s;
   const el = document.getElementById('syncIndicator');
@@ -1488,13 +1655,14 @@ function setSyncStatus(s) {
 }
 
 async function syncToSupabase(data) {
+  const userId = getCurrentUserId();
+  if (!userId) { setSyncStatus('error'); return; }
   try {
     setSyncStatus('saving');
-    // Use POST with upsert — works whether row exists or not
     const res = await fetch(SB_URL + '/rest/v1/spendly_data', {
       method: 'POST',
-      headers: { ...SB_HEADERS, 'Prefer': 'resolution=merge-duplicates,return=minimal' },
-      body: JSON.stringify({ id: 'main', data, updated_at: new Date().toISOString() })
+      headers: { ...getAuthHeaders(), 'Prefer': 'resolution=merge-duplicates,return=minimal' },
+      body: JSON.stringify({ id: 'main', user_id: userId, data, updated_at: new Date().toISOString() })
     });
     if (!res.ok) throw new Error('upsert failed ' + res.status);
     setSyncStatus('saved');
@@ -1505,9 +1673,11 @@ async function syncToSupabase(data) {
 }
 
 async function loadFromSupabase() {
+  const userId = getCurrentUserId();
+  if (!userId) return null;
   try {
-    const res = await fetch(SB_URL + '/rest/v1/spendly_data?id=eq.main&select=data,updated_at', {
-      headers: SB_HEADERS
+    const res = await fetch(SB_URL + '/rest/v1/spendly_data?user_id=eq.' + userId + '&select=data,updated_at', {
+      headers: getAuthHeaders()
     });
     if (!res.ok) return null;
     const rows = await res.json();
@@ -7997,18 +8167,27 @@ function hideLaunchScreen(callback) {
 
 async function init() {
   state.currentTab = 'expenses';
-  // Safety net — if init crashes, hide launch screen after 4s so app isn't stuck
+  // Safety net — if init crashes, hide launch screen after 6s
   const safetyTimer = setTimeout(() => {
     const ls = document.getElementById('launchScreen');
     if (ls && ls.style.display !== 'none') {
       ls.style.display = 'none';
-      if (!initWelcome()) {
-        showApp();
-        initLock();
-      }
+      showAuthScreen();
     }
-  }, 4000);
+  }, 6000);
   try {
+    // Check for existing Supabase session
+    const { data: { session } } = await _sb.auth.getSession();
+    _sbSession = session;
+
+    if (!_sbSession) {
+      // No session — show auth screen
+      hideLaunchScreen(() => { showAuthScreen(); });
+      clearTimeout(safetyTimer);
+      return;
+    }
+
+    // Session exists — load data and enter app
     await loadState();
     state.currentTab = 'expenses';
     updateHeader();
@@ -8027,7 +8206,7 @@ async function init() {
     setTimeout(initModalSwipeDown, 600);
   } catch(e) {
     console.error('Init error:', e);
-    hideLaunchScreen(() => { showApp(); });
+    hideLaunchScreen(() => { showAuthScreen(); });
   } finally {
     clearTimeout(safetyTimer);
   }
