@@ -33,7 +33,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '1.5.3-202603211958';
+  const APP_VER = '1.5.4-202603212013';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -1489,9 +1489,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '1.5.3';
+const APP_VERSION = '1.5.4';
 const BUILD_DATE = '2026-03-21';
-const BUILD_TIME = '21 Mar 2026 7:58 PM AEDT';
+const BUILD_TIME = '21 Mar 2026 8:13 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -2525,28 +2525,35 @@ function renderExpenseResults(resultsEl) {
   if (!resultsEl) return;
   const query = expenseSearchQuery.trim().toLowerCase();
   const allExpenses = cycleExpenses().sort((a,b) => b.date.localeCompare(a.date) || b.id.localeCompare(a.id));
-  const upcoming = isCurrentCycle() ? getUpcomingRecurring().sort((a,b) => a.date.localeCompare(b.date)) : [];
+  const allUpcoming = isCurrentCycle() ? getUpcomingRecurring().sort((a,b) => a.date.localeCompare(b.date)) : [];
 
   const expenses = query ? allExpenses.filter(e => {
     const cat = catById(e.categoryId);
     return (cat ? cat.name.toLowerCase() : '').includes(query) || (e.name||'').toLowerCase().includes(query);
   }) : allExpenses;
 
-  // (searchBar is rendered by renderExpenses — not duplicated here)
+  // Filter upcoming when searching
+  const upcomingFiltered = query ? allUpcoming.filter(e => {
+    const cat = catById(e.categoryId);
+    return (cat ? cat.name.toLowerCase() : '').includes(query) || (e.name||'').toLowerCase().includes(query);
+  }) : allUpcoming;
 
   // ── Upcoming recurring section ─────────────────────────────────────────────
   let upcomingHTML = '';
-  if (upcoming.length > 0 && !query) {
-    const upTotal = upcoming.reduce((s,e) => s + e.amount, 0);
+  const showUpcoming = query ? upcomingFiltered.length > 0 : allUpcoming.length > 0;
+  const upcomingToShow = query ? upcomingFiltered : allUpcoming;
+
+  if (showUpcoming) {
+    const upTotal = upcomingToShow.reduce((s,e) => s + e.amount, 0);
     upcomingHTML = '<div style="background:rgba(79,142,247,0.06);border:1.5px solid rgba(79,142,247,0.2);border-radius:var(--r);margin-bottom:16px;overflow:hidden">';
     upcomingHTML += '<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 14px 8px">' +
       '<div style="display:flex;align-items:center;gap:6px">' +
         '<svg width="13" height="13" viewBox="0 0 14 14" fill="none"><circle cx="7" cy="7" r="5.5" stroke="var(--accent)" stroke-width="1.3"/><path d="M7 4v3l2 1.5" stroke="var(--accent)" stroke-width="1.3" stroke-linecap="round"/></svg>' +
-        '<span style="font-size:11px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:0.08em">Coming up this cycle</span>' +
+        '<span style="font-size:11px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:0.08em">' + (query ? 'Upcoming matches' : 'Coming up this cycle') + '</span>' +
       '</div>' +
       '<span style="font-size:12px;font-weight:700;color:var(--accent)">-' + fmt(upTotal) + ' committed</span>' +
     '</div>';
-    upcoming.forEach((e, i) => {
+    upcomingToShow.forEach((e, i) => {
       const cat = catById(e.categoryId) || { name:'Unknown', icon:'\u2753', color:'#888' };
       const dueDate = new Date(e.date + 'T00:00:00');
       const today = new Date(); today.setHours(0,0,0,0);
@@ -2575,9 +2582,23 @@ function renderExpenseResults(resultsEl) {
   const groups = {};
   expenses.forEach(e => { if (!groups[e.date]) groups[e.date] = []; groups[e.date].push(e); });
 
-  let html = upcomingHTML + buildSpendLegend();
+  let html = upcomingHTML + (query ? '' : buildSpendLegend());
+
   if (query) {
-    html += '<div style="font-size:12px;color:var(--muted);margin-bottom:10px">' + expenses.length + ' result' + (expenses.length !== 1 ? 's' : '') + ' for \"<strong style=\"color:var(--text)\">' + query + '</strong>\"</div>';
+    const loggedTotal = expenses.reduce((s,e) => s + e.amount, 0);
+    const upcomingMatchTotal = upcomingFiltered.reduce((s,e) => s + e.amount, 0);
+    const grandTotal = loggedTotal + upcomingMatchTotal;
+    const totalCount = expenses.length + upcomingFiltered.length;
+    html += '<div style="background:var(--surface);border-radius:var(--r);padding:11px 14px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center">' +
+      '<div>' +
+        '<div style="font-size:12px;color:var(--muted)">' + totalCount + ' result' + (totalCount !== 1 ? 's' : '') + ' for <strong style="color:var(--text)">"' + query + '"</strong></div>' +
+        (upcomingMatchTotal > 0 ? '<div style="font-size:11px;color:var(--muted);margin-top:2px">' + expenses.length + ' logged · ' + upcomingFiltered.length + ' upcoming</div>' : '') +
+      '</div>' +
+      '<div style="text-align:right">' +
+        '<div style="font-size:16px;font-weight:700">' + fmt(grandTotal) + '</div>' +
+        '<div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em">total</div>' +
+      '</div>' +
+    '</div>';
   }
 
   Object.keys(groups).sort((a,b) => b.localeCompare(a)).forEach(date => {
