@@ -33,7 +33,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '1.4.9-202603211918';
+  const APP_VER = '1.5.0-202603211926';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -1481,9 +1481,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '1.4.9';
+const APP_VERSION = '1.5.0';
 const BUILD_DATE = '2026-03-21';
-const BUILD_TIME = '21 Mar 2026 7:18 PM AEDT';
+const BUILD_TIME = '21 Mar 2026 7:26 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -5036,7 +5036,7 @@ function getEstimatedBalance() {
   const mg = state.mortgage || {};
   const anchorBalance = mg.currentBalance || 0;
   const anchorDate = mg.balanceAsOf || mg.startDate || '';
-  if (!anchorBalance || !anchorDate) return { balance: anchorBalance, anchorDate, dataPoints: 0, isEstimated: false };
+  if (!anchorBalance || !anchorDate) return { balance: anchorBalance, anchorDate, isEstimated: false };
 
   const anchor = new Date(anchorDate + 'T00:00:00');
   const today = new Date(); today.setHours(0,0,0,0);
@@ -5048,7 +5048,7 @@ function getEstimatedBalance() {
     c.icon === '🏠'
   );
 
-  // SUM repayments: mortgage recurring expenses logged after anchor date
+  // SUM repayments: mortgage recurring expenses logged AFTER anchor date
   let totalRepayments = 0;
   if (mortgageCat) {
     (state.expenses || []).forEach(e => {
@@ -5058,26 +5058,19 @@ function getEstimatedBalance() {
     });
   }
 
-  // SUM extra repayments logged after anchor date
+  // SUM extra repayments logged AFTER anchor date
   let totalExtras = 0;
   (state.mortgageExtras || []).forEach(e => {
     const d = new Date(e.date + 'T00:00:00');
     if (d > anchor && d <= today) totalExtras += e.amount;
   });
 
-  // SUM interest charges from interest log after anchor date
-  let totalInterest = 0;
-  (state.mortgageInterestLog || []).forEach(e => {
-    // month field is YYYY-MM — use end of that month
-    try {
-      const [y, m] = e.month.split('-').map(Number);
-      const monthEnd = new Date(y, m, 0); // last day of month
-      if (monthEnd > anchor && monthEnd <= today) totalInterest += e.interest;
-    } catch(err) {}
-  });
+  // NOTE: Interest is NOT added here — it is already baked into whatever
+  // anchor balance you pulled from your bank app. Adding it again would
+  // double-count it. The interest log is for tracking purposes only.
 
-  const estimated = anchorBalance - totalRepayments - totalExtras + totalInterest;
-  const dataPoints = totalRepayments > 0 || totalExtras > 0 || totalInterest > 0;
+  const estimated = anchorBalance - totalRepayments - totalExtras;
+  const isEstimated = totalRepayments > 0 || totalExtras > 0;
 
   return {
     balance: Math.max(0, estimated),
@@ -5085,13 +5078,7 @@ function getEstimatedBalance() {
     anchorBalance,
     totalRepayments,
     totalExtras,
-    totalInterest,
-    isEstimated: dataPoints,
-    breakdown: {
-      repayments: totalRepayments,
-      extras: totalExtras,
-      interest: totalInterest,
-    }
+    isEstimated,
   };
 }
 
@@ -5689,11 +5676,10 @@ function renderMortgage() {
           '<span style="color:var(--muted)">Balance on ' + anchorDateStr + '</span><span style="font-weight:600;text-align:right">' + fmtF(est.anchorBalance) + '</span>' +
           (est.totalRepayments > 0 ? '<span style="color:var(--muted)">Repayments since</span><span style="font-weight:600;color:#34C759;text-align:right">-' + fmtF(est.totalRepayments) + '</span>' : '') +
           (est.totalExtras > 0 ? '<span style="color:var(--muted)">Extra repayments</span><span style="font-weight:600;color:#34C759;text-align:right">-' + fmtF(est.totalExtras) + '</span>' : '') +
-          (est.totalInterest > 0 ? '<span style="color:var(--muted)">Interest charged</span><span style="font-weight:600;color:var(--red);text-align:right">+' + fmtF(est.totalInterest) + '</span>' : '') +
         '</div>' +
-        '<div style="margin-top:8px;font-size:11px;color:var(--muted)">💡 Update the known balance in <button onclick="openMortgageSettings()" style="background:none;border:none;color:var(--accent);font-size:11px;font-family:var(--font);cursor:pointer;padding:0">Edit details</button> after checking your bank app to keep this accurate.</div>' +
+        '<div style="margin-top:8px;font-size:11px;color:var(--muted);line-height:1.5">Interest is not added here — it\'s already in your bank balance. Update the anchor balance periodically in <button onclick="openMortgageSettings()" style="background:none;border:none;color:var(--accent);font-size:11px;font-family:var(--font);cursor:pointer;padding:0">Edit details</button> for best accuracy.</div>' +
       '</div>'
-    ) : (anchorDateStr ? '<div style="font-size:11px;color:var(--muted)">Balance as of ' + anchorDateStr + ' — add repayments and interest to track changes</div>' : '')) +
+    ) : (anchorDateStr ? '<div style="font-size:11px;color:var(--muted)">Balance as of ' + anchorDateStr + ' — add repayments to track changes</div>' : '')) +
   '</div>';
 
   // ── Time + repayment cards ─────────────────────────────────────────────────
