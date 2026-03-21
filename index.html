@@ -33,7 +33,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '1.5.5-202603212154';
+  const APP_VER = '1.5.6-202603211959';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -1492,9 +1492,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '1.5.5';
+const APP_VERSION = '1.5.6';
 const BUILD_DATE = '2026-03-21';
-const BUILD_TIME = '21 Mar 2026 9:54 PM AEDT';
+const BUILD_TIME = '21 Mar 2026 9:59 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -1606,15 +1606,41 @@ function showAuthScreen() {
   document.getElementById('authScreen').classList.remove('hidden');
   document.getElementById('app').style.visibility = 'hidden';
   switchAuthTab('login');
+  startAutofillPoller();
 }
 
 function hideAuthScreen() {
   document.getElementById('authScreen').classList.add('hidden');
+  stopAutofillPoller();
   showApp();
+}
+
+// ── Autofill detection ────────────────────────────────────────────────────────
+// iOS autofill doesn't fire input/change events reliably — poll for both fields
+// being filled and auto-submit in login mode only
+let _autofillPoller = null;
+function startAutofillPoller() {
+  stopAutofillPoller();
+  _autofillPoller = setInterval(() => {
+    if (authMode !== 'login') return;
+    const email = document.getElementById('authEmail');
+    const pass = document.getElementById('authPassword');
+    const btn = document.getElementById('authSubmitBtn');
+    if (email && pass && email.value.trim() && pass.value && !btn.disabled) {
+      stopAutofillPoller();
+      // Small delay so autofill fully completes before submitting
+      setTimeout(() => handleAuthSubmit(), 400);
+    }
+  }, 300);
+}
+function stopAutofillPoller() {
+  if (_autofillPoller) { clearInterval(_autofillPoller); _autofillPoller = null; }
 }
 
 function switchAuthTab(mode) {
   authMode = mode;
+  if (mode === 'signup') stopAutofillPoller();
+  else startAutofillPoller();
   document.getElementById('authTabLogin').classList.toggle('active', mode === 'login');
   document.getElementById('authTabSignup').classList.toggle('active', mode === 'signup');
   document.getElementById('authPasswordConfirm').style.display = mode === 'signup' ? '' : 'none';
