@@ -26,7 +26,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '1.4.1-202603211229';
+  const APP_VER = '1.4.2-202603211724';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -349,7 +349,7 @@ async function applyUpdate() {
     -webkit-tap-highlight-color: transparent;
   }
   .numpad-btn:active { background: var(--surface3); transform: scale(0.93); }
-  .numpad-btn.action { font-size: 14px; color: var(--muted); background: none; }
+  .numpad-btn.action { font-size: 22px; color: var(--muted); background: none; }
   .numpad-btn.action:active { background: var(--surface2); }
   .lock-biometric-btn {
     margin-top: 20px; background: none; border: none;
@@ -1442,9 +1442,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '1.4.1';
+const APP_VERSION = '1.4.2';
 const BUILD_DATE = '2026-03-21';
-const BUILD_TIME = '21 Mar 2026 12:29 PM AEDT';
+const BUILD_TIME = '21 Mar 2026 5:24 PM AEDT';
 const STORAGE_KEY = 'spendly_generic_v1';
 const LOCK_KEY = 'spendly_pin_hash';
 const BIOM_KEY = 'spendly_biometric';
@@ -6241,7 +6241,7 @@ function saveRecurring() {
   closeModal('recurringModal');
   updateHeader();
   renderContent();
-  openRecurringList();
+  setTimeout(() => openRecurringList(), 50);
 }
 
 function deleteRecurring() {
@@ -6251,7 +6251,7 @@ function deleteRecurring() {
   closeModal('recurringModal');
   updateHeader();
   renderContent();
-  openRecurringList();
+  setTimeout(() => openRecurringList(), 50);
 }
 
 function recFreqLabel(r) {
