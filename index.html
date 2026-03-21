@@ -26,7 +26,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '1.4.1-202603211229';
+  const APP_VER = '1.4.2-202603211657';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -1442,9 +1442,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '1.4.1';
+const APP_VERSION = '1.4.2';
 const BUILD_DATE = '2026-03-21';
-const BUILD_TIME = '21 Mar 2026 12:29 PM AEDT';
+const BUILD_TIME = '21 Mar 2026 4:57 PM AEDT';
 const STORAGE_KEY = 'spendly_generic_v1';
 const LOCK_KEY = 'spendly_pin_hash';
 const BIOM_KEY = 'spendly_biometric';
@@ -6093,7 +6093,26 @@ function updateRecPreview() {
     if (day >= 1 && day <= 31) {
       const next = new Date(today.getFullYear(), today.getMonth(), day);
       if (next < today) next.setMonth(next.getMonth() + 1);
-      text = 'Every month on the ' + day + (day===1?'st':day===2?'nd':day===3?'rd':'th') + ' · Next: ' + next.toLocaleDateString('en-AU',{day:'numeric',month:'short'});
+
+      // Check if this day already passed in the current billing cycle
+      const { cycleStart, cycleEnd } = getCycleRange(0);
+      const thisMonthOccurrence = new Date(today.getFullYear(), today.getMonth(), day);
+      const inCurrentCycle = thisMonthOccurrence >= cycleStart && thisMonthOccurrence <= cycleEnd && thisMonthOccurrence < today;
+      // Check if already logged this cycle
+      const alreadyLogged = inCurrentCycle && state.expenses.some(e => {
+        return e.date === dateToStr(thisMonthOccurrence) && editingRecurringId &&
+          (state.recurringExpenses||[]).find(r=>r.id===editingRecurringId) &&
+          e.name === (document.getElementById('recName').value.trim());
+      });
+
+      if (inCurrentCycle && !alreadyLogged) {
+        text = 'Every month on the ' + day + (day===1?'st':day===2?'nd':day===3?'rd':'th') + ' · Next: ' + next.toLocaleDateString('en-AU',{day:'numeric',month:'short'});
+        el.innerHTML = '📅 ' + text + '<div style="margin-top:8px;padding:8px 10px;background:rgba(240,168,96,0.15);border-radius:8px;border:1px solid rgba(240,168,96,0.3);font-size:11px;color:var(--orange);line-height:1.5">⚠️ The ' + day + (day===1?'st':day===2?'nd':day===3?'rd':'th') + ' has already passed this cycle. Saving will log this as an expense dated ' + thisMonthOccurrence.toLocaleDateString('en-AU',{day:'numeric',month:'short'}) + '.</div>';
+        el.style.display = 'block';
+        return;
+      } else {
+        text = 'Every month on the ' + day + (day===1?'st':day===2?'nd':day===3?'rd':'th') + ' · Next: ' + next.toLocaleDateString('en-AU',{day:'numeric',month:'short'});
+      }
     } else text = 'Enter a day of month above';
   } else if (recFreqState === 'quarterly') {
     const d = document.getElementById('recQuarterlyDate').value;
@@ -6221,7 +6240,6 @@ function saveRecurring() {
     frequency: recFreqState,
     active: recActiveState,
     autoOffset: recOffsetState,
-    // Frequency-specific
     weekday: recFreqState === 'weekly' ? recWeekdayState : undefined,
     monthDay: recFreqState === 'monthly' ? parseInt(document.getElementById('recMonthDay').value) : undefined,
     xweeksNum: recFreqState === 'xweeks' ? parseInt(document.getElementById('recXweeksNum').value) : undefined,
@@ -6231,6 +6249,25 @@ function saveRecurring() {
              : undefined,
     lastAdded: editingRecurringId ? (state.recurringExpenses.find(r=>r.id===editingRecurringId)||{}).lastAdded || '' : '',
   };
+
+  // Auto-log if monthly date already passed in current cycle
+  if (recFreqState === 'monthly' && rec.monthDay) {
+    const today = new Date(); today.setHours(0,0,0,0);
+    const { cycleStart, cycleEnd } = getCycleRange(0);
+    const occurrence = new Date(today.getFullYear(), today.getMonth(), rec.monthDay);
+    const inCurrentCycle = occurrence >= cycleStart && occurrence <= cycleEnd && occurrence < today;
+    if (inCurrentCycle) {
+      const occDateStr = dateToStr(occurrence);
+      // Check not already logged for this recurring on this date
+      const alreadyLogged = state.expenses.some(e => e.date === occDateStr && e.name === name && e.categoryId === categoryId);
+      if (!alreadyLogged) {
+        state.expenses.push({ id: uid(), amount, name, categoryId, date: occDateStr });
+        rec.lastAdded = occDateStr;
+        showToast('✅ Logged ' + name + ' for ' + occurrence.toLocaleDateString('en-AU',{day:'numeric',month:'short'}), 4000);
+      }
+    }
+  }
+
   if (editingRecurringId) {
     const idx = state.recurringExpenses.findIndex(r=>r.id===editingRecurringId);
     if (idx>=0) state.recurringExpenses[idx] = rec;
@@ -6238,20 +6275,21 @@ function saveRecurring() {
     state.recurringExpenses.push(rec);
   }
   saveState();
-  closeModal('recurringModal');
   updateHeader();
   renderContent();
-  openRecurringList();
+  // Close edit modal then reopen the list — done after renderContent so DOM is fresh
+  closeModal('recurringModal');
+  setTimeout(() => openRecurringList(), 50);
 }
 
 function deleteRecurring() {
   if (!editingRecurringId) return;
   state.recurringExpenses = (state.recurringExpenses||[]).filter(r=>r.id!==editingRecurringId);
   saveState();
-  closeModal('recurringModal');
   updateHeader();
   renderContent();
-  openRecurringList();
+  closeModal('recurringModal');
+  setTimeout(() => openRecurringList(), 50);
 }
 
 function recFreqLabel(r) {
