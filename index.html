@@ -33,7 +33,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '1.6.4-202603220925';
+  const APP_VER = '1.6.5-202603220932';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -1517,9 +1517,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '1.6.4';
+const APP_VERSION = '1.6.5';
 const BUILD_DATE = '2026-03-22';
-const BUILD_TIME = '22 Mar 2026 9:25 AM AEDT';
+const BUILD_TIME = '22 Mar 2026 9:32 AM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -9268,6 +9268,8 @@ function autoBackup() {
     sessionStorage.setItem(BACKUP_KEY2, data);
   } catch(e) {}
 }
+let _lastRecurringCheckDate = todayStr();
+
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'hidden') {
     autoBackup();
@@ -9275,6 +9277,17 @@ document.addEventListener('visibilitychange', () => {
     // Don't re-lock if auth screen is showing
     const authVisible = !document.getElementById('authScreen').classList.contains('hidden');
     if (authVisible) return;
+
+    // Check if the day has changed since last recurring run — fire missed recurring if so
+    const currentDate = todayStr();
+    if (currentDate !== _lastRecurringCheckDate) {
+      _lastRecurringCheckDate = currentDate;
+      repairMissingRecurringExpenses();
+      applyRecurringExpenses();
+      recordTodayOffsetSaving();
+      renderContent(); // refresh UI to show newly added expenses
+    }
+
     const hasPin = !!localStorage.getItem(LOCK_KEY);
     const lockEl = document.getElementById('lockScreen');
     const isAlreadyLocked = lockEl && lockEl.style.display !== 'none';
