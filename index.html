@@ -33,7 +33,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '1.4.7-202603211908';
+  const APP_VER = '1.4.8-202603211914';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -259,6 +259,19 @@ async function applyUpdate() {
   .auth-btn:disabled { opacity:0.4;cursor:default; }
   .auth-error { font-size:13px;color:var(--red);text-align:center;min-height:18px;margin-bottom:8px;line-height:1.4; }
   .auth-hint { font-size:12px;color:var(--muted);text-align:center;line-height:1.5;margin-top:4px; }
+
+  /* Tab customise */
+  .tab-config-item { display:flex; align-items:center; gap:12px; padding:11px 14px; background:var(--surface); border-radius:var(--r); margin-bottom:6px; cursor:grab; touch-action:none; user-select:none; }
+  .tab-config-item.dragging { opacity:0.4; cursor:grabbing; }
+  .tab-config-item.drag-over { border:2px dashed var(--accent); }
+  .tab-config-drag { color:var(--muted); font-size:16px; flex-shrink:0; }
+  .tab-config-toggle { width:44px; height:26px; border-radius:100px; border:none; cursor:pointer; position:relative; flex-shrink:0; transition:background 0.2s; }
+  .tab-config-toggle.on { background:var(--accent); }
+  .tab-config-toggle.off { background:var(--surface3); }
+  .tab-config-toggle::after { content:''; position:absolute; width:20px; height:20px; border-radius:50%; background:#fff; top:3px; transition:left 0.2s; }
+  .tab-config-toggle.on::after { left:21px; }
+  .tab-config-toggle.off::after { left:3px; }
+  .tab-config-locked { font-size:11px; color:var(--muted); flex-shrink:0; }
 
   /* Analytics */
   .chart-container { position: relative; width: 100%; height: 180px; margin-bottom: 16px; }
@@ -762,19 +775,8 @@ async function applyUpdate() {
 
   <div id="cycleStats"></div>
 
-  <div class="tabs">
-    <button class="tab active" onclick="switchTab('expenses')"><span class="tab-icon">💸</span>Expenses</button>
-    <button class="tab" onclick="switchTab('goals')"><span class="tab-icon">🎯</span>Budget</button>
-    <button class="tab" onclick="switchTab('savings')"><span class="tab-icon">💰</span>Savings</button>
-    <button class="tab" onclick="switchTab('recycling')"><span class="tab-icon">♻️</span>Recycling</button>
-    <button class="tab" onclick="switchTab('mortgage')"><span class="tab-icon">🏠</span>Mortgage</button>
-    <button class="tab" onclick="switchTab('tax')"><span class="tab-icon">🧾</span>Tax</button>
-    <button class="tab" onclick="switchTab('giftcards')"><span class="tab-icon">🎁</span>Wallet</button>
-    <button class="tab" onclick="switchTab('portfolio')"><span class="tab-icon">📈</span>Portfolio</button>
-    <button class="tab" onclick="switchTab('networth')"><span class="tab-icon">💎</span>Net Worth</button>
-    <button class="tab" onclick="switchTab('investor')"><span class="tab-icon">💡</span>Investor</button>
-    <button class="tab" onclick="switchTab('analytics')"><span class="tab-icon">📊</span>Analytics</button>
-    <button class="tab" onclick="switchTab('notes')"><span class="tab-icon">📝</span>Notes</button>
+  <div id="tabsContainer">
+    <!-- Rendered dynamically by renderTabs() -->
   </div>
 
   <div class="content" id="content"></div>
@@ -783,6 +785,18 @@ async function applyUpdate() {
     <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 2v12M2 8h12" stroke="#fff" stroke-width="2.5" stroke-linecap="round"/></svg>
     Add expense
   </button>
+</div>
+
+<!-- Tab customise modal -->
+<div class="modal-overlay" id="tabCustomiseModal">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title">Customise tabs</div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:14px;line-height:1.5">Drag to reorder · tap toggle to show/hide. Expenses is always first.</div>
+    <div id="tabCustomiseList"></div>
+    <button class="btn-primary" onclick="saveTabConfig()">Save</button>
+    <button class="btn-ghost" onclick="closeModal('tabCustomiseModal')">Cancel</button>
+  </div>
 </div>
 
 <!-- Onboarding / Settings modal -->
@@ -1467,9 +1481,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '1.4.7';
+const APP_VERSION = '1.4.8';
 const BUILD_DATE = '2026-03-21';
-const BUILD_TIME = '21 Mar 2026 7:08 PM AEDT';
+const BUILD_TIME = '21 Mar 2026 7:14 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -2068,12 +2082,200 @@ function updateHeader() {
 }
 
 // ── Tab switching ─────────────────────────────────────────────────────────────
+// ── Tab config ────────────────────────────────────────────────────────────────
+const ALL_TABS = [
+  { id:'expenses',  icon:'💸', label:'Expenses',  locked:true  },
+  { id:'goals',     icon:'🎯', label:'Budget'              },
+  { id:'savings',   icon:'💰', label:'Savings'             },
+  { id:'recycling', icon:'♻️', label:'Recycling'           },
+  { id:'mortgage',  icon:'🏠', label:'Mortgage'            },
+  { id:'tax',       icon:'🧾', label:'Tax'                 },
+  { id:'giftcards', icon:'🎁', label:'Wallet'              },
+  { id:'portfolio', icon:'📈', label:'Portfolio'           },
+  { id:'networth',  icon:'💎', label:'Net Worth'           },
+  { id:'investor',  icon:'💡', label:'Investor'            },
+  { id:'analytics', icon:'📊', label:'Analytics'           },
+  { id:'notes',     icon:'📝', label:'Notes'               },
+];
+
+function getTabConfig() {
+  // Returns ordered array of { id, icon, label, enabled, locked }
+  // Merges saved state.tabConfig with ALL_TABS (handles new tabs added later)
+  const saved = state.tabConfig || [];
+  const savedMap = {};
+  saved.forEach(t => { savedMap[t.id] = t; });
+
+  // Build ordered list: saved order first, then any new tabs not yet in saved
+  const result = [];
+  saved.forEach(t => {
+    const def = ALL_TABS.find(d => d.id === t.id);
+    if (def) result.push({ ...def, enabled: t.enabled !== false });
+  });
+  ALL_TABS.forEach(def => {
+    if (!savedMap[def.id]) result.push({ ...def, enabled: true });
+  });
+
+  // Expenses always first and always enabled
+  const expIdx = result.findIndex(t => t.id === 'expenses');
+  if (expIdx > 0) { const [exp] = result.splice(expIdx, 1); result.unshift(exp); }
+  if (result.length > 0) { result[0].enabled = true; result[0].locked = true; }
+
+  return result;
+}
+
+function renderTabs() {
+  const container = document.getElementById('tabsContainer');
+  if (!container) return;
+  const config = getTabConfig();
+  const enabled = config.filter(t => t.enabled);
+
+  let html = '<div class="tabs">';
+  enabled.forEach(t => {
+    const isActive = state.currentTab === t.id;
+    html += '<button class="tab' + (isActive ? ' active' : '') + '" onclick="switchTab(\'' + t.id + '\')">' +
+      '<span class="tab-icon">' + t.icon + '</span>' + t.label +
+      '</button>';
+  });
+  // Customise button at end
+  html += '<button class="tab" onclick="openTabCustomise()" style="flex-shrink:0" title="Customise tabs">' +
+    '<span class="tab-icon">⚙️</span>Tabs' +
+    '</button>';
+  html += '</div>';
+  container.innerHTML = html;
+}
+
+// ── Tab customise modal ───────────────────────────────────────────────────────
+let _tabDraftConfig = []; // working copy while modal is open
+let _dragSrcIdx = null;
+
+function openTabCustomise() {
+  _tabDraftConfig = getTabConfig().map(t => ({ ...t }));
+  renderTabCustomiseList();
+  openModal('tabCustomiseModal');
+}
+
+function renderTabCustomiseList() {
+  const list = document.getElementById('tabCustomiseList');
+  if (!list) return;
+  list.innerHTML = _tabDraftConfig.map((t, i) =>
+    '<div class="tab-config-item" draggable="true" data-idx="' + i + '" ' +
+      'ondragstart="tabDragStart(event,' + i + ')" ' +
+      'ondragover="tabDragOver(event,' + i + ')" ' +
+      'ondragleave="tabDragLeave(event)" ' +
+      'ondrop="tabDrop(event,' + i + ')" ' +
+      'ondragend="tabDragEnd()" ' +
+      // Touch support
+      'ontouchstart="tabTouchStart(event,' + i + ')" ' +
+      'ontouchmove="tabTouchMove(event)" ' +
+      'ontouchend="tabTouchEnd(event,' + i + ')">' +
+      '<span class="tab-config-drag">☰</span>' +
+      '<span style="font-size:20px">' + t.icon + '</span>' +
+      '<span style="flex:1;font-size:14px;font-weight:500">' + t.label + '</span>' +
+      (t.locked
+        ? '<span class="tab-config-locked">Always on</span>'
+        : '<button class="tab-config-toggle ' + (t.enabled ? 'on' : 'off') + '" onclick="toggleTabDraft(' + i + ')"></button>'
+      ) +
+    '</div>'
+  ).join('');
+}
+
+function toggleTabDraft(idx) {
+  if (_tabDraftConfig[idx].locked) return;
+  _tabDraftConfig[idx].enabled = !_tabDraftConfig[idx].enabled;
+  renderTabCustomiseList();
+}
+
+// Drag and drop
+function tabDragStart(e, idx) {
+  _dragSrcIdx = idx;
+  e.dataTransfer.effectAllowed = 'move';
+  setTimeout(() => { const el = e.currentTarget; if (el) el.classList.add('dragging'); }, 0);
+}
+function tabDragOver(e, idx) {
+  e.preventDefault();
+  if (_dragSrcIdx === null || _dragSrcIdx === idx) return;
+  document.querySelectorAll('.tab-config-item').forEach(el => el.classList.remove('drag-over'));
+  e.currentTarget.classList.add('drag-over');
+}
+function tabDragLeave(e) { e.currentTarget.classList.remove('drag-over'); }
+function tabDrop(e, idx) {
+  e.preventDefault();
+  if (_dragSrcIdx === null || _dragSrcIdx === idx) return;
+  const src = _tabDraftConfig[_dragSrcIdx];
+  if (src.locked) return; // can't move locked tab
+  _tabDraftConfig.splice(_dragSrcIdx, 1);
+  _tabDraftConfig.splice(idx, 0, src);
+  // Ensure expenses stays first
+  const expIdx = _tabDraftConfig.findIndex(t => t.id === 'expenses');
+  if (expIdx > 0) { const [exp] = _tabDraftConfig.splice(expIdx,1); _tabDraftConfig.unshift(exp); }
+  _dragSrcIdx = null;
+  renderTabCustomiseList();
+}
+function tabDragEnd() {
+  _dragSrcIdx = null;
+  document.querySelectorAll('.tab-config-item').forEach(el => { el.classList.remove('dragging'); el.classList.remove('drag-over'); });
+}
+
+// Touch drag support
+let _touchDragIdx = null, _touchClone = null, _touchStartY = 0;
+function tabTouchStart(e, idx) {
+  _touchDragIdx = idx;
+  _touchStartY = e.touches[0].clientY;
+}
+function tabTouchMove(e) {
+  if (_touchDragIdx === null) return;
+  e.preventDefault();
+  const y = e.touches[0].clientY;
+  const list = document.getElementById('tabCustomiseList');
+  const items = list.querySelectorAll('.tab-config-item');
+  items.forEach(el => el.classList.remove('drag-over'));
+  // Find which item the touch is over
+  for (let i = 0; i < items.length; i++) {
+    const rect = items[i].getBoundingClientRect();
+    if (y >= rect.top && y <= rect.bottom) {
+      items[i].classList.add('drag-over'); break;
+    }
+  }
+}
+function tabTouchEnd(e, srcIdx) {
+  if (_touchDragIdx === null) return;
+  const y = e.changedTouches[0].clientY;
+  const list = document.getElementById('tabCustomiseList');
+  const items = list.querySelectorAll('.tab-config-item');
+  let targetIdx = srcIdx;
+  for (let i = 0; i < items.length; i++) {
+    const rect = items[i].getBoundingClientRect();
+    if (y >= rect.top && y <= rect.bottom) { targetIdx = i; break; }
+  }
+  if (targetIdx !== srcIdx && !_tabDraftConfig[srcIdx].locked) {
+    const src = _tabDraftConfig[srcIdx];
+    _tabDraftConfig.splice(srcIdx, 1);
+    _tabDraftConfig.splice(targetIdx, 0, src);
+    const expIdx = _tabDraftConfig.findIndex(t => t.id === 'expenses');
+    if (expIdx > 0) { const [exp] = _tabDraftConfig.splice(expIdx,1); _tabDraftConfig.unshift(exp); }
+  }
+  _touchDragIdx = null;
+  renderTabCustomiseList();
+}
+
+function saveTabConfig() {
+  // Ensure at least expenses enabled
+  const enabledCount = _tabDraftConfig.filter(t => t.enabled).length;
+  if (enabledCount === 0) { showToast('At least one tab must be enabled.', 2000); return; }
+  state.tabConfig = _tabDraftConfig.map(t => ({ id: t.id, enabled: t.enabled }));
+  // If current tab was disabled, switch to expenses
+  const currentEnabled = _tabDraftConfig.find(t => t.id === state.currentTab && t.enabled);
+  if (!currentEnabled) state.currentTab = 'expenses';
+  saveState();
+  closeModal('tabCustomiseModal');
+  renderTabs();
+  renderContent();
+}
+
 function switchTab(tab) {
   if (tab !== 'expenses') expenseSearchQuery = '';
   state.currentTab = tab;
-  document.querySelectorAll('.tab').forEach((t,i) => {
-    t.classList.toggle('active', ['expenses','goals','savings','recycling','mortgage','tax','giftcards','portfolio','networth','investor','analytics','notes'][i] === tab);
-  });
+  renderTabs(); // re-render tabs to update active state
   const fab = document.getElementById('fab');
   const isPast = (state.viewingCycleOffset || 0) < 0;
   if (tab === 'calendar' || tab === 'recycling' || tab === 'mortgage' || tab === 'tax' || tab === 'investor' || tab === 'networth' || tab === 'notes') {
@@ -2105,6 +2307,7 @@ function switchTab(tab) {
 // ── Render ────────────────────────────────────────────────────────────────────
 function renderContent() {
   setTimeout(initModalSwipeDown, 100);
+  renderTabs();
   if      (state.currentTab === 'expenses')  renderExpenses();
   else if (state.currentTab === 'analytics') renderAnalytics();
   else if (state.currentTab === 'goals')     renderGoals();
