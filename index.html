@@ -33,7 +33,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '1.5.9-202603212237';
+  const APP_VER = '1.6.0-202603212246';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -1516,9 +1516,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '1.5.9';
+const APP_VERSION = '1.6.0';
 const BUILD_DATE = '2026-03-21';
-const BUILD_TIME = '21 Mar 2026 10:37 PM AEDT';
+const BUILD_TIME = '21 Mar 2026 10:46 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -9202,7 +9202,6 @@ document.addEventListener('visibilitychange', () => {
     // Don't re-lock if auth screen is showing
     const authVisible = !document.getElementById('authScreen').classList.contains('hidden');
     if (authVisible) return;
-    // Re-lock if user has a PIN set and app was hidden
     const hasPin = !!localStorage.getItem(LOCK_KEY);
     const lockEl = document.getElementById('lockScreen');
     const isAlreadyLocked = lockEl && lockEl.style.display !== 'none';
@@ -9210,13 +9209,22 @@ document.addEventListener('visibilitychange', () => {
       lockMode = 'unlock'; lockBuf = '';
       document.getElementById('lockIcon').textContent = '🔒';
       document.getElementById('lockTitle').textContent = 'Hey, ' + (state.appName || 'there') + ' 👋';
-      document.getElementById('lockSub').textContent = 'Enter your PIN to continue';
       document.getElementById('lockHint').style.display = 'none';
       document.getElementById('lockSkipBtn').style.display = 'none';
       document.getElementById('lockBiomBtn').style.display = 'none';
       document.getElementById('lockBiomSmall').style.display = 'none';
       updateDots(0, false);
-      showLockScreen();
+      const hasBiom = isBiometricSupported() && hasBiometricRegistered();
+      if (hasBiom) {
+        document.getElementById('lockSub').textContent = 'Scanning...';
+        showFaceIdPrompt();
+        showLockScreen();
+        setTimeout(() => triggerBiometric(), 400);
+      } else {
+        document.getElementById('lockSub').textContent = 'Enter your PIN to continue';
+        showPinFallback();
+        showLockScreen();
+      }
     }
   }
 });
