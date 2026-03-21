@@ -10,7 +10,15 @@
 <meta name="theme-color" content="#f5f5f0" media="(prefers-color-scheme: light)">
 <title>Spendly — Expense Tracker</title>
 <link rel="manifest" id="pwaManifest">
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script>
+// Supabase loader — dynamically inject so we can wait for it reliably
+(function() {
+  const s = document.createElement('script');
+  s.src = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js';
+  s.id = 'sbScript';
+  document.head.appendChild(s);
+})();
+</script>
 <script>
 const manifestData = { name:"Spendly — Expense Tracker", short_name:"Spendly", start_url:"./", display:"standalone", background_color:"#0f0f0f", theme_color:"#0f0f0f", orientation:"any" };
 const mblob = new Blob([JSON.stringify(manifestData)], {type:'application/json'});
@@ -18,7 +26,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '1.4.0-202603211210';
+  const APP_VER = '1.4.1-202603211229';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -228,8 +236,8 @@ async function applyUpdate() {
   .color-swatch.selected { border-color: #fff; transform: scale(1.15); }
 
   /* Auth screen */
-  #authScreen { position:fixed;inset:0;z-index:1500;background:var(--bg);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:40px 32px;overflow-y:auto; }
-  #authScreen.hidden { display:none; }
+  #authScreen { position:fixed;inset:0;z-index:1500;background:var(--bg);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:40px 32px;overflow-y:auto;min-height:100vh; }
+  #authScreen.hidden { display:none !important; }
   .auth-logo { font-size:52px;margin-bottom:4px; }
   .auth-title { font-size:28px;font-weight:800;letter-spacing:-1px;margin-bottom:6px; }
   .auth-sub { font-size:14px;color:var(--muted);margin-bottom:32px;text-align:center;line-height:1.5; }
@@ -1434,9 +1442,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '1.4.0';
+const APP_VERSION = '1.4.1';
 const BUILD_DATE = '2026-03-21';
-const BUILD_TIME = '21 Mar 2026 12:10 PM AEDT';
+const BUILD_TIME = '21 Mar 2026 12:29 PM AEDT';
 const STORAGE_KEY = 'spendly_generic_v1';
 const LOCK_KEY = 'spendly_pin_hash';
 const BIOM_KEY = 'spendly_biometric';
@@ -1513,10 +1521,16 @@ const BACKUP_TS_KEY = 'spendly_backup_ts';
 const SB_URL = 'https://cebpejgbszahdnhitibh.supabase.co';
 const SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNlYnBlamdic3phaGRuaGl0aWJoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM1MzA4NDcsImV4cCI6MjA4OTEwNjg0N30.JyLWB4lNUWhPetG4o6DGPxHWcd2CmGAWx0LHzqwEnfo';
 
-// Initialise Supabase client (includes auth)
-const _sb = window.supabase.createClient(SB_URL, SB_KEY, {
-  auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false }
-});
+// Supabase client — initialised lazily inside init() once CDN is loaded
+let _sb = null;
+function getSB() {
+  if (!_sb) {
+    _sb = window.supabase.createClient(SB_URL, SB_KEY, {
+      auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false }
+    });
+  }
+  return _sb;
+}
 
 let syncTimer = null;
 let syncStatus = 'idle';
@@ -1543,6 +1557,7 @@ function showAuthScreen() {
 
 function hideAuthScreen() {
   document.getElementById('authScreen').classList.add('hidden');
+  showApp();
 }
 
 function switchAuthTab(mode) {
@@ -1575,9 +1590,9 @@ async function handleAuthSubmit() {
   try {
     let result;
     if (authMode === 'login') {
-      result = await _sb.auth.signInWithPassword({ email, password });
+      result = await getSB().auth.signInWithPassword({ email, password });
     } else {
-      result = await _sb.auth.signUp({ email, password });
+      result = await getSB().auth.signUp({ email, password });
     }
 
     if (result.error) {
@@ -1631,7 +1646,7 @@ function friendlyAuthError(msg) {
 
 async function signOut() {
   closeModal('settingsModal');
-  await _sb.auth.signOut();
+  await getSB().auth.signOut();
   _sbSession = null;
   // Clear local state
   try { localStorage.removeItem('spendly_state'); } catch(e) {}
@@ -8177,7 +8192,7 @@ async function init() {
   }, 6000);
   try {
     // Check for existing Supabase session
-    const { data: { session } } = await _sb.auth.getSession();
+    const { data: { session } } = await getSB().auth.getSession();
     _sbSession = session;
 
     if (!_sbSession) {
@@ -8199,6 +8214,10 @@ async function init() {
         initLock();
       }
     });
+    // Force hide launch screen in case it's already gone (returning session)
+    const ls = document.getElementById('launchScreen');
+    if (ls) { ls.style.opacity = '0'; ls.style.display = 'none'; }
+    if (!initWelcome()) { showApp(); initLock(); }
     applyRecurringExpenses();
     recordTodayOffsetSaving();
     setTimeout(checkCycleComplete, 2000);
@@ -8211,7 +8230,32 @@ async function init() {
     clearTimeout(safetyTimer);
   }
 }
-init();
+// Wait for Supabase CDN script AND DOM to be ready before initialising
+// Polls up to 5 seconds for window.supabase to appear (CDN load)
+function waitForSupabaseThenInit() {
+  const start = Date.now();
+  function attempt() {
+    if (window.supabase && window.supabase.createClient) {
+      init();
+    } else if (Date.now() - start > 5000) {
+      // CDN failed to load — show auth screen with error
+      const ls = document.getElementById('launchScreen');
+      if (ls) { ls.style.opacity = '0'; setTimeout(() => { ls.style.display = 'none'; }, 500); }
+      showAuthScreen();
+      const err = document.getElementById('authError');
+      if (err) err.textContent = 'Could not connect. Please check your internet connection and reload.';
+    } else {
+      setTimeout(attempt, 50);
+    }
+  }
+  attempt();
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', waitForSupabaseThenInit);
+} else {
+  waitForSupabaseThenInit();
+}
 
 // ── Data protection ───────────────────────────────────────────────────────────
 function checkDataLoss() {
@@ -8236,6 +8280,9 @@ document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'hidden') {
     autoBackup();
   } else if (document.visibilityState === 'visible') {
+    // Don't re-lock if auth screen is showing
+    const authVisible = !document.getElementById('authScreen').classList.contains('hidden');
+    if (authVisible) return;
     // Re-lock if user has a PIN set and app was hidden
     const hasPin = !!localStorage.getItem(LOCK_KEY);
     const lockEl = document.getElementById('lockScreen');
