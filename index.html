@@ -872,18 +872,12 @@ async function applyUpdate() {
   <div class="modal">
     <div class="modal-handle"></div>
     <div style="display:flex;align-items:center;justify-content:space-between;padding:0 20px 4px">
-      <div style="font-size:22px;font-weight:700;letter-spacing:-0.3px">Settings ⚙️</div>
+      <div style="font-size:22px;font-weight:700;letter-spacing:-0.3px;display:flex;align-items:center;gap:8px">Settings <svg width="20" height="20" viewBox="0 0 17 17" fill="none" style="opacity:0.4;margin-top:1px"><circle cx="8.5" cy="8.5" r="2" stroke="currentColor" stroke-width="1.5"/><path d="M8.5 1.5v1M8.5 14.5v1M1.5 8.5h1M14.5 8.5h1M3.5 3.5l.7.7M12.8 12.8l.7.7M3.5 13.5l.7-.7M12.8 4.2l.7-.7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></div>
       <button onclick="closeModal('settingsModal')" style="background:var(--surface2);border:none;border-radius:50%;width:32px;height:32px;font-size:16px;color:var(--muted);cursor:pointer;display:flex;align-items:center;justify-content:center;font-weight:500">✕</button>
     </div>
 
     <!-- App identity card -->
     <div style="flex:1;overflow-y:auto;background:var(--surface2);padding:0 0 32px">
-
-    <div style="display:flex;flex-direction:column;align-items:center;padding:24px 20px 8px">
-      <div style="width:72px;height:72px;border-radius:20px;background:linear-gradient(135deg,#1a5cff,#34C759);display:flex;align-items:center;justify-content:center;font-size:36px;margin-bottom:10px;box-shadow:0 4px 20px rgba(79,142,247,0.3)">💚</div>
-      <div style="font-size:20px;font-weight:800;letter-spacing:-0.5px">Spendly</div>
-      <div style="font-size:12px;color:var(--muted);margin-top:3px">v<span id="appVersionDisplay"></span> · <span id="appBuildTime"></span></div>
-    </div>
 
     <!-- Hidden form fields still needed by saveSettings() -->
     <div style="display:none">
@@ -947,11 +941,18 @@ async function applyUpdate() {
     <!-- ── About group ────────────────────────────────────── -->
     <div class="settings-section-label">About</div>
     <div class="settings-group">
-      <div class="settings-row" onclick="forceAppUpdate()">
+      <div class="settings-row" onclick="forceAppUpdate()" style="cursor:pointer">
         <span class="settings-row-icon">🔄</span>
         <span class="settings-row-label">Check for update</span>
         <span class="settings-row-sub" id="appVersionDisplay2"></span>
         <span class="settings-row-chevron">›</span>
+      </div>
+      <div class="settings-row" style="cursor:default">
+        <span style="font-size:28px;flex-shrink:0;width:24px;text-align:center">💚</span>
+        <span class="settings-row-info" style="flex:1;min-width:0">
+          <span style="display:block;font-size:15px;font-weight:500">Spendly</span>
+          <span style="display:block;font-size:12px;color:var(--muted);margin-top:1px">v<span id="appVersionDisplay"></span> · <span id="appBuildTime"></span></span>
+        </span>
       </div>
     </div>
 
@@ -1664,7 +1665,7 @@ const PALETTE = [
 // ── State ─────────────────────────────────────────────────────────────────────
 const APP_VERSION = '1.7.9';
 const BUILD_DATE = '2026-03-23';
-const BUILD_TIME = '23 Mar 2026 9:59 AM AEDT';
+const BUILD_TIME = '23 Mar 2026 10:16 AM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
