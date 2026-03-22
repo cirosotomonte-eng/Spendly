@@ -36,7 +36,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '1.7.7-202603221848';
+  const APP_VER = '1.7.8-202603221955';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -290,7 +290,7 @@ async function applyUpdate() {
   .settings-row { display:flex;align-items:center;gap:14px;padding:14px 16px;cursor:pointer;transition:background 0.1s;-webkit-tap-highlight-color:transparent; }
   .settings-row:not(:last-child) { border-bottom:1px solid var(--surface2); }
   .settings-row:active { background:var(--surface2); }
-  .settings-row-icon { width:34px;height:34px;border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:17px;flex-shrink:0;filter:drop-shadow(0 1px 2px rgba(0,0,0,0.15)); }
+  .settings-row-icon { width:34px;height:34px;border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0; }
   .settings-row-label { flex:1;font-size:15px;font-weight:500;color:var(--text); }
   .settings-row-sub { font-size:12px;color:var(--muted);flex-shrink:0;margin-right:4px; }
   .settings-row-chevron { font-size:18px;color:var(--border);flex-shrink:0;line-height:1;font-weight:300; }
@@ -891,17 +891,17 @@ async function applyUpdate() {
     <div class="settings-section-label">Preferences</div>
     <div class="settings-group">
       <div class="settings-row" onclick="openSettingsSheet('budget')">
-        <span class="settings-row-icon" style="background:#4F8EF7">💰</span>
+        <span class="settings-row-icon">💰</span>
         <span class="settings-row-label">Budget & cycle</span>
         <span class="settings-row-chevron">›</span>
       </div>
       <div class="settings-row" onclick="openSettingsSheet('appearance')">
-        <span class="settings-row-icon" style="background:#FF9F0A">🎨</span>
+        <span class="settings-row-icon">🎨</span>
         <span class="settings-row-label">Amount colours</span>
         <span class="settings-row-chevron">›</span>
       </div>
       <div class="settings-row" onclick="closeModal('settingsModal');openTabCustomise()">
-        <span class="settings-row-icon" style="background:#8E8E93">⚙️</span>
+        <span class="settings-row-icon">⚙️</span>
         <span class="settings-row-label">Manage tabs</span>
         <span class="settings-row-chevron">›</span>
       </div>
@@ -911,7 +911,7 @@ async function applyUpdate() {
     <div class="settings-section-label">Security</div>
     <div class="settings-group" id="faceIdSettingsSection">
       <div class="settings-row" onclick="setupFaceId()">
-        <span class="settings-row-icon" style="background:#30D158">🔐</span>
+        <span class="settings-row-icon">🔐</span>
         <span class="settings-row-label" id="faceIdSettingsLabel">Enable Face ID</span>
         <span class="settings-row-chevron" id="faceIdSettingsChevron">›</span>
       </div>
@@ -921,12 +921,12 @@ async function applyUpdate() {
     <div class="settings-section-label">Data</div>
     <div class="settings-group">
       <div class="settings-row" onclick="exportBackup()">
-        <span class="settings-row-icon" style="background:#4F8EF7">⬇️</span>
+        <span class="settings-row-icon">⬇️</span>
         <span class="settings-row-label">Export backup</span>
         <span class="settings-row-chevron">›</span>
       </div>
       <div class="settings-row" onclick="document.getElementById('importFileInput').click()">
-        <span class="settings-row-icon" style="background:#FF9F0A">⬆️</span>
+        <span class="settings-row-icon">⬆️</span>
         <span class="settings-row-label">Restore from backup</span>
         <span class="settings-row-chevron">›</span>
       </div>
@@ -937,7 +937,7 @@ async function applyUpdate() {
     <div class="settings-section-label">About</div>
     <div class="settings-group">
       <div class="settings-row" onclick="forceAppUpdate()">
-        <span class="settings-row-icon" style="background:#34C759">🔄</span>
+        <span class="settings-row-icon">🔄</span>
         <span class="settings-row-label">Check for update</span>
         <span class="settings-row-sub" id="appVersionDisplay2"></span>
         <span class="settings-row-chevron">›</span>
@@ -947,7 +947,7 @@ async function applyUpdate() {
     <!-- ── Sign out ───────────────────────────────────────── -->
     <div id="signOutBtn" class="settings-group" style="margin-top:24px">
       <div class="settings-row" onclick="signOut()">
-        <span class="settings-row-icon" style="background:#FF5C5C">🚪</span>
+        <span class="settings-row-icon">🚪</span>
         <span class="settings-row-label" style="color:var(--red)">Sign out</span>
       </div>
     </div>
@@ -1650,7 +1650,7 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '1.7.7';
+const APP_VERSION = '1.7.8';
 const BUILD_DATE = '2026-03-22';
 const BUILD_TIME = '22 Mar 2026 4:39 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
@@ -2059,6 +2059,11 @@ function catById(id) { return state.categories.find(c => c.id === id); }
 function uid() { return Date.now() + Math.random().toString(36).slice(2,6); }
 
 function buildSpendLegend() {
+  // Kept for compatibility but no longer rendered inline
+  return '';
+}
+
+function buildColourGuideIcon() {
   const sc = state.spendingColors || {};
   const t1Color = sc.t1Color || '#34C759';
   const t2Color = sc.t2Color || '#f0d860';
@@ -2066,39 +2071,22 @@ function buildSpendLegend() {
   const t4Color = sc.t4Color || '#ff5c5c';
   const t1Max   = sc.t1Max ?? 50;
   const t2Max   = sc.t2Max ?? 70;
-  const legendKey = 'spendly_legend_collapsed';
-  const collapsed = localStorage.getItem(legendKey) === '1';
-  return '<div style="margin-bottom:12px">' +
-    '<div onclick="toggleSpendLegend()" style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;padding:6px 0">' +
-      '<div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.1em;font-weight:600">Amount colour guide</div>' +
-      '<span style="font-size:12px;color:var(--muted)" id="legendToggleIcon">' + (collapsed?'▼':'▲') + '</span>' +
+  return '<span class="spendly-tip" style="display:inline-flex;align-items:center">' +
+    '<i class="spendly-tip-icon" onclick="event.stopPropagation();showTip(\'tip-colourguide\')" style="cursor:pointer">i</i>' +
+    '<div class="spendly-tip-box" id="tip-colourguide" style="left:0;transform:none;width:220px;pointer-events:none">' +
+      '<div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:8px;color:var(--text)">Amount colour guide</div>' +
+      '<div style="display:flex;flex-direction:column;gap:5px">' +
+        '<div style="display:flex;align-items:center;gap:7px"><span style="font-weight:700;font-size:13px;color:'+t1Color+'">$</span><span>0–'+t1Max+'% of category budget spent</span></div>' +
+        '<div style="display:flex;align-items:center;gap:7px"><span style="font-weight:700;font-size:13px;color:'+t2Color+'">$</span><span>'+t1Max+'–'+t2Max+'% spent</span></div>' +
+        '<div style="display:flex;align-items:center;gap:7px"><span style="font-weight:700;font-size:13px;color:'+t3Color+'">$</span><span>'+t2Max+'–100% spent</span></div>' +
+        '<div style="display:flex;align-items:center;gap:7px"><span style="font-weight:700;font-size:13px;color:'+t4Color+'">$</span><span>Over budget</span></div>' +
+        '<div style="margin-top:4px;font-size:10px;color:var(--muted)">Tap ⚙️ Amount colours in Settings to customise.</div>' +
+      '</div>' +
     '</div>' +
-    '<div id="spendLegendBody" style="display:' + (collapsed?'none':'flex') + ';gap:6px;flex-wrap:wrap">' +
-      '<span style="display:inline-flex;align-items:center;gap:5px;font-size:11px;background:var(--surface);border-radius:6px;padding:4px 8px">' +
-        '<span style="font-weight:700;color:'+t1Color+'">$</span><span style="color:var(--muted)">0–'+t1Max+'% spent</span>' +
-      '</span>' +
-      '<span style="display:inline-flex;align-items:center;gap:5px;font-size:11px;background:var(--surface);border-radius:6px;padding:4px 8px">' +
-        '<span style="font-weight:700;color:'+t2Color+'">$</span><span style="color:var(--muted)">'+t1Max+'–'+t2Max+'%</span>' +
-      '</span>' +
-      '<span style="display:inline-flex;align-items:center;gap:5px;font-size:11px;background:var(--surface);border-radius:6px;padding:4px 8px">' +
-        '<span style="font-weight:700;color:'+t3Color+'">$</span><span style="color:var(--muted)">'+t2Max+'–100%</span>' +
-      '</span>' +
-      '<span style="display:inline-flex;align-items:center;gap:5px;font-size:11px;background:var(--surface);border-radius:6px;padding:4px 8px">' +
-        '<span style="font-weight:700;color:'+t4Color+'">$</span><span style="color:var(--muted)">Over budget</span>' +
-      '</span>' +
-      '<span style="font-size:10px;color:var(--muted);padding:4px 2px;align-self:center">· Tap ⚙️ to customise</span>' +
-    '</div>' +
-  '</div>';
+  '</span>';
 }
 function toggleSpendLegend() {
-  const key = 'spendly_legend_collapsed';
-  const body = document.getElementById('spendLegendBody');
-  const icon = document.getElementById('legendToggleIcon');
-  if (!body) return;
-  const isHidden = body.style.display === 'none';
-  body.style.display = isHidden ? 'flex' : 'none';
-  if (icon) icon.textContent = isHidden ? '▲' : '▼';
-  localStorage.setItem(key, isHidden ? '0' : '1');
+  // No-op — legend moved to colour guide tooltip
 }
 
 // Returns colour for an expense amount based on category spend %
@@ -2247,50 +2235,412 @@ function navigateCycle(delta) {
 // ── Header ────────────────────────────────────────────────────────────────────
 // ── Daily greeting & quote ────────────────────────────────────────────────────
 const DAILY_QUOTES = [
-  // Real quotes
-  { text: "Do not save what is left after spending, but spend what is left after saving.", attr: "Warren Buffett" },
-  { text: "The stock market is a device for transferring money from the impatient to the patient.", attr: "Warren Buffett" },
-  { text: "It's not how much money you make, but how much money you keep.", attr: "Robert Kiyosaki" },
-  { text: "A budget is telling your money where to go instead of wondering where it went.", attr: "Dave Ramsey" },
-  { text: "The goal isn't more money. The goal is living life on your terms.", attr: "Chris Brogan" },
-  { text: "Financial peace isn't the acquisition of stuff. It's learning to live on less than you make.", attr: "Dave Ramsey" },
-  { text: "Wealth consists not in having great possessions, but in having few wants.", attr: "Epictetus" },
-  { text: "Money is a terrible master but an excellent servant.", attr: "P.T. Barnum" },
-  { text: "The art is not in making money, but in keeping it.", attr: "Proverb" },
-  { text: "You must gain control over your money or the absence of it will forever control you.", attr: "Dave Ramsey" },
-  { text: "Rich people have small TVs and big libraries. Poor people have small libraries and big TVs.", attr: "Zig Ziglar" },
-  { text: "Beware of little expenses; a small leak will sink a great ship.", attr: "Benjamin Franklin" },
-  { text: "Every time you borrow money, you're robbing your future self.", attr: "Nathan W. Morris" },
-  { text: "The more you learn, the more you earn.", attr: "Warren Buffett" },
-  { text: "Happiness is not in the mere possession of money; it lies in the joy of achievement.", attr: "Franklin D. Roosevelt" },
-  { text: "Never spend your money before you have it.", attr: "Thomas Jefferson" },
-  { text: "Too many people spend money they haven't earned to buy things they don't want.", attr: "Will Rogers" },
-  { text: "The habit of saving is itself an education.", attr: "T.T. Munger" },
-  { text: "An investment in knowledge pays the best interest.", attr: "Benjamin Franklin" },
-  { text: "Price is what you pay. Value is what you get.", attr: "Warren Buffett" },
-  // Personalised templates — {name} and {data} substituted at runtime
-  { text: "Every dollar you track today is a dollar working for you tomorrow, {name}.", attr: "Spendly" },
-  { text: "Consistency beats intensity. Keep showing up, {name}.", attr: "Spendly" },
-  { text: "Small daily choices, {name}. That's where financial freedom is built.", attr: "Spendly" },
-  { text: "You can't manage what you don't measure. You're measuring — that matters, {name}.", attr: "Spendly" },
-  { text: "Tracking is the first act of taking control. Well done, {name}.", attr: "Spendly" },
-  { text: "Progress, not perfection. Keep going, {name}.", attr: "Spendly" },
-  { text: "The best time to start budgeting was yesterday. The second best time is right now, {name}.", attr: "Spendly" },
-  { text: "Awareness is the beginning of change. You've already started, {name}.", attr: "Spendly" },
-  { text: "A {cycle} budget isn't a constraint, {name} — it's a plan for your freedom.", attr: "Spendly" },
-  { text: "Every cycle you complete is a cycle you learned from, {name}.", attr: "Spendly" },
+  {text:"Do not save what is left after spending, but spend what is left after saving.",attr:"Warren Buffett"},
+  {text:"The stock market is a device for transferring money from the impatient to the patient.",attr:"Warren Buffett"},
+  {text:"Price is what you pay. Value is what you get.",attr:"Warren Buffett"},
+  {text:"Rule No.1: Never lose money. Rule No.2: Never forget rule No.1.",attr:"Warren Buffett"},
+  {text:"It takes 20 years to build a reputation and five minutes to ruin it.",attr:"Warren Buffett"},
+  {text:"The most important investment you can make is in yourself.",attr:"Warren Buffett"},
+  {text:"Someone is sitting in the shade today because someone planted a tree a long time ago.",attr:"Warren Buffett"},
+  {text:"Wide diversification is only required when investors do not understand what they are doing.",attr:"Warren Buffett"},
+  {text:"Risk comes from not knowing what you are doing.",attr:"Warren Buffett"},
+  {text:"Our favourite holding period is forever.",attr:"Warren Buffett"},
+  {text:"Be fearful when others are greedy and greedy when others are fearful.",attr:"Warren Buffett"},
+  {text:"It is not necessary to do extraordinary things to get extraordinary results.",attr:"Warren Buffett"},
+  {text:"The more you learn, the more you earn.",attr:"Warren Buffett"},
+  {text:"Only buy something that you would be perfectly happy to hold if the market shut down for 10 years.",attr:"Warren Buffett"},
+  {text:"Time is the friend of the wonderful company, the enemy of the mediocre.",attr:"Warren Buffett"},
+  {text:"Chains of habit are too light to be felt until they are too heavy to be broken.",attr:"Warren Buffett"},
+  {text:"The difference between successful people and really successful people is that really successful people say no to almost everything.",attr:"Warren Buffett"},
+  {text:"I never attempt to make money on the stock market. I buy on the assumption that they could close the market the next day and not reopen it for five years.",attr:"Warren Buffett"},
+  {text:"If you buy things you do not need, soon you will have to sell things you need.",attr:"Warren Buffett"},
+  {text:"An investor who has all the answers does not even understand the questions.",attr:"Warren Buffett"},
+  {text:"Invert, always invert.",attr:"Charlie Munger"},
+  {text:"The big money is not in the buying and selling, but in the waiting.",attr:"Charlie Munger"},
+  {text:"All I want to know is where I am going to die, so I will never go there.",attr:"Charlie Munger"},
+  {text:"Show me the incentive and I will show you the outcome.",attr:"Charlie Munger"},
+  {text:"It is remarkable how much long-term advantage people like us have gotten by trying to be consistently not stupid, instead of trying to be very intelligent.",attr:"Charlie Munger"},
+  {text:"The best thing a human being can do is to help another human being know more.",attr:"Charlie Munger"},
+  {text:"Spend each day trying to be a little wiser than you were when you woke up.",attr:"Charlie Munger"},
+  {text:"Knowing what you do not know is more useful than being brilliant.",attr:"Charlie Munger"},
+  {text:"Take a simple idea and take it seriously.",attr:"Charlie Munger"},
+  {text:"I have nothing to add.",attr:"Charlie Munger"},
+  {text:"The intelligent investor is a realist who sells to optimists and buys from pessimists.",attr:"Benjamin Graham"},
+  {text:"In the short run the market is a voting machine, but in the long run it is a weighing machine.",attr:"Benjamin Graham"},
+  {text:"The individual investor should act consistently as an investor and not as a speculator.",attr:"Benjamin Graham"},
+  {text:"To achieve satisfactory investment results is easier than most people realize; to achieve superior results is harder than it looks.",attr:"Benjamin Graham"},
+  {text:"Investment is most intelligent when it is most businesslike.",attr:"Benjamin Graham"},
+  {text:"The defensive investor must confine himself to the shares of important companies with a long record of profitable operations.",attr:"Benjamin Graham"},
+  {text:"Never mingle your speculative and investment operations in the same account.",attr:"Benjamin Graham"},
+  {text:"An investment operation is one which, upon thorough analysis, promises safety of principal and an adequate return.",attr:"Benjamin Graham"},
+  {text:"Thousands of people have tried, and the evidence is pretty conclusive that it cannot be done.",attr:"Benjamin Graham"},
+  {text:"The most realistic distinction between the investor and the speculator is found in their attitude toward stock-market movements.",attr:"Benjamin Graham"},
+  {text:"Know what you own, and know why you own it.",attr:"Peter Lynch"},
+  {text:"Behind every stock is a company. Find out what it is doing.",attr:"Peter Lynch"},
+  {text:"The real key to making money in stocks is not to get scared out of them.",attr:"Peter Lynch"},
+  {text:"You get recessions, you have stock market declines. If you do not understand that is going to happen, then you are not ready, and you will not do well in the markets.",attr:"Peter Lynch"},
+  {text:"Go for a business that any idiot can run — because sooner or later, any idiot probably is going to run it.",attr:"Peter Lynch"},
+  {text:"Investing without research is like playing stud poker and never looking at the cards.",attr:"Peter Lynch"},
+  {text:"The person that turns over the most rocks wins the game.",attr:"Peter Lynch"},
+  {text:"In this business, if you are good, you are right six times out of ten. You are never going to be right nine times out of ten.",attr:"Peter Lynch"},
+  {text:"Everyone has the brainpower to follow the stock market. If you made it through fifth-grade math, you can do it.",attr:"Peter Lynch"},
+  {text:"Long shots almost never pay off.",attr:"Peter Lynch"},
+  {text:"Compound interest is the eighth wonder of the world. He who understands it, earns it; he who does not, pays it.",attr:"Albert Einstein"},
+  {text:"An investment in knowledge pays the best interest.",attr:"Benjamin Franklin"},
+  {text:"Beware of little expenses; a small leak will sink a great ship.",attr:"Benjamin Franklin"},
+  {text:"Never spend your money before you have it.",attr:"Thomas Jefferson"},
+  {text:"Money is only a tool. It will take you wherever you wish, but it will not replace you as the driver.",attr:"Ayn Rand"},
+  {text:"It is not the man who has too little, but the man who craves more, that is poor.",attr:"Seneca"},
+  {text:"Wealth consists not in having great possessions, but in having few wants.",attr:"Epictetus"},
+  {text:"He is richest who is content with the least, for content is the wealth of nature.",attr:"Socrates"},
+  {text:"The wise man does not lay up his own treasures. The more he gives to others, the more he has for his own.",attr:"Lao Tzu"},
+  {text:"The lack of money is the root of all evil.",attr:"Mark Twain"},
+  {text:"October: This is one of the peculiarly dangerous months to speculate in stocks in.",attr:"Mark Twain"},
+  {text:"A fool and his money are soon parted.",attr:"Thomas Tusser"},
+  {text:"Money is a terrible master but an excellent servant.",attr:"P.T. Barnum"},
+  {text:"Empty pockets never held anyone back. Only empty heads and empty hearts can do that.",attr:"Norman Vincent Peale"},
+  {text:"The rich invest in time, the poor invest in money.",attr:"Warren Buffett"},
+  {text:"Not everything that can be counted counts, and not everything that counts can be counted.",attr:"Albert Einstein"},
+  {text:"A budget is telling your money where to go instead of wondering where it went.",attr:"Dave Ramsey"},
+  {text:"Financial peace is not the acquisition of stuff. It is learning to live on less than you make.",attr:"Dave Ramsey"},
+  {text:"You must gain control over your money or the absence of it will forever control you.",attr:"Dave Ramsey"},
+  {text:"Act your wage.",attr:"Dave Ramsey"},
+  {text:"The enemy of the best is the good.",attr:"Dave Ramsey"},
+  {text:"Winning at money is 80 percent behavior and 20 percent head knowledge.",attr:"Dave Ramsey"},
+  {text:"We buy things we do not need with money we do not have to impress people we do not like.",attr:"Dave Ramsey"},
+  {text:"Debt is not a tool; it is a method to make banks wealthy, not you.",attr:"Dave Ramsey"},
+  {text:"Broke is normal. Why would you want to be normal?",attr:"Dave Ramsey"},
+  {text:"If you will live like no one else, later you can live like no one else.",attr:"Dave Ramsey"},
+  {text:"It is not your salary that makes you rich, it is your spending habits.",attr:"Charles A. Jaffe"},
+  {text:"Do not tell me what you value, show me your budget, and I will tell you what you value.",attr:"Joe Biden"},
+  {text:"Money is like a sixth sense — and you cannot make use of the other five without it.",attr:"William Somerset Maugham"},
+  {text:"Finance is not merely about making money. It is about achieving our deep goals and protecting the fruits of our labor.",attr:"Robert J. Shiller"},
+  {text:"Markets are constantly in a state of uncertainty and flux and money is made by discounting the obvious and betting on the unexpected.",attr:"George Soros"},
+  {text:"It is not how much money you make, but how much money you keep, how hard it works for you, and how many generations you keep it for.",attr:"Robert Kiyosaki"},
+  {text:"The single most powerful asset we all have is our mind. If it is trained well, it can create enormous wealth.",attr:"Robert Kiyosaki"},
+  {text:"The philosophy of the rich and the poor is this: the rich invest their money and spend what is left. The poor spend their money and invest what is left.",attr:"Robert Kiyosaki"},
+  {text:"Rich dad said: I do not work for money. Money works for me.",attr:"Robert Kiyosaki"},
+  {text:"Financial intelligence is a synergy of accounting, investing, marketing, and law.",attr:"Robert Kiyosaki"},
+  {text:"The poor and the middle class work for money. The rich have money work for them.",attr:"Robert Kiyosaki"},
+  {text:"In the world of money, knowing the rules of the game is essential.",attr:"Robert Kiyosaki"},
+  {text:"Winners are not afraid of losing. But losers are. Failure is part of the process of success.",attr:"Robert Kiyosaki"},
+  {text:"If you realize that you are the problem, then you can change yourself, learn something and grow wiser.",attr:"Robert Kiyosaki"},
+  {text:"The most life-destroying word of all is the word tomorrow.",attr:"Robert Kiyosaki"},
+  {text:"Diversification is protection against ignorance. It makes little sense if you know what you are doing.",attr:"Warren Buffett"},
+  {text:"Do not put all your eggs in one basket.",attr:"Miguel de Cervantes"},
+  {text:"In investing, what is comfortable is rarely profitable.",attr:"Robert Arnott"},
+  {text:"The four most dangerous words in investing are: this time it is different.",attr:"John Templeton"},
+  {text:"The secret of getting ahead is getting started.",attr:"Mark Twain"},
+  {text:"Wealth is the ability to fully experience life.",attr:"Henry David Thoreau"},
+  {text:"Many folks think they are not good at earning money, when what they do not know is how to use it.",attr:"Frank A. Clark"},
+  {text:"I will tell you the secret to getting rich on Wall Street. You try to be greedy when others are fearful. And you try to be fearful when others are greedy.",attr:"Warren Buffett"},
+  {text:"The habit of saving is itself an education; it fosters every virtue, teaches self-denial, cultivates the sense of order, trains to forethought, and so broadens the mind.",attr:"T.T. Munger"},
+  {text:"Do not work for money; make it work for you.",attr:"Robert Kiyosaki"},
+  {text:"Frugality includes all the other virtues.",attr:"Cicero"},
+  {text:"To contract new debts is not the way to pay old ones.",attr:"George Washington"},
+  {text:"Money is a guarantee that we may have what we want in the future. Though we need nothing at the moment it ensures the possibility of satisfying a new desire when it arises.",attr:"Aristotle"},
+  {text:"Opportunity is missed by most people because it is dressed in overalls and looks like work.",attr:"Thomas Edison"},
+  {text:"The man who does not work for the love of work but only for money is not likely to make money nor find much fun in life.",attr:"Charles M. Schwab"},
+  {text:"Financial freedom is available to those who learn about it and work for it.",attr:"Robert Kiyosaki"},
+  {text:"The goal of retirement is to live off your assets-not on them.",attr:"Frank Eberhart"},
+  {text:"How many millionaires do you know who have become wealthy by investing in savings accounts? I rest my case.",attr:"Robert G. Allen"},
+  {text:"The number one problem in today's generation and economy is the lack of financial literacy.",attr:"Alan Greenspan"},
+  {text:"The real measure of your wealth is how much you would be worth if you lost all your money.",attr:"Anonymous"},
+  {text:"Happiness is not in the mere possession of money; it lies in the joy of achievement, in the thrill of creative effort.",attr:"Franklin D. Roosevelt"},
+  {text:"Too many people spend money they have not earned to buy things they do not want to impress people they do not like.",attr:"Will Rogers"},
+  {text:"A wise person should have money in their head, but not in their heart.",attr:"Jonathan Swift"},
+  {text:"Wealth is not about having a lot of money; it is about having a lot of options.",attr:"Chris Rock"},
+  {text:"You do not need to be a rocket scientist. Investing is not a game where the guy with the 160 IQ beats the guy with 130 IQ.",attr:"Warren Buffett"},
+  {text:"The stock market is filled with individuals who know the price of everything, but the value of nothing.",attr:"Philip Fisher"},
+  {text:"Invest in yourself. Your career is the engine of your wealth.",attr:"Paul Clitheroe"},
+  {text:"Never depend on a single income. Make investment to create a second source.",attr:"Warren Buffett"},
+  {text:"The best investment you can make is an investment in yourself. The more you learn, the more you will earn.",attr:"Warren Buffett"},
+  {text:"A penny saved is a penny earned.",attr:"Benjamin Franklin"},
+  {text:"Rich people have small TVs and big libraries, and poor people have small libraries and big TVs.",attr:"Zig Ziglar"},
+  {text:"The more your money works for you, the less you have to work for money.",attr:"Idowu Koyenikan"},
+  {text:"You can only become truly accomplished at something you love. Do not make money your goal.",attr:"Maya Angelou"},
+  {text:"If there is no struggle, there is no progress.",attr:"Frederick Douglass"},
+  {text:"Success is not the key to happiness. Happiness is the key to success.",attr:"Albert Schweitzer"},
+  {text:"When you have money, think of the time when you had none.",attr:"Japanese Proverb"},
+  {text:"It is not about how much money you make. It is about how much money you keep.",attr:"Robert Kiyosaki"},
+  {text:"The art is not in making money, but in keeping it.",attr:"Proverb"},
+  {text:"Before you speak, listen. Before you write, think. Before you spend, earn.",attr:"William Arthur Ward"},
+  {text:"A budget is not just a collection of numbers, but an expression of our values and aspirations.",attr:"Jacob Lew"},
+  {text:"Budgeting is not just for people who do not have enough money. It is for everyone who wants to ensure that their money is enough.",attr:"Rosette Mugidde Wamambe"},
+  {text:"Every time you borrow money, you are robbing your future self.",attr:"Nathan W. Morris"},
+  {text:"Do not tell me where your priorities are. Show me where you spend your money and I will tell you what they are.",attr:"James W. Frick"},
+  {text:"The more you learn, the more you earn.",attr:"Frank Clark"},
+  {text:"It is not the employer who pays the wages. Employers only handle the money. It is the customer who pays the wages.",attr:"Henry Ford"},
+  {text:"Formal education will make you a living; self-education will make you a fortune.",attr:"Jim Rohn"},
+  {text:"If you do not find a way to make money while you sleep, you will work until you die.",attr:"Warren Buffett"},
+  {text:"The secret to wealth is simple: Find a way to do more for others than anyone else does.",attr:"Tony Robbins"},
+  {text:"Money is only a tool. It will take you wherever you wish, but it will not replace you as the driver.",attr:"Ayn Rand"},
+  {text:"It is not how much money you make, but how much money you keep.",attr:"Robert Kiyosaki"},
+  {text:"Financial freedom is freedom from fear.",attr:"Robert Kiyosaki"},
+  {text:"I believe that through knowledge and discipline, financial peace is possible for all of us.",attr:"Dave Ramsey"},
+  {text:"The first wealth is health.",attr:"Ralph Waldo Emerson"},
+  {text:"Do not let the fear of losing be greater than the excitement of winning.",attr:"Robert Kiyosaki"},
+  {text:"If you find yourself in a hole, stop digging.",attr:"Will Rogers"},
+  {text:"Paying off your debt is the fastest way to double your money.",attr:"Anonymous"},
+  {text:"The key to making money is to stay invested.",attr:"Suze Orman"},
+  {text:"It takes as much energy to wish as it does to plan.",attr:"Eleanor Roosevelt"},
+  {text:"The habit of saving money is a mental habit, a habit of thinking.",attr:"Brian Tracy"},
+  {text:"The question is not whether you can afford it. The question is whether you can afford not to.",attr:"Anonymous"},
+  {text:"Making money is art and working is art and good business is the best art.",attr:"Andy Warhol"},
+  {text:"If you want to be financially free, you need to become a different person than you are today.",attr:"Robert Kiyosaki"},
+  {text:"Never put off till tomorrow what you can do the day after tomorrow just as well.",attr:"Mark Twain"},
+  {text:"The lack of direction, not lack of time, is the problem. We all have twenty-four hour days.",attr:"Zig Ziglar"},
+  {text:"Money grows on the tree of persistence.",attr:"Japanese Proverb"},
+  {text:"Financial literacy is not an end in itself, but a step-by-step process.",attr:"Robert Kiyosaki"},
+  {text:"I do not think there is any other quality so essential to success of any kind as the quality of perseverance.",attr:"John D. Rockefeller"},
+  {text:"The only way to permanently change the temperature in the room is to reset the thermostat. In the same way, the only way to change your level of financial success permanently is to reset your financial thermostat.",attr:"T. Harv Eker"},
+  {text:"If money is your hope for independence you will never have it. The only real security that a man will have in this world is a reserve of knowledge, experience, and ability.",attr:"Henry Ford"},
+  {text:"Motivation is what gets you started. Habit is what keeps you going.",attr:"Jim Ryun"},
+  {text:"Spend less than you make; always be saving something. Put it into a tax-deferred account.",attr:"Walter Schloss"},
+  {text:"Never spend your money before you have earned it.",attr:"Thomas Jefferson"},
+  {text:"Every dollar is a soldier that works for you.",attr:"Anonymous"},
+  {text:"Start saving for retirement as soon as possible.",attr:"Suze Orman"},
+  {text:"The secret of your success is determined by your daily agenda.",attr:"John C. Maxwell"},
+  {text:"Maturity is when you stop complaining and start making the most of what you have.",attr:"Pele"},
+  {text:"You were born to win, but to be a winner, you must plan to win, prepare to win, and expect to win.",attr:"Zig Ziglar"},
+  {text:"Opportunities multiply as they are seized.",attr:"Sun Tzu"},
+  {text:"Patience is bitter, but its fruit is sweet.",attr:"Jean-Jacques Rousseau"},
+  {text:"The best time to plant a tree was 20 years ago. The second best time is now.",attr:"Chinese Proverb"},
+  {text:"The individual investor should act consistently as an investor and not as a speculator.",attr:"Benjamin Graham"},
+  {text:"Look at market fluctuations as your friend rather than your enemy; profit from folly rather than participate in it.",attr:"Warren Buffett"},
+  {text:"You cannot teach a man anything; you can only help him discover it in himself.",attr:"Galileo Galilei"},
+  {text:"Debt is the worst poverty.",attr:"Thomas Fuller"},
+  {text:"If you think nobody cares if you are alive, try missing a couple of car payments.",attr:"Earl Wilson"},
+  {text:"I am not a product of my circumstances. I am a product of my decisions.",attr:"Stephen Covey"},
+  {text:"Good things come to those who wait, but only things left by those who hustle.",attr:"Abraham Lincoln"},
+  {text:"Success usually comes to those who are too busy to be looking for it.",attr:"Henry David Thoreau"},
+  {text:"Your economic security does not lie in your job; it lies in your own power to produce — to think, to learn, to create, to adapt.",attr:"Stephen Covey"},
+  {text:"The big secret in life is that there is no big secret. Whatever your goal, you can get there if you are willing to work.",attr:"Oprah Winfrey"},
+  {text:"The only thing that stands between you and your dream is the will to try and the belief that it is actually possible.",attr:"Joel Brown"},
+  {text:"Some people dream of success while others wake up and work hard at it.",attr:"Napoleon Hill"},
+  {text:"The most effective way to do it, is to do it.",attr:"Amelia Earhart"},
+  {text:"Life is not about finding yourself. Life is about creating yourself.",attr:"George Bernard Shaw"},
+  {text:"Invest in as much of yourself as you can, you are your own biggest asset by far.",attr:"Warren Buffett"},
+  {text:"Money never starts an idea; it is the idea that starts the money.",attr:"W.J. Cameron"},
+  {text:"To be wealthy and honored in an unjust society is a disgrace.",attr:"Confucius"},
+  {text:"Not everything that can be counted counts, and not everything that counts can be counted.",attr:"William Bruce Cameron"},
+  {text:"When I was young I thought that money was the most important thing in life; now that I am old I know that it is.",attr:"Oscar Wilde"},
+  {text:"Frugality is one of the most beautiful and joyful words in the English language, and yet one that we are culturally cut off from understanding.",attr:"Elaine St. James"},
+  {text:"It does not matter how slowly you go as long as you do not stop.",attr:"Confucius"},
+  {text:"Success is walking from failure to failure with no loss of enthusiasm.",attr:"Winston Churchill"},
+  {text:"All progress takes place outside the comfort zone.",attr:"Michael John Bobak"},
+  {text:"You miss 100 percent of the shots you do not take.",attr:"Wayne Gretzky"},
+  {text:"What separates the winners from the losers is how a person reacts to each new twist of fate.",attr:"Donald Trump"},
+  {text:"Become so financially secure that you forget it is payday.",attr:"Anonymous"},
+  {text:"The individual who says it is not possible should move out of the way of those doing it.",attr:"Tricia Cunningham"},
+  {text:"Success is not final, failure is not fatal: it is the courage to continue that counts.",attr:"Winston Churchill"},
+  {text:"An investment in knowledge always pays the best dividends.",attr:"Benjamin Franklin"},
+  {text:"Wealth is not about being rich; it is about having enough.",attr:"Anonymous"},
+  {text:"It is not your aptitude, but your attitude, that determines your altitude.",attr:"Zig Ziglar"},
+  {text:"The fastest way to double your money is to fold it once and put it in your pocket.",attr:"Will Rogers"},
+  {text:"The price of anything is the amount of life you exchange for it.",attr:"Henry David Thoreau"},
+  {text:"Do not judge each day by the harvest you reap but by the seeds that you plant.",attr:"Robert Louis Stevenson"},
+  {text:"Nothing is particularly hard if you divide it into small jobs.",attr:"Henry Ford"},
+  {text:"Patience, persistence, and perspiration make an unbeatable combination for success.",attr:"Napoleon Hill"},
+  {text:"We all have two choices: We can make a living or we can design a life.",attr:"Jim Rohn"},
+  {text:"Either you run the day or the day runs you.",attr:"Jim Rohn"},
+  {text:"If you do not design your own life plan, chances are you will fall into someone else's plan.",attr:"Jim Rohn"},
+  {text:"Time is more valuable than money. You can get more money, but you cannot get more time.",attr:"Jim Rohn"},
+  {text:"Formal education will make you a living; self-education will make you a fortune.",attr:"Jim Rohn"},
+  {text:"Success is nothing more than a few simple disciplines, practiced every day.",attr:"Jim Rohn"},
+  {text:"Miss a meal if you have to, but do not miss a book.",attr:"Jim Rohn"},
+  {text:"The challenge of leadership is to be strong, but not rude; be kind, but not weak; be bold, but not bully.",attr:"Jim Rohn"},
+  {text:"Discipline is the bridge between goals and accomplishment.",attr:"Jim Rohn"},
+  {text:"You are the average of the five people you spend the most time with.",attr:"Jim Rohn"},
+  {text:"Knowledge is not power. Knowledge is only potential power. Action is power.",attr:"Tony Robbins"},
+  {text:"Where focus goes, energy flows.",attr:"Tony Robbins"},
+  {text:"It is in your moments of decision that your destiny is shaped.",attr:"Tony Robbins"},
+  {text:"The path to success is to take massive, determined action.",attr:"Tony Robbins"},
+  {text:"If you do what you have always done, you will get what you have always gotten.",attr:"Tony Robbins"},
+  {text:"Success is doing what you want to do, when you want, where you want, with whom you want, as much as you want.",attr:"Tony Robbins"},
+  {text:"The only limit to your impact is your imagination and commitment.",attr:"Tony Robbins"},
+  {text:"Identify your problems, but give your power and energy to solutions.",attr:"Tony Robbins"},
+  {text:"Leaders spend five percent of their time on the problem and ninety-five percent of their time on the solution.",attr:"Tony Robbins"},
+  {text:"A real decision is measured by the fact that you have taken a new action.",attr:"Tony Robbins"},
+  {text:"Money is a terrible master but an excellent servant.",attr:"P.T. Barnum"},
+  {text:"The goal is not more money. The goal is living life on your terms.",attr:"Chris Brogan"},
+  {text:"Do not wait to buy real estate. Buy real estate and wait.",attr:"T. Harv Eker"},
+  {text:"Ninety percent of all millionaires become so through owning real estate.",attr:"Andrew Carnegie"},
+  {text:"The thing I have discovered about working with personal finance is that the good news is that it is not rocket science.",attr:"Suze Orman"},
+  {text:"A big part of financial freedom is having your heart and mind free from worry about the what-ifs of life.",attr:"Suze Orman"},
+  {text:"The only way you will ever permanently take control of your financial life is to dig deep and fix the root problem.",attr:"Suze Orman"},
+  {text:"Owning a home is a keystone of wealth — both financial affluence and emotional security.",attr:"Suze Orman"},
+  {text:"People first, then money, then things.",attr:"Suze Orman"},
+  {text:"True wealth is not of the pocket, but of the heart and of the mind.",attr:"Kevin Gates"},
+  {text:"There is a gigantic difference between earning a great deal of money and being rich.",attr:"Marlene Dietrich"},
+  {text:"Money is only a tool.",attr:"Ayn Rand"},
+  {text:"Savings represent much more than mere money. They represent what we are willing to forgo today for a better tomorrow.",attr:"Jon C. Ogg"},
+  {text:"Whatever your income, always live below your means.",attr:"Thomas J. Stanley"},
+  {text:"The millionaire next door is usually the person who has lived below their means for decades.",attr:"Thomas J. Stanley"},
+  {text:"Building wealth is about behavior, not intelligence.",attr:"Thomas J. Stanley"},
+  {text:"Wealth tends to gravitate to people who know how to handle it.",attr:"Thomas J. Stanley"},
+  {text:"Those who are careful with money tend to have more of it.",attr:"Thomas J. Stanley"},
+  {text:"Saving is a great habit but without investing and tracking, it just sleeps.",attr:"Manoj Arora"},
+  {text:"The definition of insanity is doing the same thing over and over and expecting different results.",attr:"Albert Einstein"},
+  {text:"You have to learn the rules of the game, and then you have to play better than anyone else.",attr:"Albert Einstein"},
+  {text:"Imagination is more important than knowledge.",attr:"Albert Einstein"},
+  {text:"Try not to become a man of success, but rather try to become a man of value.",attr:"Albert Einstein"},
+  {text:"A person who never made a mistake never tried anything new.",attr:"Albert Einstein"},
+  {text:"If you cannot explain it simply, you do not understand it well enough.",attr:"Albert Einstein"},
+  {text:"Genius is one percent inspiration, ninety-nine percent perspiration.",attr:"Thomas Edison"},
+  {text:"Many of life's failures are people who did not realize how close they were to success when they gave up.",attr:"Thomas Edison"},
+  {text:"I have not failed. I have just found 10,000 ways that will not work.",attr:"Thomas Edison"},
+  {text:"Our greatest weakness lies in giving up. The most certain way to succeed is always to try just one more time.",attr:"Thomas Edison"},
+  {text:"To succeed, jump as quickly at opportunities as you do at conclusions.",attr:"Benjamin Franklin"},
+  {text:"Energy and persistence conquer all things.",attr:"Benjamin Franklin"},
+  {text:"Early to bed and early to rise makes a man healthy, wealthy, and wise.",attr:"Benjamin Franklin"},
+  {text:"Well done is better than well said.",attr:"Benjamin Franklin"},
+  {text:"By failing to prepare, you are preparing to fail.",attr:"Benjamin Franklin"},
+  {text:"Money has never made man happy, nor will it, there is nothing in its nature to produce happiness.",attr:"Benjamin Franklin"},
+  {text:"It is easier to suppress the first desire than to satisfy all that follow it.",attr:"Benjamin Franklin"},
+  {text:"Happiness is not something ready made. It comes from your own actions.",attr:"Dalai Lama"},
+  {text:"Judge a man by his questions rather than his answers.",attr:"Voltaire"},
+  {text:"The secret of getting ahead is getting started.",attr:"Sally Berger"},
+  {text:"The only place where success comes before work is in the dictionary.",attr:"Vidal Sassoon"},
+  {text:"Do what you can, with what you have, where you are.",attr:"Theodore Roosevelt"},
+  {text:"The most successful people are those who are good at plan B.",attr:"James Yorke"},
+  {text:"What we fear doing most is usually what we most need to do.",attr:"Tim Ferriss"},
+  {text:"Risk is not inherently good or bad; it is a fact of life. What matters is how you manage it.",attr:"Ray Dalio"},
+  {text:"The biggest mistake investors make is to believe that what happened in the recent past is likely to persist.",attr:"Ray Dalio"},
+  {text:"He who lives by the crystal ball will eat shattered glass.",attr:"Ray Dalio"},
+  {text:"The economy is like a machine. It is not complicated.",attr:"Ray Dalio"},
+  {text:"I learned that if you work hard and creatively, you can have just about anything you want.",attr:"Ray Dalio"},
+  {text:"Embrace reality and deal with it.",attr:"Ray Dalio"},
+  {text:"Pain plus reflection equals progress.",attr:"Ray Dalio"},
+  {text:"Think for yourself to decide what you want, what is true, and what to do.",attr:"Ray Dalio"},
+  {text:"Meaningful work and meaningful relationships are not just nice things to have — they are oxygen.",attr:"Ray Dalio"},
+  {text:"The greatest success you can have is the success of yourself.",attr:"Ray Dalio"},
+  {text:"If you are not failing, you are not pushing your limits, and if you are not pushing your limits, you are not maximizing your potential.",attr:"Ray Dalio"},
+  {text:"Don't let the perfect be the enemy of the good.",attr:"Voltaire"},
+  {text:"The goal of a successful trader is to make the best trades. Money is secondary.",attr:"Alexander Elder"},
+  {text:"In investing, the return you want should be associated with your willingness to suffer.",attr:"Morgan Housel"},
+  {text:"Savings without a spending plan is just delayed spending.",attr:"Morgan Housel"},
+  {text:"The most powerful financial force in the universe is compound interest. The second most powerful is your own behavior.",attr:"Morgan Housel"},
+  {text:"We tend to want the highest returns with the lowest risk and the least effort. This is the opposite of how the world works.",attr:"Morgan Housel"},
+  {text:"Spending money to show people how much money you have is the fastest way to have less money.",attr:"Morgan Housel"},
+  {text:"No one is impressed with your possessions as much as you are.",attr:"Morgan Housel"},
+  {text:"Getting money and keeping money are two different skills.",attr:"Morgan Housel"},
+  {text:"The ability to do nothing when doing nothing is the right move is a rare and valuable skill.",attr:"Morgan Housel"},
+  {text:"Good investing is not necessarily about making good decisions. It is about consistently not screwing up.",attr:"Morgan Housel"},
+  {text:"Be nicer and less flashy. No one is thinking about you as much as you are.",attr:"Morgan Housel"},
+  {text:"Long-term thinking is not about ignoring the short term; it is about giving the short term its proper weight.",attr:"Morgan Housel"},
+  {text:"A small number of things account for most of the outcomes.",attr:"Morgan Housel"},
+  {text:"Define the game you are playing and make sure your actions are consistent with your goals.",attr:"Morgan Housel"},
+  {text:"The more humble you are about your knowledge of the future, the better your financial decisions.",attr:"Morgan Housel"},
+  {text:"Tails drive everything.",attr:"Morgan Housel"},
+  {text:"The reasonable investor is more successful than the rational investor.",attr:"Morgan Housel"},
+  {text:"I cannot give you the formula for success, but I can give you the formula for failure — it is: try to please everybody.",attr:"Herbert Bayard Swope"},
+  {text:"The big money is not in the buying and the selling, but in the waiting.",attr:"Jesse Livermore"},
+  {text:"Do not try to buy at the bottom and sell at the top. It cannot be done except by liars.",attr:"Bernard Baruch"},
+  {text:"Every person who invests in well-selected real estate in a growing section of a prosperous community adopts the surest and safest method of becoming independent.",attr:"Theodore Roosevelt"},
+  {text:"Financial literacy is just as important in life as the other basics.",attr:"John W. Rogers"},
+  {text:"Make financial literacy a priority.",attr:"Alexa Von Tobel"},
+  {text:"Financial success is not about what you earn; it is about what you keep.",attr:"Anonymous"},
+  {text:"Your savings are a testimony to your delayed gratification.",attr:"Anonymous"},
+  {text:"Invest in your future, but do not forget to enjoy your present.",attr:"Anonymous"},
+  {text:"The stock market is a no-called-strike game. You do not have to swing at everything — you can wait for your pitch.",attr:"Warren Buffett"},
+  {text:"Buy when everyone else is selling and hold until everyone else is buying.",attr:"J. Paul Getty"},
+  {text:"How many millionaires do you know who have become wealthy by investing in savings accounts?",attr:"Robert G. Allen"},
+  {text:"I made my money the old-fashioned way. I was very nice to a wealthy relative right before he died.",attr:"Malcolm Forbes"},
+  {text:"Wealth is not his that has it, but his that enjoys it.",attr:"Benjamin Franklin"},
+  {text:"Annual income twenty pounds, annual expenditure nineteen six, result happiness. Annual income twenty pounds, annual expenditure twenty pound ought and six, result misery.",attr:"Charles Dickens"},
+  {text:"It is not the man who has too little who is poor, but the one who hankers after more.",attr:"Seneca"},
+  {text:"He who knows he has enough is rich.",attr:"Lao Tzu"},
+  {text:"The first step towards getting somewhere is to decide you are not going to stay where you are.",attr:"J.P. Morgan"},
+  {text:"Go as far as you can see; when you get there you will be able to see further.",attr:"J.P. Morgan"},
+  {text:"No problem can be solved from the same level of consciousness that created it.",attr:"Albert Einstein"},
+  {text:"The wisest rule in investment is: when others are selling, buy; when others are buying, sell.",attr:"Jonathan Sacks"},
+  {text:"Sometimes your best investments are the ones you do not make.",attr:"Donald Trump"},
+  {text:"You do not have to be great to start, but you have to start to be great.",attr:"Zig Ziglar"},
+  {text:"Statistics suggest that when customers complain, business owners and managers ought to get excited about it. The complaining customer represents a huge opportunity for more business.",attr:"Zig Ziglar"},
+  {text:"Your attitude, not your aptitude, will determine your altitude.",attr:"Zig Ziglar"},
+  {text:"People often say that motivation does not last. Well, neither does bathing — that is why we recommend it daily.",attr:"Zig Ziglar"},
+  {text:"If you aim at nothing, you will hit it every time.",attr:"Zig Ziglar"},
+  {text:"You cannot climb the ladder of success dressed in the costume of failure.",attr:"Zig Ziglar"},
+  {text:"There has never been a statue erected to honor a critic.",attr:"Zig Ziglar"},
+  {text:"A goal properly set is halfway reached.",attr:"Zig Ziglar"},
+  {text:"You were born to win, but to be a winner, you must plan to win.",attr:"Zig Ziglar"},
+  {text:"Success is not measured by what you accomplish, but by the opposition you have encountered.",attr:"Orison Swett Marden"},
+  {text:"It is not about having time. It is about making time.",attr:"Anonymous"},
+  {text:"Real generosity toward the future lies in giving all to the present.",attr:"Albert Camus"},
+  {text:"Live simply so that others may simply live.",attr:"Mahatma Gandhi"},
+  {text:"Your net worth to the world is usually determined by what remains after your bad habits are subtracted from your good ones.",attr:"Benjamin Franklin"},
+  {text:"Wealth, like a tree, grows from a tiny seed.",attr:"George S. Clason"},
+  {text:"A part of all you earn is yours to keep.",attr:"George S. Clason"},
+  {text:"Start thy purse to fattening. For every ten coins thou placest within thy purse take out for use but nine.",attr:"George S. Clason"},
+  {text:"The man who has it in his soul to be a great painter will become one.",attr:"George S. Clason"},
+  {text:"Opportunity is a haughty goddess who wastes no time with those who are unprepared.",attr:"George S. Clason"},
+  {text:"The more of wisdom we know, the more we may earn.",attr:"George S. Clason"},
+  {text:"Desire must be simple and definite. They defeat their own purpose should they be too many, too confusing, or beyond a man's training to accomplish.",attr:"George S. Clason"},
+  {text:"Gold comes gladly and in increasing quantity to any man who will put by not less than one-tenth of his earnings to create an estate for his future.",attr:"George S. Clason"},
+  {text:"Where the determination is, the way can be found.",attr:"George S. Clason"},
+  {text:"An investment in education always pays the best interest.",attr:"Benjamin Franklin"},
+  {text:"You cannot save time for future use, but you can invest it for the future you want.",attr:"Dorothy M. Neddermeyer"},
+  {text:"In the middle of difficulty lies opportunity.",attr:"Albert Einstein"},
+  {text:"Obstacles are those frightful things you see when you take your eyes off your goal.",attr:"Henry Ford"},
+  {text:"Whether you think you can or you think you cannot, you are right.",attr:"Henry Ford"},
+  {text:"The whole secret of a successful life is to find out what is one's destiny to do, and then do it.",attr:"Henry Ford"},
+  {text:"Vision without execution is just hallucination.",attr:"Henry Ford"},
+  {text:"Coming together is a beginning; keeping together is progress; working together is success.",attr:"Henry Ford"},
+  {text:"Anyone who keeps learning stays young.",attr:"Henry Ford"},
+  {text:"It has been my observation that most people get ahead during the time that others waste.",attr:"Henry Ford"},
+  {text:"Don't find fault, find a remedy.",attr:"Henry Ford"},
+  {text:"Failure is simply the opportunity to begin again, this time more intelligently.",attr:"Henry Ford"},
+  {text:"If you always do what you have always done, you will always get what you have always got.",attr:"Henry Ford"},
+  {text:"The key to financial health is to spend less than you earn, save the difference, and invest wisely.",attr:"John Bogle"},
+  {text:"The stock market is a giant distraction to the business of investing.",attr:"John Bogle"},
+  {text:"Do not look for the needle in the haystack. Just buy the haystack.",attr:"John Bogle"},
+  {text:"Time is your friend; impulse is your enemy.",attr:"John Bogle"},
+  {text:"If you have trouble imagining a 20 percent loss in the stock market, you should not be in stocks.",attr:"John Bogle"},
+  {text:"The greatest enemy of a good plan is the dream of a perfect plan.",attr:"Carl von Clausewitz"},
+  {text:"Investors should be skeptical of history-based models.",attr:"Warren Buffett"},
+  {text:"You need to understand accounting and you need to understand the nuances of accounting. It is the language of business.",attr:"Warren Buffett"},
+  {text:"The difference between short-term and long-term investing is often just patience.",attr:"Anonymous"},
+  {text:"You must master your money or your money will master you.",attr:"T. Harv Eker"},
+  {text:"Thoughts lead to feelings, feelings lead to actions, actions lead to results.",attr:"T. Harv Eker"},
+  {text:"Rich people believe: I create my life. Poor people believe: life happens to me.",attr:"T. Harv Eker"},
+  {text:"Rich people focus on opportunities. Poor people focus on obstacles.",attr:"T. Harv Eker"},
+  {text:"Rich people admire other rich and successful people. Poor people resent rich and successful people.",attr:"T. Harv Eker"},
+  {text:"Rich people associate with positive, successful people. Poor people associate with negative or unsuccessful people.",attr:"T. Harv Eker"},
+  {text:"Rich people are willing to promote themselves and their value. Poor people think negatively about selling and promotion.",attr:"T. Harv Eker"},
+  {text:"Savings account is an asset. Credit card debt is a liability. Know the difference.",attr:"Anonymous"},
+  {text:"To accumulate wealth, you have to develop the habit of saving.",attr:"Anonymous"},
+  {text:"The road to wealth is paved with income-producing assets.",attr:"Anonymous"},
+  {text:"Your financial success depends on your daily financial habits.",attr:"Anonymous"},
+  {text:"The key is not the will to win. Everybody has that. It is the will to prepare to win that is important.",attr:"Bobby Knight"},
+  {text:"It always seems impossible until it is done.",attr:"Nelson Mandela"},
+  {text:"I never dreamed about success. I worked for it.",attr:"Estee Lauder"},
+  {text:"Hard work beats talent when talent fails to work hard.",attr:"Kevin Durant"},
+  {text:"Success is the sum of small efforts repeated day-in and day-out.",attr:"Robert Collier"},
+  {text:"Small disciplines repeated with consistency every day lead to great achievements gained slowly over time.",attr:"John C. Maxwell"},
+  {text:"Financial discipline is the path to financial freedom.",attr:"Anonymous"},
+  {text:"Every purchase you make is a vote for the kind of world you want to live in.",attr:"Anna Lappe"},
+  {text:"There is no dignity quite so impressive, and no independence quite so important, as living within your means.",attr:"Calvin Coolidge"},
+  {text:"There is no shame in not knowing; the shame is in not finding out.",attr:"Russian Proverb"},
+  {text:"Start where you are. Use what you have. Do what you can.",attr:"Arthur Ashe"},
+  {text:"The secret of change is to focus all of your energy not on fighting the old, but on building the new.",attr:"Socrates"},
+  {text:"If your only goal is to become rich, you will never achieve it.",attr:"John D. Rockefeller"},
+  {text:"I would rather earn one percent off a hundred people's efforts than one hundred percent of my own efforts.",attr:"John D. Rockefeller"},
+  {text:"Do not be afraid to give up the good to go for the great.",attr:"John D. Rockefeller"},
+  {text:"The secret to success is to do the common things uncommonly well.",attr:"John D. Rockefeller"},
+  {text:"I always tried to turn every disaster into an opportunity.",attr:"John D. Rockefeller"},
+  {text:"Sow a thought and you reap an action; sow an act and you reap a habit; sow a habit and you reap a character; sow a character and you reap a destiny.",attr:"Ralph Waldo Emerson"},
+  {text:"Without continual growth and progress, such words as improvement, achievement, and success have no meaning.",attr:"Benjamin Franklin"},
+  {text:"The best investment on Earth is Earth.",attr:"Louis Glickman"},
+  {text:"Money can be lost or stolen, health and strength may fail, but what you have committed to your mind is yours forever.",attr:"George S. Clason"},
 ];
 
+
 function getDailyQuote() {
-  const name = state.appName || '';
-  const cycle = state.cycleType || 'monthly';
-  // Seed by date so it's stable all day
   const today = new Date();
   const seed = today.getFullYear() * 10000 + (today.getMonth() + 1) * 100 + today.getDate();
   const idx = seed % DAILY_QUOTES.length;
-  const q = DAILY_QUOTES[idx];
-  const text = q.text.replace('{name}', name).replace('{cycle}', cycle);
-  return { text, attr: q.attr };
+  return DAILY_QUOTES[idx];
 }
 
 function getGreeting() {
@@ -2783,15 +3133,16 @@ function debounceSearch(val) {
   expenseSearchQuery = val;
   clearTimeout(_searchDebounce);
   _searchDebounce = setTimeout(() => {
-    // Only update the results region — never touch the search input itself
     const resultsEl = document.getElementById('expenseResults');
     if (resultsEl) {
       renderExpenseResults(resultsEl);
-      // Update search bar border colour in-place without rebuilding it
       const bar = document.getElementById('expenseSearchBar');
       if (bar) bar.style.borderColor = val.trim() ? 'var(--accent)' : 'transparent';
       const clearBtn = document.getElementById('expenseSearchClear');
       if (clearBtn) clearBtn.style.display = val.trim() ? '' : 'none';
+      // Hide recurring collapsible while searching, show when cleared
+      const rec = document.getElementById('recurringCollapsible');
+      if (rec) { if (val.trim()) { rec.style.display = 'none'; } else { rec.style.display = ''; renderRecurringSection(); } }
     } else {
       renderExpenses();
     }
@@ -2811,6 +3162,8 @@ function clearExpenseSearch() {
   if (bar) bar.style.borderColor = 'transparent';
   const clearBtn = document.getElementById('expenseSearchClear');
   if (clearBtn) clearBtn.style.display = 'none';
+  const rec = document.getElementById('recurringCollapsible');
+  if (rec) { rec.style.display = ''; renderRecurringSection(); }
   const resultsEl = document.getElementById('expenseResults');
   if (resultsEl) renderExpenseResults(resultsEl);
   else renderExpenses();
@@ -2823,8 +3176,8 @@ function setExpensesSubTab(tab) {
   _expensesSubTab = tab;
   const logBtn = document.getElementById('expSubTabLog');
   const recBtn = document.getElementById('expSubTabRecurring');
-  if (logBtn) { logBtn.style.background = tab === 'log' ? 'var(--accent)' : 'var(--surface2)'; logBtn.style.color = tab === 'log' ? '#fff' : 'var(--muted)'; }
-  if (recBtn) { recBtn.style.background = tab === 'recurring' ? 'var(--accent)' : 'var(--surface2)'; recBtn.style.color = tab === 'recurring' ? '#fff' : 'var(--muted)'; }
+  if (logBtn) { logBtn.style.color = tab === 'log' ? 'var(--accent)' : 'var(--muted)'; logBtn.style.borderBottom = tab === 'log' ? '2px solid var(--accent)' : '2px solid transparent'; }
+  if (recBtn) { recBtn.style.color = tab === 'recurring' ? 'var(--accent)' : 'var(--muted)'; recBtn.style.borderBottom = tab === 'recurring' ? '2px solid var(--accent)' : '2px solid transparent'; }
   const logPane = document.getElementById('expPaneLog');
   const recPane = document.getElementById('expPaneRecurring');
   if (logPane) logPane.style.display = tab === 'log' ? '' : 'none';
@@ -2854,7 +3207,7 @@ function renderRecurringSection() {
   html += '<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 14px;cursor:pointer;user-select:none" onclick="toggleRecurringSection()">' +
     '<div style="display:flex;align-items:center;gap:6px">' +
       '<svg width="13" height="13" viewBox="0 0 14 14" fill="none"><circle cx="7" cy="7" r="5.5" stroke="var(--accent)" stroke-width="1.3"/><path d="M7 4v3l2 1.5" stroke="var(--accent)" stroke-width="1.3" stroke-linecap="round"/></svg>' +
-      '<span style="font-size:11px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:0.08em">Recurring this cycle</span>' +
+      '<span style="font-size:11px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:0.08em">Coming up this cycle</span>' +
       '<span style="font-size:11px;color:var(--accent);opacity:0.7">' + allUpcoming.length + '</span>' +
     '</div>' +
     '<div style="display:flex;align-items:center;gap:8px">' +
@@ -2900,33 +3253,39 @@ function renderExpenses() {
 
   const query = expenseSearchQuery.trim().toLowerCase();
 
-  // Build shell with search bar + collapsible recurring + results
-  const subTabBar = '<div style="display:flex;gap:6px;margin-bottom:12px">' +
-    '<button id="expSubTabLog" onclick="setExpensesSubTab(\'log\')" style="flex:1;padding:8px;border-radius:10px;border:none;font-size:13px;font-weight:600;font-family:var(--font);cursor:pointer;transition:all 0.15s;background:var(--accent);color:#fff">Log</button>' +
-    '<button id="expSubTabRecurring" onclick="setExpensesSubTab(\'recurring\')" style="flex:1;padding:8px;border-radius:10px;border:none;font-size:13px;font-weight:600;font-family:var(--font);cursor:pointer;transition:all 0.15s;background:var(--surface2);color:var(--muted)">Recurring</button>' +
-  '</div>';
+  // Qantas-style header with underline tab indicator
+  const subTabBar =
+    '<div style="margin-bottom:4px">' +
+      '<div style="font-size:26px;font-weight:700;letter-spacing:-0.5px;color:var(--text);margin-bottom:12px">Expenses</div>' +
+      '<div style="display:flex;border-bottom:1px solid var(--surface2);margin-bottom:14px">' +
+        '<button id="expSubTabLog" onclick="setExpensesSubTab(\'log\')" style="flex:1;padding:10px 0;border:none;background:none;font-size:14px;font-weight:600;font-family:var(--font);cursor:pointer;color:' + (_expensesSubTab==='log'?'var(--accent)':'var(--muted)') + ';border-bottom:2px solid ' + (_expensesSubTab==='log'?'var(--accent)':'transparent') + ';margin-bottom:-1px;transition:all 0.15s">Daily transactions</button>' +
+        '<button id="expSubTabRecurring" onclick="setExpensesSubTab(\'recurring\')" style="flex:1;padding:10px 0;border:none;background:none;font-size:14px;font-weight:600;font-family:var(--font);cursor:pointer;color:' + (_expensesSubTab==='recurring'?'var(--accent)':'var(--muted)') + ';border-bottom:2px solid ' + (_expensesSubTab==='recurring'?'var(--accent)':'transparent') + ';margin-bottom:-1px;transition:all 0.15s">Recurring</button>' +
+      '</div>' +
+    '</div>';
 
-  const searchBar = '<div id="expenseSearchBar" style="display:inline-flex;align-items:center;gap:6px;margin-bottom:10px;background:var(--surface);border-radius:var(--r);padding:0 14px;border:1.5px solid ' + (query ? 'var(--accent)' : 'transparent') + ';height:34px;width:100%;box-sizing:border-box">' +
-    '<svg width="13" height="13" viewBox="0 0 15 15" fill="none" style="flex-shrink:0;opacity:0.4"><circle cx="6" cy="6" r="4.5" stroke="currentColor" stroke-width="1.5"/><path d="M10 10l3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>' +
-    '<input id="expenseSearchInput" type="text" placeholder="Search expenses\u2026" value="' + (query ? query.replace(/"/g,'&quot;') : '') + '" oninput="debounceSearch(this.value)" style="flex:1;background:none;border:none;outline:none;color:var(--text);font-size:16px;font-family:var(--font);padding:0;margin:0;height:100%">' +
-    '<button id="expenseSearchClear" onclick="clearExpenseSearch()" style="display:' + (query ? '' : 'none') + ';background:none;border:none;color:var(--muted);font-size:16px;cursor:pointer;padding:0;line-height:1;flex-shrink:0">\u00d7</button>' +
-  '</div>';
+  const searchBar =
+    '<div id="expenseSearchBar" style="display:inline-flex;align-items:center;gap:6px;margin-bottom:10px;background:var(--surface);border-radius:var(--r);padding:0 14px;border:1.5px solid ' + (query ? 'var(--accent)' : 'transparent') + ';height:34px;width:100%;box-sizing:border-box">' +
+      '<svg width="13" height="13" viewBox="0 0 15 15" fill="none" style="flex-shrink:0;opacity:0.4"><circle cx="6" cy="6" r="4.5" stroke="currentColor" stroke-width="1.5"/><path d="M10 10l3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>' +
+      '<input id="expenseSearchInput" type="text" placeholder="Search expenses\u2026" value="' + (query ? query.replace(/"/g,'&quot;') : '') + '" oninput="debounceSearch(this.value)" style="flex:1;background:none;border:none;outline:none;color:var(--text);font-size:16px;font-family:var(--font);padding:0;margin:0;height:100%">' +
+      '<button id="expenseSearchClear" onclick="clearExpenseSearch()" style="display:' + (query ? '' : 'none') + ';background:none;border:none;color:var(--muted);font-size:16px;cursor:pointer;padding:0;line-height:1;flex-shrink:0">\u00d7</button>' +
+    '</div>';
 
+  // Recurring collapsible only shows when not searching
   el.innerHTML = subTabBar +
-    '<div id="expPaneLog">' + searchBar + '<div id="recurringCollapsible"></div><div id="expenseResults"></div></div>' +
+    '<div id="expPaneLog">' +
+      searchBar +
+      '<div id="recurringCollapsible"></div>' +
+      '<div id="expenseResults"></div>' +
+    '</div>' +
     '<div id="expPaneRecurring" style="display:none"></div>';
 
-  // Restore correct tab highlight state
   if (_expensesSubTab === 'recurring') {
-    const logBtn = document.getElementById('expSubTabLog');
-    const recBtn = document.getElementById('expSubTabRecurring');
-    if (logBtn) { logBtn.style.background = 'var(--surface2)'; logBtn.style.color = 'var(--muted)'; }
-    if (recBtn) { recBtn.style.background = 'var(--accent)'; recBtn.style.color = '#fff'; }
     document.getElementById('expPaneLog').style.display = 'none';
     document.getElementById('expPaneRecurring').style.display = '';
     renderRecurringPane();
   } else {
-    renderRecurringSection();
+    // Only show recurring collapsible when not actively searching
+    if (!query) renderRecurringSection();
     renderExpenseResults(document.getElementById('expenseResults'));
   }
 
@@ -3027,7 +3386,7 @@ function renderExpenseResults(resultsEl) {
   const groups = {};
   expenses.forEach(e => { if (!groups[e.date]) groups[e.date] = []; groups[e.date].push(e); });
 
-  let html = (query ? '' : buildSpendLegend());
+  let html = '';
 
   if (query) {
     const loggedTotal = expenses.reduce((s,e) => s + e.amount, 0);
@@ -3051,9 +3410,16 @@ function renderExpenseResults(resultsEl) {
     const today = new Date(); today.setHours(0,0,0,0);
     const yest = new Date(today); yest.setDate(today.getDate()-1);
     let label = d.toLocaleDateString('en-AU', { weekday:'long', day:'numeric', month:'short' });
-    if (d.getTime() === today.getTime()) label = 'Today';
-    else if (d.getTime() === yest.getTime()) label = 'Yesterday';
-    html += '<div class="section-label">' + label + '</div>';
+    const isToday = d.getTime() === today.getTime();
+    const isYest  = d.getTime() === yest.getTime();
+    if (isToday) label = 'Today';
+    else if (isYest) label = 'Yesterday';
+
+    // Attach colour guide ⓘ icon only to the first (most recent) date label = Today or top date
+    const isFirstGroup = date === Object.keys(groups).sort((a,b) => b.localeCompare(a))[0];
+    const colourGuideIcon = isFirstGroup ? buildColourGuideIcon() : '';
+
+    html += '<div class="section-label" style="display:flex;align-items:center;gap:5px">' + label + colourGuideIcon + '</div>';
     groups[date].sort((a,b)=>b.id.localeCompare(a.id)).forEach(e => {
       const cat = catById(e.categoryId) || { name:'Unknown', icon:'\u2753', color:'#888' };
       html += '<div class="swipe-wrapper" id="sw-' + e.id + '">' +
@@ -4965,9 +5331,9 @@ function renderSettingsFaceIdBtn() {
   const chevron = document.getElementById('faceIdSettingsChevron');
   if (label) {
     label.textContent = has ? 'Disable Face ID' : 'Enable Face ID';
-    label.style.color = has ? 'var(--red)' : 'var(--text)';
+    label.style.color = 'var(--text)';
   }
-  if (chevron) chevron.style.color = has ? 'var(--red)' : 'var(--muted)';
+  if (chevron) chevron.style.color = 'var(--muted)';
   // Legacy btn (kept for compat)
   const el = document.getElementById('faceIdSettingsBtn');
   if (!el) return;
