@@ -36,7 +36,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '1.7.9-202603230830';
+  const APP_VER = '1.7.9-202603230840';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -1653,7 +1653,7 @@ const PALETTE = [
 // ── State ─────────────────────────────────────────────────────────────────────
 const APP_VERSION = '1.7.9';
 const BUILD_DATE = '2026-03-23';
-const BUILD_TIME = '23 Mar 2026 8:30 AM AEDT';
+const BUILD_TIME = '23 Mar 2026 8:40 AM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -7963,32 +7963,46 @@ function isRecurringDueOn(r, dateStr) {
 
 function getRecNextDate(r) {
   const today = new Date(); today.setHours(0,0,0,0);
+  const todayDateStr = todayStr();
+  const alreadyAppliedToday = r.lastAdded === todayDateStr;
+
   if (r.frequency === 'weekly') {
     const wd = r.weekday !== undefined ? r.weekday : 1;
     const diff = (wd - today.getDay() + 7) % 7;
     const next = new Date(today);
-    next.setDate(today.getDate() + (diff === 0 ? 0 : diff));
+    // If today is the due day but already applied, show next occurrence (7 days ahead)
+    if (diff === 0 && alreadyAppliedToday) {
+      next.setDate(today.getDate() + 7);
+    } else {
+      next.setDate(today.getDate() + (diff === 0 ? 0 : diff));
+    }
     return next;
   }
   if (r.frequency === 'xweeks' && r.nextDate && r.xweeksNum) {
     const weeks = r.xweeksNum * 7;
     const base = new Date(r.nextDate + 'T00:00:00');
     while (base < today) base.setDate(base.getDate() + weeks);
+    // If lands on today and already applied, advance one more cycle
+    if (dateToStr(base) === todayDateStr && alreadyAppliedToday) base.setDate(base.getDate() + weeks);
     return base;
   }
   if (r.frequency === 'monthly' && r.monthDay) {
     const next = new Date(today.getFullYear(), today.getMonth(), r.monthDay);
     if (next < today) next.setMonth(next.getMonth() + 1);
+    // If lands on today and already applied, advance to next month
+    if (dateToStr(next) === todayDateStr && alreadyAppliedToday) next.setMonth(next.getMonth() + 1);
     return next;
   }
   if (r.frequency === 'quarterly' && r.nextDate) {
     const base = new Date(r.nextDate + 'T00:00:00');
     while (base < today) base.setMonth(base.getMonth() + 3);
+    if (dateToStr(base) === todayDateStr && alreadyAppliedToday) base.setMonth(base.getMonth() + 3);
     return base;
   }
   if (r.frequency === 'yearly' && r.nextDate) {
     const base = new Date(r.nextDate + 'T00:00:00');
     while (base < today) base.setFullYear(base.getFullYear() + 1);
+    if (dateToStr(base) === todayDateStr && alreadyAppliedToday) base.setFullYear(base.getFullYear() + 1);
     return base;
   }
   return null;
