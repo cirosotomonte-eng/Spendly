@@ -1664,7 +1664,7 @@ const PALETTE = [
 // ── State ─────────────────────────────────────────────────────────────────────
 const APP_VERSION = '1.7.9';
 const BUILD_DATE = '2026-03-23';
-const BUILD_TIME = '23 Mar 2026 9:54 AM AEDT';
+const BUILD_TIME = '23 Mar 2026 9:59 AM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -4378,7 +4378,6 @@ function renderCalendar() {
 
 // ── Settings modal ────────────────────────────────────────────────────────────
 function openSettings() {
-  document.getElementById('settingsTitle').textContent = isSetupComplete() ? 'Settings' : 'Set up Spendly';
   // Populate hidden fields (still used by legacy saveSettings path during onboarding)
   document.getElementById('setAppName').value = state.appName || '';
   document.getElementById('setBudget').value = state.budget || '';
