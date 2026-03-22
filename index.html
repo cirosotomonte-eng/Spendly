@@ -36,7 +36,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '1.7.3-202603221112';
+  const APP_VER = '1.7.6-202603221758';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -296,7 +296,9 @@ async function applyUpdate() {
   .settings-row-chevron { font-size:18px;color:var(--border);flex-shrink:0;line-height:1;font-weight:300; }
   .settings-row-value { font-size:13px;color:var(--muted);flex-shrink:0;margin-right:2px; }
 
-  /* Analytics */
+  .wb-cycle-type-btn { background:var(--surface2);border:2px solid var(--border);border-radius:12px;padding:12px 8px;font-size:13px;font-family:var(--font);color:var(--muted);cursor:pointer;text-align:center;line-height:1.5;transition:all 0.15s; }
+  .wb-cycle-type-btn.active { border-color:var(--accent);background:var(--accent-dim);color:var(--accent);font-weight:600; }
+  .wb-cycle-type-btn span { display:block;font-size:12px;margin-top:2px; }
   .chart-container { position: relative; width: 100%; height: 180px; margin-bottom: 16px; }
   .donut-wrap { display: flex; gap: 16px; align-items: center; margin-bottom: 20px; }
   .legend-item { display: flex; align-items: center; gap: 7px; font-size: 12px; margin-bottom: 7px; }
@@ -502,7 +504,7 @@ async function applyUpdate() {
     <div class="wb-features" id="wbFeatures">
       <div class="wb-feature">
         <div class="wb-feature-icon">💳</div>
-        <div><div class="wb-feature-title">Synced to your billing cycle</div><div class="wb-feature-text">Tracks spending from the day your credit card statement starts — not just a calendar month</div></div>
+        <div><div class="wb-feature-title">Synced to your spending cycle</div><div class="wb-feature-text">Tracks spending within your own cycle — weekly, fortnightly, or monthly — not just a calendar month</div></div>
       </div>
       <div class="wb-feature">
         <div class="wb-feature-icon">🎯</div>
@@ -545,18 +547,37 @@ async function applyUpdate() {
       <div class="wb-dot" id="wbDotBar5b"></div>
     </div>
   </div>
-  <!-- Page 3: CC cycle -->
+  <!-- Page 3: Cycle setup -->
   <div id="wbPage3" style="display:none;flex-direction:column;align-items:center;width:100%">
-    <div style="font-size:48px;margin-bottom:12px">💳</div>
-    <div class="wb-title show">Your billing cycle</div>
-    <div class="wb-desc show" style="margin-bottom:8px">Spendly tracks spending within your credit card billing cycle — not a calendar month.</div>
-    <div class="wb-desc show" style="margin-bottom:20px;font-size:13px">Example: if your statement closes on the 17th, your new cycle starts on the <strong style="color:var(--text)">18th</strong> — enter 18.</div>
+    <div style="font-size:48px;margin-bottom:12px">📅</div>
+    <div class="wb-title show">Your spending cycle</div>
+    <div class="wb-desc show" style="margin-bottom:20px">How often does your budget reset? Choose a cycle that matches how you get paid or manage your money.</div>
     <div class="wb-name-section show" style="width:100%;max-width:320px">
-      <label style="font-size:11px;color:var(--muted);letter-spacing:0.05em;text-transform:uppercase;margin-bottom:6px;display:block">Monthly budget ($)</label>
+      <label style="font-size:11px;color:var(--muted);letter-spacing:0.05em;text-transform:uppercase;margin-bottom:6px;display:block">Budget amount ($)</label>
       <input class="wb-name-input" id="wbBudget" type="number" inputmode="decimal" placeholder="e.g. 3000" oninput="wbCheckCycle()" style="text-align:left;font-size:16px;padding:14px 16px">
-      <label style="font-size:11px;color:var(--muted);letter-spacing:0.05em;text-transform:uppercase;margin-bottom:6px;display:block;margin-top:2px">New cycle starts on day</label>
-      <input class="wb-name-input" id="wbCycleDay" type="number" inputmode="numeric" placeholder="e.g. 18" min="1" max="28" oninput="wbCheckCycle()" style="text-align:left;font-size:16px;padding:14px 16px">
-      <div id="wbCyclePreview" style="font-size:12px;color:var(--muted);margin-bottom:16px;min-height:16px;text-align:center"></div>
+      <label style="font-size:11px;color:var(--muted);letter-spacing:0.05em;text-transform:uppercase;margin-bottom:8px;display:block">Cycle type</label>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:16px">
+        <button id="wbCycleTypeMonthly" onclick="wbSetCycleType('monthly')" class="wb-cycle-type-btn active">📅<br><span>Monthly</span></button>
+        <button id="wbCycleTypeFortnightly" onclick="wbSetCycleType('fortnightly')" class="wb-cycle-type-btn">🗓️<br><span>Fortnightly</span></button>
+        <button id="wbCycleTypeWeekly" onclick="wbSetCycleType('weekly')" class="wb-cycle-type-btn">📆<br><span>Weekly</span></button>
+      </div>
+      <!-- Monthly: day of month -->
+      <div id="wbMonthlyCycleFields">
+        <label style="font-size:11px;color:var(--muted);letter-spacing:0.05em;text-transform:uppercase;margin-bottom:6px;display:block">Tracking cycle starts on day</label>
+        <input class="wb-name-input" id="wbCycleDay" type="number" inputmode="numeric" placeholder="e.g. 18" min="1" max="28" oninput="wbCheckCycle()" style="text-align:left;font-size:16px;padding:14px 16px">
+        <div style="font-size:11px;color:var(--muted);line-height:1.5;margin-top:-8px;margin-bottom:12px;padding:0 2px">
+          Enter the day your new tracking cycle starts. For example, if it resets on the 18th, enter <strong style="color:var(--muted)">18</strong>. Spendly will calculate all future cycles from there.
+        </div>
+      </div>
+      <!-- Weekly / Fortnightly: anchor date -->
+      <div id="wbAnchorCycleFields" style="display:none">
+        <label style="font-size:11px;color:var(--muted);letter-spacing:0.05em;text-transform:uppercase;margin-bottom:6px;display:block">Tracking cycle starts on day</label>
+        <input class="wb-name-input" id="wbCycleAnchor" type="date" oninput="wbCheckCycle()" style="text-align:left;font-size:16px;padding:14px 16px">
+        <div style="font-size:11px;color:var(--muted);line-height:1.5;margin-top:-8px;margin-bottom:12px;padding:0 2px">
+          Enter the day your new tracking cycle starts. For example, if it resets on the 18th, enter <strong style="color:var(--muted)">18</strong>. Spendly will calculate all future cycles from there.
+        </div>
+      </div>
+      <div id="wbCyclePreview" style="font-size:12px;color:var(--accent);margin-bottom:16px;min-height:16px;text-align:center;font-weight:600"></div>
       <button class="wb-btn" id="wbCycleBtn" onclick="wbSubmitCycle()" disabled>Continue →</button>
     </div>
     <div class="wb-dots" style="margin-top:24px">
@@ -573,7 +594,7 @@ async function applyUpdate() {
     <div style="font-size:48px;margin-bottom:12px">💰</div>
     <div class="wb-title show">What are you saving for?</div>
     <div class="wb-desc show" style="margin-bottom:8px">Add things you're working towards — a holiday, a new car, an emergency fund.</div>
-    <div class="wb-desc show" style="margin-bottom:20px;font-size:12px">At end of each billing cycle, if you've spent less than your budget, Spendly will suggest how to split your savings across these goals. You can always add more later.</div>
+    <div class="wb-desc show" style="margin-bottom:20px;font-size:12px">At the end of each cycle, if you've spent less than your budget, Spendly will suggest how to split your savings across these goals. You can always add more later.</div>
     <div style="width:100%;max-width:320px">
       <div id="wbGoalsList" style="margin-bottom:12px"></div>
       <div style="display:flex;gap:8px;margin-bottom:6px">
@@ -774,6 +795,7 @@ async function applyUpdate() {
     <input class="auth-input" type="password" id="authPasswordConfirm" placeholder="Confirm password" autocomplete="new-password" style="display:none">
     <div class="auth-error" id="authError"></div>
     <button class="auth-btn" id="authSubmitBtn" onclick="handleAuthSubmit()">Sign in</button>
+    <button id="authForgotBtn" onclick="handleForgotPassword()" style="background:none;border:none;color:var(--accent);font-size:13px;font-family:var(--font);cursor:pointer;padding:8px;margin-top:-4px;opacity:0.85">Forgot password?</button>
     <div class="auth-hint" id="authHint">Your data is private and encrypted.<br>Only you can access it.</div>
   </div>
 </div>
@@ -783,12 +805,6 @@ async function applyUpdate() {
     <div class="header-top">
       <div style="display:flex;flex-direction:column;gap:1px"><span class="app-name" id="headerAppName">Spendly</span><span style="font-size:9px;color:var(--muted);letter-spacing:0.06em" id="headerVersion"></span></div>
       <div class="header-actions">
-        <button class="icon-btn" onclick="openRecurringList()" title="Recurring expenses">
-          <svg width="17" height="17" viewBox="0 0 17 17" fill="none"><path d="M2 8.5a6.5 6.5 0 1 0 6.5-6.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="M2 5v3.5h3.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        </button>
-        <button class="icon-btn" onclick="openBackup()" title="Backup">
-          <svg width="17" height="17" viewBox="0 0 17 17" fill="none"><path d="M8.5 2v8M5.5 7l3 3 3-3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M2.5 12v1a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2v-1" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
-        </button>
         <span id="syncIndicator" title="Cloud sync" style="font-size:13px;color:var(--muted);cursor:default;padding:4px;line-height:1">☁</span>
         <button class="icon-btn" onclick="openSettings()" title="Settings">
           <svg width="17" height="17" viewBox="0 0 17 17" fill="none"><circle cx="8.5" cy="8.5" r="2" stroke="currentColor" stroke-width="1.5"/><path d="M8.5 1.5v1M8.5 14.5v1M1.5 8.5h1M14.5 8.5h1M3.5 3.5l.7.7M12.8 12.8l.7.7M3.5 13.5l.7-.7M12.8 4.2l.7-.7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
@@ -801,7 +817,7 @@ async function applyUpdate() {
         <div class="big-num" id="totalRemain">—</div>
       </div>
       <div style="text-align:right">
-        <div class="num-label">Monthly budget</div>
+        <div class="num-label" id="budgetCycleLabel">Monthly budget</div>
         <div style="font-size:24px;font-weight:700;letter-spacing:-0.5px;color:var(--muted)" id="budgetDisplay">—</div>
       </div>
     </div>
@@ -947,12 +963,27 @@ async function applyUpdate() {
     <div class="modal-title">Budget & cycle</div>
     <label>App name (optional)</label>
     <input type="text" id="setAppName2" placeholder="e.g. Ciro's Budget">
-    <label>Monthly budget ($)</label>
+    <label>Budget amount ($)</label>
     <input type="number" inputmode="decimal" id="setBudget2" placeholder="e.g. 8000">
-    <label>CC cycle starts on day</label>
-    <input type="number" inputmode="numeric" id="setCycleDay2" placeholder="e.g. 18" min="1" max="28">
-    <div style="background:var(--surface2);border-radius:10px;padding:12px 14px;margin-bottom:14px;font-size:12px;color:var(--muted);line-height:1.6">
-      Example: if your statement closes on the 17th, enter <strong style="color:var(--text)">18</strong>.
+    <label>Cycle type</label>
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:14px">
+      <button id="setCycleTypeMonthly" onclick="settingsSetCycleType('monthly')" class="wb-cycle-type-btn active">📅<br><span>Monthly</span></button>
+      <button id="setCycleTypeFortnightly" onclick="settingsSetCycleType('fortnightly')" class="wb-cycle-type-btn">🗓️<br><span>Fortnightly</span></button>
+      <button id="setCycleTypeWeekly" onclick="settingsSetCycleType('weekly')" class="wb-cycle-type-btn">📆<br><span>Weekly</span></button>
+    </div>
+    <div id="setMonthlyCycleFields">
+      <label>Tracking cycle starts on day</label>
+      <input type="number" inputmode="numeric" id="setCycleDay2" placeholder="e.g. 18" min="1" max="28">
+      <div style="font-size:11px;color:var(--muted);line-height:1.5;margin-top:-8px;margin-bottom:14px;padding:0 2px">
+        Enter the day your new tracking cycle starts. For example, if it resets on the 18th, enter <strong style="color:var(--muted)">18</strong>. Spendly will calculate all future cycles from there.
+      </div>
+    </div>
+    <div id="setAnchorCycleFields" style="display:none">
+      <label>Tracking cycle starts on day</label>
+      <input type="date" id="setCycleAnchor2">
+      <div style="font-size:11px;color:var(--muted);line-height:1.5;margin-top:-8px;margin-bottom:14px;padding:0 2px">
+        Enter the day your new tracking cycle starts. For example, if it resets on the 18th, enter <strong style="color:var(--muted)">18</strong>. Spendly will calculate all future cycles from there.
+      </div>
     </div>
     <label>City</label>
     <input type="text" id="setCity2" placeholder="e.g. Sydney">
@@ -1619,9 +1650,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '1.7.3';
+const APP_VERSION = '1.7.6';
 const BUILD_DATE = '2026-03-22';
-const BUILD_TIME = '22 Mar 2026 11:12 AM AEDT';
+const BUILD_TIME = '22 Mar 2026 4:39 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -1643,6 +1674,8 @@ let state = {
   country: 'Australia',
   budget: 0,
   cycleDay: 1,
+  cycleType: 'monthly',  // 'monthly' | 'weekly' | 'fortnightly'
+  cycleAnchorDate: '',   // anchor date for weekly/fortnightly cycles (YYYY-MM-DD)
   categories: [],  // { id, name, icon, color, type, budgetLimit }
   expenses: [],    // { id, amount, name, categoryId, date }
   currentTab: 'expenses',
@@ -1772,6 +1805,7 @@ function switchAuthTab(mode) {
   document.getElementById('authTabSignup').classList.toggle('active', mode === 'signup');
   document.getElementById('authPasswordConfirm').style.display = mode === 'signup' ? '' : 'none';
   document.getElementById('authSubmitBtn').textContent = mode === 'login' ? 'Sign in' : 'Create account';
+  document.getElementById('authForgotBtn').style.display = mode === 'login' ? '' : 'none';
   document.getElementById('authError').textContent = '';
   document.getElementById('authHint').textContent = mode === 'login'
     ? 'Your data is private and encrypted. Only you can access it.'
@@ -1835,6 +1869,37 @@ async function handleAuthSubmit() {
     errEl.textContent = 'Something went wrong. Please try again.';
     btn.disabled = false;
     btn.textContent = authMode === 'login' ? 'Sign in' : 'Create account';
+  }
+}
+
+async function handleForgotPassword() {
+  const email = document.getElementById('authEmail').value.trim();
+  const errEl = document.getElementById('authError');
+  errEl.textContent = '';
+  if (!email) {
+    errEl.textContent = 'Enter your email address above first.';
+    document.getElementById('authEmail').focus();
+    return;
+  }
+  const btn = document.getElementById('authForgotBtn');
+  btn.disabled = true;
+  btn.textContent = 'Sending…';
+  try {
+    const { error } = await getSB().auth.resetPasswordForEmail(email, {
+      redirectTo: window.location.origin + window.location.pathname,
+    });
+    if (error) {
+      errEl.textContent = friendlyAuthError(error.message);
+    } else {
+      errEl.style.color = 'var(--accent)';
+      errEl.textContent = '✅ Reset link sent — check your email.';
+      setTimeout(() => { errEl.textContent = ''; errEl.style.color = ''; }, 6000);
+    }
+  } catch(e) {
+    errEl.textContent = 'Something went wrong. Please try again.';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Forgot password?';
   }
 }
 
@@ -2067,6 +2132,27 @@ function getSpendColor(categoryId) {
 function getCycleRange(offset) {
   if (offset === undefined) offset = state.viewingCycleOffset || 0;
   const today = new Date(); today.setHours(0,0,0,0);
+  const cycleType = state.cycleType || 'monthly';
+
+  if (cycleType === 'weekly' || cycleType === 'fortnightly') {
+    const days = cycleType === 'weekly' ? 7 : 14;
+    // Use anchorDate as the reference start point
+    const anchorStr = state.cycleAnchorDate || todayStr();
+    const anchor = new Date(anchorStr + 'T00:00:00');
+    // Find how many full cycles have elapsed since anchor
+    const elapsed = Math.floor((today - anchor) / (days * 86400000));
+    // Current cycle start = anchor + elapsed * days
+    const currentStart = new Date(anchor);
+    currentStart.setDate(anchor.getDate() + elapsed * days);
+    // Apply offset
+    const cycleStart = new Date(currentStart);
+    cycleStart.setDate(currentStart.getDate() + offset * days);
+    const cycleEnd = new Date(cycleStart);
+    cycleEnd.setDate(cycleStart.getDate() + days - 1);
+    return { cycleStart, cycleEnd };
+  }
+
+  // Monthly (default)
   const d = today.getDate();
   const cd = state.cycleDay || 1;
   let cycleStart, cycleEnd;
@@ -2209,6 +2295,9 @@ function updateHeader() {
     }
   }
   document.getElementById('budgetDisplay').textContent = budget > 0 ? fmt(budget) : '—';
+  const cycleTypeLabelMap = { monthly: 'Monthly budget', fortnightly: 'Fortnightly budget', weekly: 'Weekly budget' };
+  const budgetCycleLabelEl = document.getElementById('budgetCycleLabel');
+  if (budgetCycleLabelEl) budgetCycleLabelEl.textContent = cycleTypeLabelMap[state.cycleType || 'monthly'] || 'Monthly budget';
 
   const remainEl = document.getElementById('totalRemain');
   if (budget > 0) {
@@ -2658,6 +2747,66 @@ function clearExpenseSearch() {
   else renderExpenses();
 }
 
+let _recurringExpanded = false;
+
+function toggleRecurringSection() {
+  _recurringExpanded = !_recurringExpanded;
+  renderRecurringSection();
+}
+
+function renderRecurringSection() {
+  const container = document.getElementById('recurringCollapsible');
+  if (!container) return;
+  const allUpcoming = isCurrentCycle() ? getUpcomingRecurring().sort((a,b) => a.date.localeCompare(b.date)) : [];
+  if (allUpcoming.length === 0) { container.innerHTML = ''; return; }
+
+  const upTotal = allUpcoming.reduce((s,e) => s + e.amount, 0);
+  const chevron = _recurringExpanded
+    ? '<svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2 8l4-4 4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>'
+    : '<svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2 4l4 4 4-4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
+  let html = '<div style="background:rgba(79,142,247,0.06);border:1.5px solid rgba(79,142,247,0.2);border-radius:var(--r);margin-bottom:14px;overflow:hidden">';
+
+  // Header row — always visible, tap left side to toggle, tap Manage to open modal
+  html += '<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 14px;cursor:pointer;user-select:none">' +
+    '<div style="display:flex;align-items:center;gap:6px;flex:1" onclick="toggleRecurringSection()">' +
+      '<svg width="13" height="13" viewBox="0 0 14 14" fill="none"><circle cx="7" cy="7" r="5.5" stroke="var(--accent)" stroke-width="1.3"/><path d="M7 4v3l2 1.5" stroke="var(--accent)" stroke-width="1.3" stroke-linecap="round"/></svg>' +
+      '<span style="font-size:11px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:0.08em">Recurring this cycle</span>' +
+      '<span style="font-size:11px;color:var(--accent);opacity:0.7">' + allUpcoming.length + '</span>' +
+    '</div>' +
+    '<div style="display:flex;align-items:center;gap:10px">' +
+      '<span onclick="event.stopPropagation();openRecurringList()" style="font-size:11px;font-weight:600;color:var(--accent);cursor:pointer;opacity:0.8;white-space:nowrap">Manage →</span>' +
+      '<div onclick="toggleRecurringSection()" style="display:flex;align-items:center;gap:6px;cursor:pointer">' +
+        '<span style="font-size:12px;font-weight:700;color:var(--accent)">-' + fmt(upTotal) + '</span>' +
+        '<span style="color:var(--accent);opacity:0.7;display:flex;align-items:center">' + chevron + '</span>' +
+      '</div>' +
+    '</div>' +
+  '</div>';
+
+  // Expanded list
+  if (_recurringExpanded) {
+    allUpcoming.forEach((e, i) => {
+      const cat = catById(e.categoryId) || { name:'Unknown', icon:'❓', color:'#888' };
+      const dueDate = new Date(e.date + 'T00:00:00');
+      const today = new Date(); today.setHours(0,0,0,0);
+      const daysUntilDue = Math.round((dueDate - today) / 86400000);
+      const dueStr = daysUntilDue === 1 ? 'Tomorrow' : daysUntilDue === 0 ? 'Today' :
+        dueDate.toLocaleDateString('en-AU',{weekday:'short',day:'numeric',month:'short'});
+      html += '<div style="display:flex;align-items:center;gap:12px;padding:9px 14px;border-top:1px solid rgba(79,142,247,0.12);cursor:pointer" onclick="openRecurringList()">' +
+        '<div style="width:36px;height:36px;display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0">' + cat.icon + '</div>' +
+        '<div style="flex:1;min-width:0">' +
+          '<div style="font-size:13px;font-weight:500">' + e.name + '</div>' +
+          '<div style="font-size:11px;color:var(--muted)">' + cat.name + ' · ' + dueStr + '</div>' +
+        '</div>' +
+        '<div style="font-size:13px;font-weight:600;color:var(--accent)">-' + fmt(e.amount) + '</div>' +
+      '</div>';
+    });
+  }
+
+  html += '</div>';
+  container.innerHTML = html;
+}
+
 function renderExpenses() {
   const el = document.getElementById('content');
 
@@ -2671,15 +2820,17 @@ function renderExpenses() {
 
   const query = expenseSearchQuery.trim().toLowerCase();
 
-  // Build shell with search bar (written once — never rebuilt on keystroke)
-  const searchBar = '<div id="expenseSearchBar" style="display:inline-flex;align-items:center;gap:6px;margin-bottom:14px;background:var(--surface);border-radius:var(--r);padding:0 14px;border:1.5px solid ' + (query ? 'var(--accent)' : 'transparent') + ';height:34px;width:100%;box-sizing:border-box">' +
+  // Build shell with search bar + collapsible recurring + results
+  const searchBar = '<div id="expenseSearchBar" style="display:inline-flex;align-items:center;gap:6px;margin-bottom:10px;background:var(--surface);border-radius:var(--r);padding:0 14px;border:1.5px solid ' + (query ? 'var(--accent)' : 'transparent') + ';height:34px;width:100%;box-sizing:border-box">' +
     '<svg width="13" height="13" viewBox="0 0 15 15" fill="none" style="flex-shrink:0;opacity:0.4"><circle cx="6" cy="6" r="4.5" stroke="currentColor" stroke-width="1.5"/><path d="M10 10l3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>' +
     '<input id="expenseSearchInput" type="text" placeholder="Search expenses\u2026" value="' + (query ? query.replace(/"/g,'&quot;') : '') + '" oninput="debounceSearch(this.value)" style="flex:1;background:none;border:none;outline:none;color:var(--text);font-size:16px;font-family:var(--font);padding:0;margin:0;height:100%">' +
     '<button id="expenseSearchClear" onclick="clearExpenseSearch()" style="display:' + (query ? '' : 'none') + ';background:none;border:none;color:var(--muted);font-size:16px;cursor:pointer;padding:0;line-height:1;flex-shrink:0">\u00d7</button>' +
   '</div>' +
+  '<div id="recurringCollapsible"></div>' +
   '<div id="expenseResults"></div>';
 
   el.innerHTML = searchBar;
+  renderRecurringSection();
   renderExpenseResults(document.getElementById('expenseResults'));
 }
 
@@ -2701,41 +2852,9 @@ function renderExpenseResults(resultsEl) {
     return (cat ? cat.name.toLowerCase() : '').includes(query) || (e.name||'').toLowerCase().includes(query);
   }) : allUpcoming;
 
-  // ── Upcoming recurring section ─────────────────────────────────────────────
-  let upcomingHTML = '';
-  const showUpcoming = query ? upcomingFiltered.length > 0 : allUpcoming.length > 0;
-  const upcomingToShow = query ? upcomingFiltered : allUpcoming;
+  // ── Upcoming recurring section handled by collapsible above search results ─
 
-  if (showUpcoming) {
-    const upTotal = upcomingToShow.reduce((s,e) => s + e.amount, 0);
-    upcomingHTML = '<div style="background:rgba(79,142,247,0.06);border:1.5px solid rgba(79,142,247,0.2);border-radius:var(--r);margin-bottom:16px;overflow:hidden">';
-    upcomingHTML += '<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 14px 8px">' +
-      '<div style="display:flex;align-items:center;gap:6px">' +
-        '<svg width="13" height="13" viewBox="0 0 14 14" fill="none"><circle cx="7" cy="7" r="5.5" stroke="var(--accent)" stroke-width="1.3"/><path d="M7 4v3l2 1.5" stroke="var(--accent)" stroke-width="1.3" stroke-linecap="round"/></svg>' +
-        '<span style="font-size:11px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:0.08em">' + (query ? 'Upcoming matches' : 'Coming up this cycle') + '</span>' +
-      '</div>' +
-      '<span style="font-size:12px;font-weight:700;color:var(--accent)">-' + fmt(upTotal) + ' committed</span>' +
-    '</div>';
-    upcomingToShow.forEach((e, i) => {
-      const cat = catById(e.categoryId) || { name:'Unknown', icon:'\u2753', color:'#888' };
-      const dueDate = new Date(e.date + 'T00:00:00');
-      const today = new Date(); today.setHours(0,0,0,0);
-      const daysUntilDue = Math.round((dueDate - today) / 86400000);
-      const dueStr = daysUntilDue === 1 ? 'Tomorrow' : daysUntilDue === 0 ? 'Today' :
-        dueDate.toLocaleDateString('en-AU',{weekday:'short',day:'numeric',month:'short'});
-      upcomingHTML += '<div style="display:flex;align-items:center;gap:12px;padding:9px 14px;' + (i > 0 ? 'border-top:1px solid rgba(79,142,247,0.1)' : '') + '">' +
-        '<div style="width:36px;height:36px;display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0">' + cat.icon + '</div>' +
-        '<div style="flex:1;min-width:0">' +
-          '<div style="font-size:13px;font-weight:500">' + e.name + '</div>' +
-          '<div style="font-size:11px;color:var(--muted)">' + cat.name + ' \u00b7 ' + dueStr + '</div>' +
-        '</div>' +
-        '<div style="font-size:13px;font-weight:600;color:' + getSpendColor(e.categoryId) + '">-' + fmt(e.amount) + '</div>' +
-      '</div>';
-    });
-    upcomingHTML += '</div>';
-  }
-
-  if (expenses.length === 0 && !upcomingHTML) {
+  if (expenses.length === 0) {
     resultsEl.innerHTML = query
       ? '<div class="empty"><div class="empty-icon">\ud83d\udd0d</div><div class="empty-text">No results</div><div class="empty-sub">No expenses match \"' + query + '\"</div></div>'
       : '<div class="empty"><div class="empty-icon">\ud83d\udcb8</div><div class="empty-text">No expenses yet</div><div class="empty-sub">Tap + to add your first expense</div></div>';
@@ -2745,7 +2864,7 @@ function renderExpenseResults(resultsEl) {
   const groups = {};
   expenses.forEach(e => { if (!groups[e.date]) groups[e.date] = []; groups[e.date].push(e); });
 
-  let html = upcomingHTML + (query ? '' : buildSpendLegend());
+  let html = (query ? '' : buildSpendLegend());
 
   if (query) {
     const loggedTotal = expenses.reduce((s,e) => s + e.amount, 0);
@@ -2808,7 +2927,7 @@ function onboardingHTML() {
     '<div class="onboard-step" style="' + (!hasPin ? 'opacity:0.45' : '') + '">' +
       '<div class="step-num ' + (hasBudget ? 'step-done' : '') + '">' + (hasBudget ? '✓' : '2') + '</div>' +
       '<div class="step-text"><div class="step-title">Set your budget & cycle</div>' +
-      '<div class="step-desc">Enter your monthly budget and the day your credit card cycle starts.</div></div>' +
+      '<div class="step-desc">Set your budget and choose how your spending cycle works — monthly, fortnightly, or weekly.</div></div>' +
       (hasPin ? '<button onclick="openSettings()" style="' + btnS + '">' + (hasBudget ? 'Edit' : 'Set up') + '</button>' : '<button style="' + dimS + '" disabled>Set up</button>') +
     '</div>' +
     '<div class="onboard-step" style="' + (!hasPin ? 'opacity:0.45' : '') + '">' +
@@ -3508,8 +3627,29 @@ function renderGoals() {
   const tLeftColor  = totalLeft < 0 ? 'var(--red)' : 'var(--text)';
   const tSpentColor = totalSpent > totalBudget && totalBudget > 0 ? 'var(--red)' : 'var(--text)';
 
+  const overallBudget = state.budget || 0;
+  const cycleLabel = ({ monthly: 'monthly', fortnightly: 'fortnightly', weekly: 'weekly' })[state.cycleType || 'monthly'];
+  const catSumOverBudget = overallBudget > 0 && totalBudget > overallBudget + 0.01;
+  const catBudgetTipId = 'tip-catbudget-total';
+  const budgetWarnIcon = catSumOverBudget
+    ? ' <span onclick="event.stopPropagation();toggleBudgetWarnTip(\'' + catBudgetTipId + '\')" style="cursor:pointer;font-size:13px;line-height:1;vertical-align:middle">⚠️</span>'
+    : '';
+  const budgetTooltipHtml = catSumOverBudget
+    ? '<div id="' + catBudgetTipId + '" style="display:none;background:var(--surface);border:1px solid var(--orange);border-radius:10px;padding:12px 14px;margin:-6px 0 10px;font-size:12px;color:var(--muted);line-height:1.6">' +
+        'The sum of your category budgets (<strong style="color:var(--text)">' + fmt(totalBudget) + '</strong>) exceeds your ' + cycleLabel + ' budget (<strong style="color:var(--text)">' + fmt(overallBudget) + '</strong>) by <strong style="color:var(--red)">' + fmt(totalBudget - overallBudget) + '</strong>. You may not be able to afford all your categories this ' + cycleLabel + ' cycle.' +
+      '</div>'
+    : '';
+  const budgetInfoTipId = 'tip-catbudget-info';
+  const budgetInfoIcon = '<span style="position:relative;display:inline-flex;align-items:center;vertical-align:middle;margin-left:3px">' +
+    '<i class="spendly-tip-icon" onclick="event.stopPropagation();showTip(\'' + budgetInfoTipId + '\')" style="cursor:pointer">i</i>' +
+    '<div class="spendly-tip-box" id="' + budgetInfoTipId + '" style="right:0;left:auto;transform:none;width:230px">This is the sum of all your category budgets. It should match your ' + cycleLabel + ' budget to make sure every dollar is accounted for.</div>' +
+  '</span>';
+
   let html = '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:8px 0 14px">' +
-    '<div style="background:var(--surface);border-radius:var(--r);padding:11px 12px"><div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:4px">Budget</div><div style="font-size:16px;font-weight:700;letter-spacing:-0.3px">' + fmt(totalBudget) + '</div></div>' +
+    '<div style="background:var(--surface);border-radius:var(--r);padding:11px 12px"><div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:4px;display:flex;align-items:center;gap:2px">Budget' + budgetInfoIcon + budgetWarnIcon + '</div>' +
+    '<div style="font-size:16px;font-weight:700;letter-spacing:-0.3px;color:' + (catSumOverBudget ? 'var(--orange)' : 'var(--text)') + '">' + fmt(totalBudget) + '</div>' +
+    budgetTooltipHtml +
+    '</div>' +
     '<div style="background:var(--surface);border-radius:var(--r);padding:11px 12px"><div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:4px">Spent</div><div style="font-size:16px;font-weight:700;letter-spacing:-0.3px;color:' + tSpentColor + '">' + fmt(totalSpent) + '</div></div>' +
     '<div style="background:var(--surface);border-radius:var(--r);padding:11px 12px"><div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:4px">Left</div><div style="font-size:16px;font-weight:700;letter-spacing:-0.3px;color:' + tLeftColor + '">' + (totalLeft<0?'-':'') + fmt(Math.abs(totalLeft)) + '</div></div>' +
   '</div>';
@@ -3714,16 +3854,29 @@ function openSettings() {
   openModal('settingsModal');
 }
 
+function settingsSetCycleType(type) {
+  ['monthly','fortnightly','weekly'].forEach(t => {
+    const btn = document.getElementById('setCycleType' + t.charAt(0).toUpperCase() + t.slice(1));
+    if (btn) btn.classList.toggle('active', t === type);
+  });
+  const isMonthly = type === 'monthly';
+  document.getElementById('setMonthlyCycleFields').style.display = isMonthly ? '' : 'none';
+  document.getElementById('setAnchorCycleFields').style.display = isMonthly ? 'none' : '';
+}
+
 function openSettingsSheet(sheet) {
   if (sheet === 'budget') {
     document.getElementById('setAppName2').value = state.appName || '';
     document.getElementById('setBudget2').value = state.budget || '';
     document.getElementById('setCycleDay2').value = state.cycleDay || '';
+    document.getElementById('setCycleAnchor2').value = state.cycleAnchorDate || '';
     document.getElementById('setCity2').value = state.city || '';
     document.getElementById('setCountry2').value = state.country || 'Australia';
     const tz = state.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone;
     const tzEl = document.getElementById('setTimezoneDisplay2');
     if (tzEl) tzEl.textContent = '🌏 Detected timezone: ' + tz;
+    // Set cycle type buttons
+    settingsSetCycleType(state.cycleType || 'monthly');
     openModal('settingsBudgetModal');
   } else if (sheet === 'appearance') {
     buildSpendColorRowsIn('spendColorRows2');
@@ -3734,13 +3887,26 @@ function openSettingsSheet(sheet) {
 function saveBudgetSettings() {
   const name = document.getElementById('setAppName2').value.trim();
   const budget = parseFloat(document.getElementById('setBudget2').value) || 0;
-  const cycleDay = parseInt(document.getElementById('setCycleDay2').value) || 1;
   const city = document.getElementById('setCity2').value.trim();
   const country = document.getElementById('setCountry2').value.trim();
   if (budget <= 0) { showToast('Please enter a budget amount', 2500); return; }
+  // Determine active cycle type from buttons
+  let cycleType = 'monthly';
+  ['monthly','fortnightly','weekly'].forEach(t => {
+    const btn = document.getElementById('setCycleType' + t.charAt(0).toUpperCase() + t.slice(1));
+    if (btn && btn.classList.contains('active')) cycleType = t;
+  });
   state.appName = name;
   state.budget = budget;
-  state.cycleDay = Math.min(Math.max(cycleDay, 1), 28);
+  state.cycleType = cycleType;
+  if (cycleType === 'monthly') {
+    const cycleDay = parseInt(document.getElementById('setCycleDay2').value) || 1;
+    state.cycleDay = Math.min(Math.max(cycleDay, 1), 28);
+    state.cycleAnchorDate = '';
+  } else {
+    state.cycleAnchorDate = document.getElementById('setCycleAnchor2').value || todayStr();
+    state.cycleDay = 1;
+  }
   state.city = city;
   state.country = country;
   state.timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
@@ -4151,36 +4317,75 @@ function wbCheckName() {
   document.getElementById('wbNameBtn').disabled = val.length < 1;
 }
 
+let _wbCycleType = 'monthly';
+
+function wbSetCycleType(type) {
+  _wbCycleType = type;
+  ['monthly','fortnightly','weekly'].forEach(t => {
+    const btn = document.getElementById('wbCycleType' + t.charAt(0).toUpperCase() + t.slice(1));
+    if (btn) btn.classList.toggle('active', t === type);
+  });
+  const isMonthly = type === 'monthly';
+  document.getElementById('wbMonthlyCycleFields').style.display = isMonthly ? '' : 'none';
+  document.getElementById('wbAnchorCycleFields').style.display = isMonthly ? 'none' : '';
+  if (!isMonthly && !document.getElementById('wbCycleAnchor').value) {
+    document.getElementById('wbCycleAnchor').value = todayStr();
+  }
+  wbCheckCycle();
+}
+
 function wbCheckCycle() {
   const budget = parseFloat(document.getElementById('wbBudget').value);
-  const cd = parseInt(document.getElementById('wbCycleDay').value);
-  const ok = budget > 0 && cd >= 1 && cd <= 28;
-  document.getElementById('wbCycleBtn').disabled = !ok;
-  if (cd >= 1 && cd <= 28) {
-    const today = new Date();
-    const d = today.getDate();
-    let cycleStart;
-    if (d >= cd) {
-      cycleStart = new Date(today.getFullYear(), today.getMonth(), cd);
-    } else {
-      cycleStart = new Date(today.getFullYear(), today.getMonth() - 1, cd);
-    }
-    const cycleEnd = new Date(cycleStart);
-    cycleEnd.setMonth(cycleEnd.getMonth() + 1);
-    cycleEnd.setDate(cycleEnd.getDate() - 1);
-    const opts = { day:'numeric', month:'short' };
-    document.getElementById('wbCyclePreview').textContent =
-      'Current cycle: ' + cycleStart.toLocaleDateString('en-AU', opts) + ' – ' + cycleEnd.toLocaleDateString('en-AU', opts);
+  let valid = budget > 0;
+  const opts = { day:'numeric', month:'short' };
+  const previewEl = document.getElementById('wbCyclePreview');
+
+  if (_wbCycleType === 'monthly') {
+    const cd = parseInt(document.getElementById('wbCycleDay').value);
+    valid = valid && cd >= 1 && cd <= 28;
+    if (cd >= 1 && cd <= 28) {
+      const today = new Date();
+      const d = today.getDate();
+      let cycleStart = d >= cd
+        ? new Date(today.getFullYear(), today.getMonth(), cd)
+        : new Date(today.getFullYear(), today.getMonth() - 1, cd);
+      const cycleEnd = new Date(cycleStart.getFullYear(), cycleStart.getMonth() + 1, cd - 1);
+      previewEl.textContent = 'Current cycle: ' + cycleStart.toLocaleDateString('en-AU', opts) + ' – ' + cycleEnd.toLocaleDateString('en-AU', opts);
+    } else { previewEl.textContent = ''; }
   } else {
-    document.getElementById('wbCyclePreview').textContent = '';
+    const anchor = document.getElementById('wbCycleAnchor').value;
+    valid = valid && !!anchor;
+    if (anchor) {
+      const days = _wbCycleType === 'weekly' ? 7 : 14;
+      const anchorDate = new Date(anchor + 'T00:00:00');
+      const today = new Date(); today.setHours(0,0,0,0);
+      const elapsed = Math.floor((today - anchorDate) / (days * 86400000));
+      const cycleStart = new Date(anchorDate);
+      cycleStart.setDate(anchorDate.getDate() + elapsed * days);
+      const cycleEnd = new Date(cycleStart);
+      cycleEnd.setDate(cycleStart.getDate() + days - 1);
+      previewEl.textContent = 'Current cycle: ' + cycleStart.toLocaleDateString('en-AU', opts) + ' – ' + cycleEnd.toLocaleDateString('en-AU', opts);
+    } else { previewEl.textContent = ''; }
   }
+  document.getElementById('wbCycleBtn').disabled = !valid;
 }
 
 function wbSubmitCycle() {
   const budget = parseFloat(document.getElementById('wbBudget').value);
-  const cd = parseInt(document.getElementById('wbCycleDay').value);
-  if (!budget || !cd) return;
-  state.budget = budget; state.cycleDay = cd;
+  if (!budget) return;
+  state.budget = budget;
+  state.cycleType = _wbCycleType;
+  if (_wbCycleType === 'monthly') {
+    const cd = parseInt(document.getElementById('wbCycleDay').value);
+    if (!cd) return;
+    state.cycleDay = cd;
+    state.cycleAnchorDate = '';
+  } else {
+    const anchor = document.getElementById('wbCycleAnchor').value;
+    if (!anchor) return;
+    state.cycleAnchorDate = anchor;
+    state.cycleDay = 1;
+  }
   saveState(); updateHeader();
   wbGoTo(4);
 }
