@@ -285,15 +285,18 @@ async function applyUpdate() {
   .tab-config-locked { font-size:11px; color:var(--muted); flex-shrink:0; }
 
   /* Settings */
-  .settings-section-label { font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;padding:20px 4px 8px; }
-  .settings-group { background:var(--surface);border-radius:16px;overflow:hidden;margin-bottom:4px; }
-  .settings-row { display:flex;align-items:center;gap:14px;padding:14px 16px;cursor:pointer;transition:background 0.1s;-webkit-tap-highlight-color:transparent; }
-  .settings-row:not(:last-child) { border-bottom:1px solid var(--surface2); }
+  .settings-section-label { font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;padding:20px 4px 8px; }
+  .settings-group { margin-bottom:8px; }
+  .settings-row { background:var(--surface);border:1px solid var(--border);display:flex;align-items:center;gap:12px;padding:14px 16px;cursor:pointer;transition:background 0.1s;-webkit-tap-highlight-color:transparent; }
+  .settings-row:first-child { border-radius:16px 16px 0 0; }
+  .settings-row:last-child { border-radius:0 0 16px 16px; }
+  .settings-row:only-child { border-radius:16px; }
+  .settings-row + .settings-row { border-top:none; }
   .settings-row:active { background:var(--surface2); }
-  .settings-row-icon { width:34px;height:34px;border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0; }
+  .settings-row-icon { font-size:20px;flex-shrink:0;width:24px;text-align:center; }
   .settings-row-label { flex:1;font-size:15px;font-weight:500;color:var(--text); }
   .settings-row-sub { font-size:12px;color:var(--muted);flex-shrink:0;margin-right:4px; }
-  .settings-row-chevron { font-size:18px;color:var(--border);flex-shrink:0;line-height:1;font-weight:300; }
+  .settings-row-chevron { font-size:14px;color:var(--muted);flex-shrink:0;line-height:1; }
   .settings-row-value { font-size:13px;color:var(--muted);flex-shrink:0;margin-right:2px; }
 
   .wb-cycle-type-btn { background:var(--surface2);border:2px solid var(--border);border-radius:12px;padding:12px 8px;font-size:13px;font-family:var(--font);color:var(--muted);cursor:pointer;text-align:center;line-height:1.5;transition:all 0.15s; }
@@ -868,7 +871,19 @@ async function applyUpdate() {
 <div class="modal-overlay" id="settingsModal">
   <div class="modal">
     <div class="modal-handle"></div>
-    <div class="modal-title" id="settingsTitle" style="text-align:center">Settings</div>
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:0 20px 4px">
+      <div style="font-size:22px;font-weight:700;letter-spacing:-0.3px">Settings ⚙️</div>
+      <button onclick="closeModal('settingsModal')" style="background:var(--surface2);border:none;border-radius:50%;width:32px;height:32px;font-size:16px;color:var(--muted);cursor:pointer;display:flex;align-items:center;justify-content:center;font-weight:500">✕</button>
+    </div>
+
+    <!-- App identity card -->
+    <div style="flex:1;overflow-y:auto;background:var(--surface2);padding:0 0 32px">
+
+    <div style="display:flex;flex-direction:column;align-items:center;padding:24px 20px 8px">
+      <div style="width:72px;height:72px;border-radius:20px;background:linear-gradient(135deg,#1a5cff,#34C759);display:flex;align-items:center;justify-content:center;font-size:36px;margin-bottom:10px;box-shadow:0 4px 20px rgba(79,142,247,0.3)">💚</div>
+      <div style="font-size:20px;font-weight:800;letter-spacing:-0.5px">Spendly</div>
+      <div style="font-size:12px;color:var(--muted);margin-top:3px">v<span id="appVersionDisplay"></span> · <span id="appBuildTime"></span></div>
+    </div>
 
     <!-- Hidden form fields still needed by saveSettings() -->
     <div style="display:none">
@@ -881,12 +896,7 @@ async function applyUpdate() {
       <div id="spendColorRows"></div>
     </div>
 
-    <!-- ── App identity card ─────────────────────────────── -->
-    <div style="display:flex;flex-direction:column;align-items:center;padding:8px 0 24px">
-      <div style="width:72px;height:72px;border-radius:20px;background:linear-gradient(135deg,#1a5cff,#34C759);display:flex;align-items:center;justify-content:center;font-size:36px;margin-bottom:10px;box-shadow:0 4px 20px rgba(79,142,247,0.3)">💚</div>
-      <div style="font-size:20px;font-weight:800;letter-spacing:-0.5px">Spendly</div>
-      <div style="font-size:12px;color:var(--muted);margin-top:3px">v<span id="appVersionDisplay"></span> · <span id="appBuildTime"></span></div>
-    </div>
+    <div style="padding:0 16px">
 
     <!-- ── Preferences group ─────────────────────────────── -->
     <div class="settings-section-label">Preferences</div>
@@ -946,16 +956,17 @@ async function applyUpdate() {
     </div>
 
     <!-- ── Sign out ───────────────────────────────────────── -->
-    <div id="signOutBtn" class="settings-group" style="margin-top:24px">
+    <div id="signOutBtn" class="settings-group" style="margin-top:8px">
       <div class="settings-row" onclick="signOut()">
         <span class="settings-row-icon">🚪</span>
         <span class="settings-row-label" style="color:var(--red)">Sign out</span>
       </div>
     </div>
 
-    <div style="height:16px"></div>
-  </div>
-</div>
+    </div><!-- /padding -->
+    </div><!-- /scrollable -->
+  </div><!-- /modal -->
+</div><!-- /modal-overlay -->
 
 <!-- Settings sub-sheet: Budget & cycle -->
 <div class="modal-overlay" id="settingsBudgetModal">
@@ -1653,7 +1664,7 @@ const PALETTE = [
 // ── State ─────────────────────────────────────────────────────────────────────
 const APP_VERSION = '1.7.9';
 const BUILD_DATE = '2026-03-23';
-const BUILD_TIME = '23 Mar 2026 8:32 AM AEDT';
+const BUILD_TIME = '23 Mar 2026 9:54 AM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
