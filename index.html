@@ -36,7 +36,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '1.7.2-202603221052';
+  const APP_VER = '1.7.3-202603221112';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -192,7 +192,7 @@ async function applyUpdate() {
   .section-label { font-size: 10px; color: var(--muted); letter-spacing: 0.1em; text-transform: uppercase; margin: 16px 0 8px; }
   .list-item { display: flex; align-items: center; gap: 12px; padding: 12px 14px; background: var(--surface); border-radius: var(--r); margin-bottom: 8px; cursor: pointer; transition: background 0.1s; }
   .list-item:active { background: var(--surface2); }
-  .cat-icon { width: 38px; height: 38px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 18px; flex-shrink: 0; }
+  .cat-icon { width: 38px; height: 38px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 22px; flex-shrink: 0; }
   .item-info { flex: 1; min-width: 0; }
   .item-name { font-size: 14px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .item-meta { font-size: 11px; color: var(--muted); margin-top: 2px; }
@@ -1619,9 +1619,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '1.7.2';
+const APP_VERSION = '1.7.3';
 const BUILD_DATE = '2026-03-22';
-const BUILD_TIME = '22 Mar 2026 10:52 AM AEDT';
+const BUILD_TIME = '22 Mar 2026 11:12 AM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -2724,7 +2724,7 @@ function renderExpenseResults(resultsEl) {
       const dueStr = daysUntilDue === 1 ? 'Tomorrow' : daysUntilDue === 0 ? 'Today' :
         dueDate.toLocaleDateString('en-AU',{weekday:'short',day:'numeric',month:'short'});
       upcomingHTML += '<div style="display:flex;align-items:center;gap:12px;padding:9px 14px;' + (i > 0 ? 'border-top:1px solid rgba(79,142,247,0.1)' : '') + '">' +
-        '<div style="width:36px;height:36px;border-radius:10px;background:' + cat.color + '22;display:flex;align-items:center;justify-content:center;font-size:17px;flex-shrink:0">' + cat.icon + '</div>' +
+        '<div style="width:36px;height:36px;display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0">' + cat.icon + '</div>' +
         '<div style="flex:1;min-width:0">' +
           '<div style="font-size:13px;font-weight:500">' + e.name + '</div>' +
           '<div style="font-size:11px;color:var(--muted)">' + cat.name + ' \u00b7 ' + dueStr + '</div>' +
@@ -2779,7 +2779,7 @@ function renderExpenseResults(resultsEl) {
         '<svg width="22" height="22" viewBox="0 0 22 22" fill="none"><path d="M5 7h12M9 7V5h4v2M10 11v4M12 11v4M6 7l1 11h8l1-11" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>' +
         '</div>' +
         '<div class="list-item" onclick="openEditExpense(\'' + e.id + '\')">' +
-        '<div class="cat-icon" style="background:' + cat.color + '22">' + cat.icon + '</div>' +
+        '<div class="cat-icon">' + cat.icon + '</div>' +
         '<div class="item-info"><div class="item-name">' + cat.name + '</div>' + (e.name ? '<div class="item-meta">' + e.name + '</div>' : '') + '</div>' +
         '<div class="item-amount" style="color:' + getSpendColor(e.categoryId) + '">' + fmt(e.amount) + '</div></div></div>';
     });
