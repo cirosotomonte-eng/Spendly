@@ -36,7 +36,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '1.7.8-202603221955';
+  const APP_VER = '1.7.8-202603222012';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -488,7 +488,8 @@ async function applyUpdate() {
   #launchScreen { -webkit-transform: translateZ(0); }
 
   .spendly-tip { position:relative; display:inline-flex; align-items:center; }
-  .spendly-tip-icon { width:16px;height:16px;border-radius:50%;background:none;border:1.5px solid var(--muted);color:var(--muted);font-size:10px;font-weight:700;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;margin-left:5px;line-height:1;font-style:normal;opacity:0.6; }
+  .spendly-tip-icon { width:16px;height:16px;border-radius:50%;background:none;border:1.5px solid var(--muted);color:transparent;font-size:0;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;margin-left:5px;line-height:1;font-style:normal;opacity:0.7;position:relative; }
+  .spendly-tip-icon::after { content:''; display:block; width:10px;height:10px; background:var(--muted); mask-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'%3E%3Ccircle cx='5' cy='2.5' r='0.9' fill='currentColor'/%3E%3Crect x='4.2' y='4.2' width='1.6' height='4.2' rx='0.7' fill='currentColor'/%3E%3C/svg%3E"); -webkit-mask-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'%3E%3Ccircle cx='5' cy='2.5' r='0.9' fill='currentColor'/%3E%3Crect x='4.2' y='4.2' width='1.6' height='4.2' rx='0.7' fill='currentColor'/%3E%3C/svg%3E"); mask-size:contain; -webkit-mask-size:contain; mask-repeat:no-repeat; -webkit-mask-repeat:no-repeat; mask-position:center; -webkit-mask-position:center; }
   .spendly-tip-box { display:none;position:absolute;top:calc(100% + 6px);left:0;transform:none;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:10px 12px;font-size:11px;font-weight:400;color:var(--muted);line-height:1.6;width:240px;z-index:200;box-shadow:0 4px 16px rgba(0,0,0,0.2);pointer-events:none;text-transform:none;letter-spacing:normal; }
   .spendly-tip-box.visible { display:block; }
 </style>
@@ -1652,7 +1653,7 @@ const PALETTE = [
 // ── State ─────────────────────────────────────────────────────────────────────
 const APP_VERSION = '1.7.8';
 const BUILD_DATE = '2026-03-22';
-const BUILD_TIME = '22 Mar 2026 4:39 PM AEDT';
+const BUILD_TIME = '22 Mar 2026 8:12 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
