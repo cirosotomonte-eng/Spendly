@@ -36,7 +36,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '1.7.8-202603222012';
+  const APP_VER = '1.7.8-202603222025';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -1653,7 +1653,7 @@ const PALETTE = [
 // ── State ─────────────────────────────────────────────────────────────────────
 const APP_VERSION = '1.7.8';
 const BUILD_DATE = '2026-03-22';
-const BUILD_TIME = '22 Mar 2026 8:12 PM AEDT';
+const BUILD_TIME = '22 Mar 2026 8:25 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -10062,7 +10062,34 @@ async function init() {
       }
     }, 6000);
     try {
-      const { data: { session } } = await getSB().auth.getSession();
+      // First attempt
+      let { data: { session } } = await getSB().auth.getSession();
+
+      // If no session, try to restore from any Supabase tokens persisted in localStorage
+      // (Supabase stores keys like sb-<ref>-auth-token)
+      if (!session) {
+        try {
+          const lsKey = Object.keys(localStorage).find(k => k.startsWith('sb-') && k.endsWith('-auth-token'));
+          if (lsKey) {
+            const stored = JSON.parse(localStorage.getItem(lsKey));
+            if (stored && stored.access_token && stored.refresh_token) {
+              const { data } = await getSB().auth.setSession({
+                access_token: stored.access_token,
+                refresh_token: stored.refresh_token
+              });
+              session = data.session;
+            }
+          }
+        } catch(e2) { /* ignore restore attempt errors */ }
+      }
+
+      // If still no session, wait 800ms and retry once — handles race on first load after deploy
+      if (!session) {
+        await new Promise(r => setTimeout(r, 800));
+        const retry = await getSB().auth.getSession();
+        session = retry.data.session;
+      }
+
       _sbSession = session;
       if (!_sbSession) {
         hideLaunchScreen(() => { showAuthScreen(); });
