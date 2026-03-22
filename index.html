@@ -36,7 +36,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '1.7.7-202603221820';
+  const APP_VER = '1.7.7-202603221848';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -2817,6 +2817,20 @@ function clearExpenseSearch() {
 }
 
 let _recurringExpanded = false;
+let _expensesSubTab = 'log'; // 'log' | 'recurring'
+
+function setExpensesSubTab(tab) {
+  _expensesSubTab = tab;
+  const logBtn = document.getElementById('expSubTabLog');
+  const recBtn = document.getElementById('expSubTabRecurring');
+  if (logBtn) { logBtn.style.background = tab === 'log' ? 'var(--accent)' : 'var(--surface2)'; logBtn.style.color = tab === 'log' ? '#fff' : 'var(--muted)'; }
+  if (recBtn) { recBtn.style.background = tab === 'recurring' ? 'var(--accent)' : 'var(--surface2)'; recBtn.style.color = tab === 'recurring' ? '#fff' : 'var(--muted)'; }
+  const logPane = document.getElementById('expPaneLog');
+  const recPane = document.getElementById('expPaneRecurring');
+  if (logPane) logPane.style.display = tab === 'log' ? '' : 'none';
+  if (recPane) recPane.style.display = tab === 'recurring' ? '' : 'none';
+  if (tab === 'recurring') renderRecurringPane();
+}
 
 function toggleRecurringSection() {
   _recurringExpanded = !_recurringExpanded;
@@ -2836,19 +2850,16 @@ function renderRecurringSection() {
 
   let html = '<div style="background:rgba(79,142,247,0.06);border:1.5px solid rgba(79,142,247,0.2);border-radius:var(--r);margin-bottom:14px;overflow:hidden">';
 
-  // Header row — always visible, tap left side to toggle, tap Manage to open modal
-  html += '<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 14px;cursor:pointer;user-select:none">' +
-    '<div style="display:flex;align-items:center;gap:6px;flex:1" onclick="toggleRecurringSection()">' +
+  // Header row — tap to toggle only (no manage link — use Recurring tab instead)
+  html += '<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 14px;cursor:pointer;user-select:none" onclick="toggleRecurringSection()">' +
+    '<div style="display:flex;align-items:center;gap:6px">' +
       '<svg width="13" height="13" viewBox="0 0 14 14" fill="none"><circle cx="7" cy="7" r="5.5" stroke="var(--accent)" stroke-width="1.3"/><path d="M7 4v3l2 1.5" stroke="var(--accent)" stroke-width="1.3" stroke-linecap="round"/></svg>' +
       '<span style="font-size:11px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:0.08em">Recurring this cycle</span>' +
       '<span style="font-size:11px;color:var(--accent);opacity:0.7">' + allUpcoming.length + '</span>' +
     '</div>' +
-    '<div style="display:flex;align-items:center;gap:10px">' +
-      '<span onclick="event.stopPropagation();openRecurringList()" style="font-size:11px;font-weight:600;color:var(--accent);cursor:pointer;opacity:0.8;white-space:nowrap">Manage →</span>' +
-      '<div onclick="toggleRecurringSection()" style="display:flex;align-items:center;gap:6px;cursor:pointer">' +
-        '<span style="font-size:12px;font-weight:700;color:var(--accent)">-' + fmt(upTotal) + '</span>' +
-        '<span style="color:var(--accent);opacity:0.7;display:flex;align-items:center">' + chevron + '</span>' +
-      '</div>' +
+    '<div style="display:flex;align-items:center;gap:8px">' +
+      '<span style="font-size:12px;font-weight:700;color:var(--accent)">-' + fmt(upTotal) + '</span>' +
+      '<span style="color:var(--accent);opacity:0.7;display:flex;align-items:center">' + chevron + '</span>' +
     '</div>' +
   '</div>';
 
@@ -2861,7 +2872,7 @@ function renderRecurringSection() {
       const daysUntilDue = Math.round((dueDate - today) / 86400000);
       const dueStr = daysUntilDue === 1 ? 'Tomorrow' : daysUntilDue === 0 ? 'Today' :
         dueDate.toLocaleDateString('en-AU',{weekday:'short',day:'numeric',month:'short'});
-      html += '<div style="display:flex;align-items:center;gap:12px;padding:9px 14px;border-top:1px solid rgba(79,142,247,0.12);cursor:pointer" onclick="openRecurringList()">' +
+      html += '<div style="display:flex;align-items:center;gap:12px;padding:9px 14px;border-top:1px solid rgba(79,142,247,0.12)">' +
         '<div style="width:36px;height:36px;display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0">' + cat.icon + '</div>' +
         '<div style="flex:1;min-width:0">' +
           '<div style="font-size:13px;font-weight:500">' + e.name + '</div>' +
@@ -2890,20 +2901,103 @@ function renderExpenses() {
   const query = expenseSearchQuery.trim().toLowerCase();
 
   // Build shell with search bar + collapsible recurring + results
+  const subTabBar = '<div style="display:flex;gap:6px;margin-bottom:12px">' +
+    '<button id="expSubTabLog" onclick="setExpensesSubTab(\'log\')" style="flex:1;padding:8px;border-radius:10px;border:none;font-size:13px;font-weight:600;font-family:var(--font);cursor:pointer;transition:all 0.15s;background:var(--accent);color:#fff">Log</button>' +
+    '<button id="expSubTabRecurring" onclick="setExpensesSubTab(\'recurring\')" style="flex:1;padding:8px;border-radius:10px;border:none;font-size:13px;font-weight:600;font-family:var(--font);cursor:pointer;transition:all 0.15s;background:var(--surface2);color:var(--muted)">Recurring</button>' +
+  '</div>';
+
   const searchBar = '<div id="expenseSearchBar" style="display:inline-flex;align-items:center;gap:6px;margin-bottom:10px;background:var(--surface);border-radius:var(--r);padding:0 14px;border:1.5px solid ' + (query ? 'var(--accent)' : 'transparent') + ';height:34px;width:100%;box-sizing:border-box">' +
     '<svg width="13" height="13" viewBox="0 0 15 15" fill="none" style="flex-shrink:0;opacity:0.4"><circle cx="6" cy="6" r="4.5" stroke="currentColor" stroke-width="1.5"/><path d="M10 10l3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>' +
     '<input id="expenseSearchInput" type="text" placeholder="Search expenses\u2026" value="' + (query ? query.replace(/"/g,'&quot;') : '') + '" oninput="debounceSearch(this.value)" style="flex:1;background:none;border:none;outline:none;color:var(--text);font-size:16px;font-family:var(--font);padding:0;margin:0;height:100%">' +
     '<button id="expenseSearchClear" onclick="clearExpenseSearch()" style="display:' + (query ? '' : 'none') + ';background:none;border:none;color:var(--muted);font-size:16px;cursor:pointer;padding:0;line-height:1;flex-shrink:0">\u00d7</button>' +
-  '</div>' +
-  '<div id="recurringCollapsible"></div>' +
-  '<div id="expenseResults"></div>';
+  '</div>';
 
-  el.innerHTML = searchBar;
-  renderRecurringSection();
-  renderExpenseResults(document.getElementById('expenseResults'));
+  el.innerHTML = subTabBar +
+    '<div id="expPaneLog">' + searchBar + '<div id="recurringCollapsible"></div><div id="expenseResults"></div></div>' +
+    '<div id="expPaneRecurring" style="display:none"></div>';
+
+  // Restore correct tab highlight state
+  if (_expensesSubTab === 'recurring') {
+    const logBtn = document.getElementById('expSubTabLog');
+    const recBtn = document.getElementById('expSubTabRecurring');
+    if (logBtn) { logBtn.style.background = 'var(--surface2)'; logBtn.style.color = 'var(--muted)'; }
+    if (recBtn) { recBtn.style.background = 'var(--accent)'; recBtn.style.color = '#fff'; }
+    document.getElementById('expPaneLog').style.display = 'none';
+    document.getElementById('expPaneRecurring').style.display = '';
+    renderRecurringPane();
+  } else {
+    renderRecurringSection();
+    renderExpenseResults(document.getElementById('expenseResults'));
+  }
+
 }
 
-// Renders only the results region — safe to call without touching the search input
+// ── Inline recurring manager (Recurring sub-tab) ───────────────────────────
+function renderRecurringPane() {
+  const pane = document.getElementById('expPaneRecurring');
+  if (!pane) return;
+  const recs = state.recurringExpenses || [];
+
+  let html = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">' +
+    '<div style="font-size:13px;font-weight:600;color:var(--text)">' + recs.length + ' recurring expense' + (recs.length !== 1 ? 's' : '') + '</div>' +
+    '<div style="display:flex;gap:6px">' +
+      '<button onclick="repairMissingRecurringExpenses();showToast(\'✅ Checked for missed recurring expenses\',2500)" style="background:var(--surface2);color:var(--muted);border:none;border-radius:8px;padding:7px 10px;font-size:12px;font-weight:600;font-family:var(--font);cursor:pointer" title="Apply any missed transactions for today">↻ Apply today</button>' +
+      '<button onclick="openAddRecurringInline()" style="background:var(--accent-dim);color:var(--accent);border:none;border-radius:8px;padding:7px 12px;font-size:12px;font-weight:600;font-family:var(--font);cursor:pointer">+ Add</button>' +
+    '</div>' +
+  '</div>';
+
+  if (recs.length === 0) {
+    html += '<div style="text-align:center;padding:40px 20px;color:var(--muted);font-size:13px">No recurring expenses yet.<br>Tap + Add to create one.</div>';
+  } else {
+    const sorted = recs.slice().sort((a, b) => {
+      const na = getRecNextDate(a), nb = getRecNextDate(b);
+      if (!na && !nb) return 0; if (!na) return 1; if (!nb) return -1;
+      return na - nb;
+    });
+    const todayStr_ = todayStr();
+    sorted.forEach(r => {
+      const cat = catById(r.categoryId);
+      const next = getRecNextDate(r);
+      const nextStr = next ? next.toLocaleDateString('en-AU',{weekday:'short',day:'numeric',month:'short'}) : '—';
+      const nextDate = next ? dateToStr(next) : '';
+      const isDueToday = nextDate === todayStr_;
+      const isOverdue = next && next < new Date(todayStr_ + 'T00:00:00');
+      const autoOffsetBadge = r.autoOffset ? '<span style="font-size:9px;background:rgba(79,142,247,0.15);color:var(--accent);border-radius:4px;padding:2px 5px;font-weight:700;margin-left:4px">🏦 AUTO</span>' : '';
+      const pausedBadge = r.active===false ? '<span style="font-size:10px;color:var(--orange);font-weight:400"> · Paused</span>' : '';
+      const dueBadge = isDueToday ? '<span style="font-size:9px;background:rgba(52,199,89,0.15);color:#34C759;border-radius:4px;padding:2px 5px;font-weight:700;margin-left:4px">TODAY</span>' : '';
+      html += '<div style="display:flex;align-items:center;gap:12px;padding:13px 0;border-bottom:1px solid var(--surface2)">' +
+        '<div style="width:38px;height:38px;border-radius:10px;background:'+(cat?cat.color:'#888')+'22;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">'+(cat?cat.icon:'❓')+'</div>' +
+        '<div style="flex:1;min-width:0">' +
+          '<div style="font-size:13px;font-weight:600">' + r.name + autoOffsetBadge + pausedBadge + dueBadge + '</div>' +
+          '<div style="font-size:11px;color:'+(isDueToday?'#34C759':isOverdue?'var(--red)':'var(--muted)')+'">' + recFreqLabel(r) + ' · Next: ' + nextStr + '</div>' +
+        '</div>' +
+        '<div style="display:flex;align-items:center;gap:10px;flex-shrink:0">' +
+          '<div style="text-align:right">' +
+            '<div style="font-size:13px;font-weight:600">' + fmt(r.amount) + '</div>' +
+            '<div style="font-size:10px;color:var(--muted)">' + (cat?cat.name:'') + '</div>' +
+          '</div>' +
+          '<button onclick="openEditRecurringInline(\'' + r.id + '\')" style="background:var(--surface2);border:none;border-radius:8px;padding:8px 12px;font-size:12px;font-weight:600;color:var(--muted);font-family:var(--font);cursor:pointer">Edit</button>' +
+        '</div>' +
+      '</div>';
+    });
+  }
+  pane.innerHTML = html;
+}
+
+function openAddRecurringInline() {
+  openAddRecurring();
+  // After modal closes, refresh the recurring pane
+  const orig = window._afterRecurringSave;
+  window._afterRecurringSave = function() { if (orig) orig(); renderRecurringPane(); };
+}
+
+function openEditRecurringInline(id) {
+  openEditRecurring(id);
+}
+
+// Patch save/delete recurring to refresh inline pane if it's visible
+const _origSaveRec = window.saveRecurring;
+// (will be patched after saveRecurring is defined — see below)
 function renderExpenseResults(resultsEl) {
   if (!resultsEl) return;
   const query = expenseSearchQuery.trim().toLowerCase();
@@ -7441,7 +7535,11 @@ function saveRecurring() {
   closeModal('recurringModal');
   updateHeader();
   renderContent();
-  setTimeout(() => openRecurringList(), 50);
+  if (_expensesSubTab === 'recurring') {
+    setTimeout(() => renderRecurringPane(), 50);
+  } else {
+    setTimeout(() => openRecurringList(), 50);
+  }
 }
 
 function deleteRecurring() {
@@ -7451,7 +7549,11 @@ function deleteRecurring() {
   closeModal('recurringModal');
   updateHeader();
   renderContent();
-  setTimeout(() => openRecurringList(), 50);
+  if (_expensesSubTab === 'recurring') {
+    setTimeout(() => renderRecurringPane(), 50);
+  } else {
+    setTimeout(() => openRecurringList(), 50);
+  }
 }
 
 function recFreqLabel(r) {
