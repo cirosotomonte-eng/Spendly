@@ -36,7 +36,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '1.7.9-202603230840';
+  const APP_VER = '1.7.9-202603230855';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -1653,7 +1653,7 @@ const PALETTE = [
 // ── State ─────────────────────────────────────────────────────────────────────
 const APP_VERSION = '1.7.9';
 const BUILD_DATE = '2026-03-23';
-const BUILD_TIME = '23 Mar 2026 8:40 AM AEDT';
+const BUILD_TIME = '23 Mar 2026 8:55 AM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -3008,6 +3008,10 @@ function switchTab(tab) {
 }
 
 // ── Render ────────────────────────────────────────────────────────────────────
+function tabHeader(title) {
+  return '<div style="font-size:26px;font-weight:700;letter-spacing:-0.5px;color:var(--text);margin-bottom:16px">' + title + '</div>';
+}
+
 function renderContent() {
   setTimeout(initModalSwipeDown, 100);
   renderTabs();
@@ -3512,7 +3516,7 @@ function renderAnalytics() {
     '<button class="an-tab' + (analyticsSection===t.id?' active':'') + '" onclick="analyticsSection=\''+t.id+'\';renderAnalytics()">' + t.label + '</button>'
   ).join('') + '</div>';
 
-  el.innerHTML = tabsHtml + '<div id="anBody"></div>';
+  el.innerHTML = tabHeader('Analytics') + tabsHtml + '<div id="anBody"></div>';
 
   // Destroy old charts
   if (barChart)   { barChart.destroy();   barChart = null; }
@@ -4175,7 +4179,7 @@ function renderGoals() {
     '<div class="spendly-tip-box" id="' + budgetInfoTipId + '" style="right:0;left:auto;transform:none;width:230px">This is the sum of all your category budgets. It should match your ' + cycleLabel + ' budget to make sure every dollar is accounted for.</div>' +
   '</span>';
 
-  let html = '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:8px 0 14px">' +
+  let html = tabHeader('Budget') + '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:8px 0 14px">' +
     '<div style="background:var(--surface);border-radius:var(--r);padding:11px 12px"><div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:4px;display:flex;align-items:center;gap:2px">Budget' + budgetInfoIcon + budgetWarnIcon + '</div>' +
     '<div style="font-size:16px;font-weight:700;letter-spacing:-0.3px;color:' + (catSumOverBudget ? 'var(--orange)' : 'var(--text)') + '">' + fmt(totalBudget) + '</div>' +
     budgetTooltipHtml +
@@ -5796,9 +5800,7 @@ function renderSavings() {
   // ── Header ────────────────────────────────────────────────────────────────
   const { cycleStart: cs, cycleEnd: ce } = getCycleRange();
   const cycleLabel = cs.toLocaleDateString('en-AU',{day:'numeric',month:'short'}) + ' – ' + ce.toLocaleDateString('en-AU',{day:'numeric',month:'short'});
-  let html = '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:8px 0 14px">' +
-    '<div style="background:var(--surface);border-radius:var(--r);padding:12px 14px">' +
-      '<div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:4px">Total saved</div>' +
+  let html = tabHeader('Savings') + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:8px 0 14px">' +
       '<div style="font-size:24px;font-weight:700;letter-spacing:-1px;color:var(--text)">'+fmt(totalAllSavings)+'</div>' +
     '</div>' +
     '<div style="background:var(--surface);border-radius:var(--r);padding:12px 14px">' +
@@ -8215,7 +8217,7 @@ function renderInvestor() {
   const fireAcct = income * 0.20;
   const smileAcct = income * 0.10;
 
-  let html = '<div style="font-size:16px;font-weight:700;margin:8px 0 4px">💡 Money allocation</div>' +
+  let html = tabHeader('Investor') +
     '<div style="font-size:12px;color:var(--muted);margin-bottom:16px;line-height:1.5">Two popular frameworks for dividing your money. Based on your monthly budget of <strong style="color:var(--text)">' + fmtI(income) + '</strong>.</div>';
 
   // ── 50/30/20 ──────────────────────────────────────────────────────────────
@@ -8530,9 +8532,7 @@ function renderGiftCards() {
   const totalBalance = active.filter(c=>c.type!=='promo').reduce((s,c)=>s+c.balance,0);
   const expiringSoon = active.filter(c => c.expiryDate && (new Date(c.expiryDate+'T00:00:00')-today)/86400000 <= 30).length;
 
-  let html = '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:16px">' +
-    '<div style="background:var(--surface);border-radius:var(--r);padding:12px 14px">' +
-      '<div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:4px">Total balance</div>' +
+  let html = tabHeader('Wallet') + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:16px">' +
       '<div style="font-size:22px;font-weight:700">' + fmtF(totalBalance) + '</div>' +
       '<div style="font-size:11px;color:var(--muted)">' + active.length + ' active card' + (active.length!==1?'s':'') + '</div>' +
     '</div>' +
@@ -9231,7 +9231,7 @@ function renderPortfolio() {
   const totalGainPct = totalInvested > 0 ? (totalGain/totalInvested)*100 : 0;
   const totalDividends = holdings.reduce((s,h) => s + (h.dividends||[]).reduce((ds,d)=>ds+d.total,0), 0);
 
-  let html = '';
+  let html = tabHeader('Portfolio');
 
   // Summary cards
   html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">' +
@@ -9762,7 +9762,7 @@ function renderNotes() {
   const notes = state.notes || [];
 
   // Header with search + add
-  let html = '<div style="display:flex;gap:8px;margin-bottom:14px">' +
+  let html = tabHeader('Notes') + '<div style="display:flex;gap:8px;margin-bottom:14px">' +
     '<div style="flex:1;display:inline-flex;align-items:center;gap:6px;background:var(--surface);border-radius:var(--r);padding:0 14px;height:38px">' +
       '<svg width="13" height="13" viewBox="0 0 15 15" fill="none" style="flex-shrink:0;opacity:0.4"><circle cx="6" cy="6" r="4.5" stroke="currentColor" stroke-width="1.5"/><path d="M10 10l3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>' +
       '<input id="noteSearch" type="text" placeholder="Search notes…" oninput="renderNotes()" style="flex:1;background:none;border:none;outline:none;color:var(--text);font-size:15px;font-family:var(--font);height:100%">' +
@@ -10292,50 +10292,73 @@ function autoBackup() {
 }
 let _lastRecurringCheckDate = todayStr();
 
+// ── Inactivity lock (5 minutes) ───────────────────────────────────────────────
+const INACTIVITY_MS = 5 * 60 * 1000; // 5 minutes
+let _inactivityTimer = null;
+
+function resetInactivityTimer() {
+  clearTimeout(_inactivityTimer);
+  const hasPin = !!localStorage.getItem(LOCK_KEY);
+  if (!hasPin) return;
+  const authVisible = document.getElementById('authScreen') && !document.getElementById('authScreen').classList.contains('hidden');
+  if (authVisible) return;
+  _inactivityTimer = setTimeout(() => triggerInactivityLock(), INACTIVITY_MS);
+}
+
+function triggerInactivityLock() {
+  const hasPin = !!localStorage.getItem(LOCK_KEY);
+  if (!hasPin) return;
+  const lockEl = document.getElementById('lockScreen');
+  const isAlreadyLocked = lockEl && lockEl.style.display !== 'none';
+  if (isAlreadyLocked) return;
+  const authVisible = document.getElementById('authScreen') && !document.getElementById('authScreen').classList.contains('hidden');
+  if (authVisible) return;
+  lockMode = 'unlock'; lockBuf = '';
+  document.getElementById('lockIcon').textContent = '🔒';
+  document.getElementById('lockTitle').textContent = 'Hey, ' + (state.appName || 'there') + ' 👋';
+  document.getElementById('lockHint').style.display = 'none';
+  document.getElementById('lockSkipBtn').style.display = 'none';
+  document.getElementById('lockBiomBtn').style.display = 'none';
+  document.getElementById('lockBiomSmall').style.display = 'none';
+  updateDots(0, false);
+  const hasBiom = isBiometricSupported() && hasBiometricRegistered();
+  if (hasBiom) {
+    document.getElementById('lockSub').textContent = 'Scanning...';
+    showFaceIdPrompt();
+    showLockScreen();
+    setTimeout(() => triggerBiometric(), 400);
+  } else {
+    document.getElementById('lockSub').textContent = 'Enter your PIN to continue';
+    showPinFallback();
+    showLockScreen();
+  }
+}
+
+// Reset timer on any user interaction
+['touchstart','touchend','mousedown','keydown','scroll'].forEach(evt => {
+  document.addEventListener(evt, resetInactivityTimer, { passive: true });
+});
+
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'hidden') {
     autoBackup();
   } else if (document.visibilityState === 'visible') {
-    // Don't re-lock if auth screen is showing
-    const authVisible = !document.getElementById('authScreen').classList.contains('hidden');
+    // Don't act if auth screen is showing
+    const authVisible = document.getElementById('authScreen') && !document.getElementById('authScreen').classList.contains('hidden');
     if (authVisible) return;
 
-    // Check if the day has changed since last recurring run — fire missed recurring if so
+    // Reset inactivity timer when coming back to the tab
+    resetInactivityTimer();
+
+    // Check if the day has changed since last recurring run
     const currentDate = todayStr();
     if (currentDate !== _lastRecurringCheckDate) {
       _lastRecurringCheckDate = currentDate;
-      // Reload state from cloud first so we're working with fresh data,
-      // then apply recurring on top of it
       loadState().then(() => {
         applyRecurringExpenses();
         recordTodayOffsetSaving();
         renderContent();
       });
-    }
-
-    const hasPin = !!localStorage.getItem(LOCK_KEY);
-    const lockEl = document.getElementById('lockScreen');
-    const isAlreadyLocked = lockEl && lockEl.style.display !== 'none';
-    if (hasPin && !isAlreadyLocked) {
-      lockMode = 'unlock'; lockBuf = '';
-      document.getElementById('lockIcon').textContent = '🔒';
-      document.getElementById('lockTitle').textContent = 'Hey, ' + (state.appName || 'there') + ' 👋';
-      document.getElementById('lockHint').style.display = 'none';
-      document.getElementById('lockSkipBtn').style.display = 'none';
-      document.getElementById('lockBiomBtn').style.display = 'none';
-      document.getElementById('lockBiomSmall').style.display = 'none';
-      updateDots(0, false);
-      const hasBiom = isBiometricSupported() && hasBiometricRegistered();
-      if (hasBiom) {
-        document.getElementById('lockSub').textContent = 'Scanning...';
-        showFaceIdPrompt();
-        showLockScreen();
-        setTimeout(() => triggerBiometric(), 400);
-      } else {
-        document.getElementById('lockSub').textContent = 'Enter your PIN to continue';
-        showPinFallback();
-        showLockScreen();
-      }
     }
   }
 });
