@@ -36,7 +36,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '1.7.6-202603221758';
+  const APP_VER = '1.7.7-202603221820';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -803,7 +803,7 @@ async function applyUpdate() {
 <div id="app">
   <div class="header">
     <div class="header-top">
-      <div style="display:flex;flex-direction:column;gap:1px"><span class="app-name" id="headerAppName">Spendly</span><span style="font-size:9px;color:var(--muted);letter-spacing:0.06em" id="headerVersion"></span></div>
+      <div style="display:flex;flex-direction:column;gap:3px"><span style="font-size:15px;font-weight:700;letter-spacing:-0.2px;color:var(--text)" id="headerGreeting">Good morning</span><span style="font-size:11px;color:var(--muted);line-height:1.4;max-width:220px;font-style:italic" id="headerQuote"></span><span style="font-size:9px;color:var(--muted);letter-spacing:0.06em;font-style:normal;opacity:0.6" id="headerVersion"></span></div>
       <div class="header-actions">
         <span id="syncIndicator" title="Cloud sync" style="font-size:13px;color:var(--muted);cursor:default;padding:4px;line-height:1">☁</span>
         <button class="icon-btn" onclick="openSettings()" title="Settings">
@@ -1650,7 +1650,7 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '1.7.6';
+const APP_VERSION = '1.7.7';
 const BUILD_DATE = '2026-03-22';
 const BUILD_TIME = '22 Mar 2026 4:39 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
@@ -2245,6 +2245,74 @@ function navigateCycle(delta) {
 }
 
 // ── Header ────────────────────────────────────────────────────────────────────
+// ── Daily greeting & quote ────────────────────────────────────────────────────
+const DAILY_QUOTES = [
+  // Real quotes
+  { text: "Do not save what is left after spending, but spend what is left after saving.", attr: "Warren Buffett" },
+  { text: "The stock market is a device for transferring money from the impatient to the patient.", attr: "Warren Buffett" },
+  { text: "It's not how much money you make, but how much money you keep.", attr: "Robert Kiyosaki" },
+  { text: "A budget is telling your money where to go instead of wondering where it went.", attr: "Dave Ramsey" },
+  { text: "The goal isn't more money. The goal is living life on your terms.", attr: "Chris Brogan" },
+  { text: "Financial peace isn't the acquisition of stuff. It's learning to live on less than you make.", attr: "Dave Ramsey" },
+  { text: "Wealth consists not in having great possessions, but in having few wants.", attr: "Epictetus" },
+  { text: "Money is a terrible master but an excellent servant.", attr: "P.T. Barnum" },
+  { text: "The art is not in making money, but in keeping it.", attr: "Proverb" },
+  { text: "You must gain control over your money or the absence of it will forever control you.", attr: "Dave Ramsey" },
+  { text: "Rich people have small TVs and big libraries. Poor people have small libraries and big TVs.", attr: "Zig Ziglar" },
+  { text: "Beware of little expenses; a small leak will sink a great ship.", attr: "Benjamin Franklin" },
+  { text: "Every time you borrow money, you're robbing your future self.", attr: "Nathan W. Morris" },
+  { text: "The more you learn, the more you earn.", attr: "Warren Buffett" },
+  { text: "Happiness is not in the mere possession of money; it lies in the joy of achievement.", attr: "Franklin D. Roosevelt" },
+  { text: "Never spend your money before you have it.", attr: "Thomas Jefferson" },
+  { text: "Too many people spend money they haven't earned to buy things they don't want.", attr: "Will Rogers" },
+  { text: "The habit of saving is itself an education.", attr: "T.T. Munger" },
+  { text: "An investment in knowledge pays the best interest.", attr: "Benjamin Franklin" },
+  { text: "Price is what you pay. Value is what you get.", attr: "Warren Buffett" },
+  // Personalised templates — {name} and {data} substituted at runtime
+  { text: "Every dollar you track today is a dollar working for you tomorrow, {name}.", attr: "Spendly" },
+  { text: "Consistency beats intensity. Keep showing up, {name}.", attr: "Spendly" },
+  { text: "Small daily choices, {name}. That's where financial freedom is built.", attr: "Spendly" },
+  { text: "You can't manage what you don't measure. You're measuring — that matters, {name}.", attr: "Spendly" },
+  { text: "Tracking is the first act of taking control. Well done, {name}.", attr: "Spendly" },
+  { text: "Progress, not perfection. Keep going, {name}.", attr: "Spendly" },
+  { text: "The best time to start budgeting was yesterday. The second best time is right now, {name}.", attr: "Spendly" },
+  { text: "Awareness is the beginning of change. You've already started, {name}.", attr: "Spendly" },
+  { text: "A {cycle} budget isn't a constraint, {name} — it's a plan for your freedom.", attr: "Spendly" },
+  { text: "Every cycle you complete is a cycle you learned from, {name}.", attr: "Spendly" },
+];
+
+function getDailyQuote() {
+  const name = state.appName || '';
+  const cycle = state.cycleType || 'monthly';
+  // Seed by date so it's stable all day
+  const today = new Date();
+  const seed = today.getFullYear() * 10000 + (today.getMonth() + 1) * 100 + today.getDate();
+  const idx = seed % DAILY_QUOTES.length;
+  const q = DAILY_QUOTES[idx];
+  const text = q.text.replace('{name}', name).replace('{cycle}', cycle);
+  return { text, attr: q.attr };
+}
+
+function getGreeting() {
+  const name = state.appName || '';
+  const hour = new Date().getHours();
+  let period, emoji;
+  if (hour < 12)      { period = 'Good morning'; emoji = '☀️'; }
+  else if (hour < 17) { period = 'Good afternoon'; emoji = '🌤'; }
+  else                { period = 'Good evening'; emoji = '🌙'; }
+  return name ? `${period}, ${name} ${emoji}` : `${period} ${emoji}`;
+}
+
+function updateGreetingAndQuote() {
+  const greetEl = document.getElementById('headerGreeting');
+  const quoteEl = document.getElementById('headerQuote');
+  if (greetEl) greetEl.textContent = getGreeting();
+  if (quoteEl) {
+    const { text, attr } = getDailyQuote();
+    quoteEl.textContent = '\u201c' + text + '\u201d' + (attr && attr !== 'Spendly' ? ' \u2014 ' + attr : '');
+  }
+}
+
 function updateHeader() {
   const expenses = cycleExpenses();
   const total = expenses.reduce((s,e) => s + e.amount, 0);
@@ -2271,7 +2339,8 @@ function updateHeader() {
   const daysLeft = getDaysLeft();
   const dailyLimit = daysLeft > 0 ? remain / daysLeft : 0;
 
-  document.querySelector('.app-name').textContent = state.appName || 'Spendly';
+  document.querySelector('.app-name') && (document.querySelector('.app-name').textContent = state.appName || 'Spendly');
+  updateGreetingAndQuote();
 
   // Cycle label
   const { cycleStart, cycleEnd } = getCycleRange();
