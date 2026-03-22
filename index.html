@@ -36,7 +36,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '1.7.8-202603222025';
+  const APP_VER = '1.7.9-202603230830';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -1651,9 +1651,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '1.7.8';
-const BUILD_DATE = '2026-03-22';
-const BUILD_TIME = '22 Mar 2026 8:25 PM AEDT';
+const APP_VERSION = '1.7.9';
+const BUILD_DATE = '2026-03-23';
+const BUILD_TIME = '23 Mar 2026 8:30 AM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -1862,7 +1862,7 @@ async function handleAuthSubmit() {
     renderContent();
     initVersionDisplay();
     if (!initWelcome()) { showApp(); initLock(); }
-    repairMissingRecurringExpenses(); applyRecurringExpenses();
+    repairMissingRecurringExpenses();
     recordTodayOffsetSaving();
     setTimeout(checkCycleComplete, 2000);
     setTimeout(checkExpiryAlerts, 1500);
@@ -8040,12 +8040,21 @@ function openRecurringList() {
 }
 
 function repairMissingRecurringExpenses() {
-  // Now just delegates to applyRecurringExpenses which uses expense-existence
-  // as its only guard — no lastAdded dependency
+  // Always reset the lock for manual runs — user explicitly requested this
+  _applyRecurringRunning = false;
   applyRecurringExpenses();
 }
 
+let _applyRecurringRunning = false;
+let _applyRecurringLastRun = 0;
 function applyRecurringExpenses() {
+  // Only block if called within the same 500ms window — prevents double-fire on init
+  // but never blocks a legitimate call after state has fully loaded
+  const now = Date.now();
+  if (_applyRecurringRunning && (now - _applyRecurringLastRun) < 500) return;
+  _applyRecurringRunning = true;
+  _applyRecurringLastRun = now;
+  try {
   const recs = (state.recurringExpenses||[]).filter(r=>r.active!==false);
   if (!recs.length) return;
   const today = new Date(); today.setHours(0,0,0,0);
@@ -8097,6 +8106,16 @@ function applyRecurringExpenses() {
 
   if (added) {
     saveState();
+    renderContent();
+    updateHeader();
+    const addedNames = recs.filter(r => {
+      const next = getRecNextDate(r); if (!next) return false;
+      next.setHours(0,0,0,0);
+      return next.getTime() === (new Date().setHours(0,0,0,0)) && r.lastAdded === todayDateStr;
+    }).map(r => r.name);
+    setTimeout(() => {
+      showToast('✅ ' + addedNames.length + ' recurring expense' + (addedNames.length !== 1 ? 's' : '') + ' logged for today', 3500);
+    }, 600);
     if (autoOffsetFired.length > 0) {
       setTimeout(() => {
         autoOffsetFired.forEach(item => {
@@ -8104,6 +8123,11 @@ function applyRecurringExpenses() {
         });
       }, 1200);
     }
+  }
+  } finally {
+    // Release lock after a short delay so rapid double-calls in same tick are blocked
+    // but a genuine later call (e.g. next day) can still run
+    setTimeout(() => { _applyRecurringRunning = false; }, 500);
   }
 }
 
@@ -10105,7 +10129,7 @@ async function init() {
       const ls = document.getElementById('launchScreen');
       if (ls) { ls.style.opacity = '0'; ls.style.display = 'none'; }
       if (!initWelcome()) { showApp(); initLock(); }
-      repairMissingRecurringExpenses(); applyRecurringExpenses();
+      repairMissingRecurringExpenses();
       recordTodayOffsetSaving();
       setTimeout(checkCycleComplete, 2000);
       setTimeout(checkExpiryAlerts, 1500);
@@ -10135,7 +10159,7 @@ async function init() {
       const ls = document.getElementById('launchScreen');
       if (ls) { ls.style.opacity = '0'; ls.style.display = 'none'; }
       if (!initWelcome()) { showApp(); initLock(); }
-      repairMissingRecurringExpenses(); applyRecurringExpenses();
+      repairMissingRecurringExpenses();
       recordTodayOffsetSaving();
       setTimeout(checkCycleComplete, 2000);
       setTimeout(checkExpiryAlerts, 1500);
