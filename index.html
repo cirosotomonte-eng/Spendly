@@ -36,7 +36,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '1.7.9-202603230828';
+  const APP_VER = '1.8.0-202603231040';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -807,7 +807,7 @@ async function applyUpdate() {
 <div id="app">
   <div class="header">
     <div class="header-top">
-      <div style="display:flex;flex-direction:column;gap:3px"><span style="font-size:15px;font-weight:700;letter-spacing:-0.2px;color:var(--text)" id="headerGreeting">Good morning</span><span style="font-size:11px;color:var(--muted);line-height:1.4;max-width:220px;font-style:italic" id="headerQuote"></span><span style="font-size:9px;color:var(--muted);letter-spacing:0.06em;font-style:normal;opacity:0.6" id="headerVersion"></span></div>
+      <div style="display:flex;flex-direction:column;gap:3px"><span style="font-size:15px;font-weight:700;letter-spacing:-0.2px;color:var(--text)" id="headerGreeting">Good morning</span><span style="font-size:11px;color:var(--muted);line-height:1.4;max-width:220px;font-style:italic" id="headerQuote"></span></div>
       <div class="header-actions">
         <span id="syncIndicator" title="Cloud sync" style="font-size:13px;color:var(--muted);cursor:default;padding:4px;line-height:1">☁</span>
         <button class="icon-btn" onclick="openSettings()" title="Settings">
@@ -849,7 +849,7 @@ async function applyUpdate() {
 
   <div class="content" id="content"></div>
 
-  <button class="fab" id="fab" onclick="openAddExpense()">
+  <button class="fab" id="fab" onclick="openAddExpense()" style="display:none">
     <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 2v12M2 8h12" stroke="#fff" stroke-width="2.5" stroke-linecap="round"/></svg>
     Add expense
   </button>
@@ -1663,9 +1663,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '1.7.9';
+const APP_VERSION = '1.8.0';
 const BUILD_DATE = '2026-03-23';
-const BUILD_TIME = '23 Mar 2026 10:16 AM AEDT';
+const BUILD_TIME = '23 Mar 2026 10:40 AM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -2990,38 +2990,86 @@ function saveTabConfig() {
 function switchTab(tab) {
   if (tab !== 'expenses') expenseSearchQuery = '';
   state.currentTab = tab;
-  renderTabs(); // re-render tabs to update active state
-  const fab = document.getElementById('fab');
-  const isPast = (state.viewingCycleOffset || 0) < 0;
-  if (tab === 'calendar' || tab === 'recycling' || tab === 'mortgage' || tab === 'tax' || tab === 'investor' || tab === 'networth' || tab === 'notes') {
-    fab.style.display = 'none';
-  } else if (tab === 'portfolio') {
-    fab.innerHTML = '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 2v12M2 8h12" stroke="#fff" stroke-width="2.5" stroke-linecap="round"/></svg> Add holding';
-    fab.onclick = () => openAddHolding();
-    fab.style.display = '';
-  } else if (tab === 'giftcards') {
-    fab.innerHTML = '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 2v12M2 8h12" stroke="#fff" stroke-width="2.5" stroke-linecap="round"/></svg> Add card';
-    fab.onclick = openAddGiftCard;
-    fab.style.display = '';
-  } else if (tab === 'savings') {
-    fab.innerHTML = '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 2v12M2 8h12" stroke="#fff" stroke-width="2.5" stroke-linecap="round"/></svg> Add category';
-    fab.onclick = openAddSavingsCat;
-    fab.style.display = '';
-  } else if (tab === 'goals') {
-    fab.innerHTML = '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 2v12M2 8h12" stroke="#fff" stroke-width="2.5" stroke-linecap="round"/></svg> Add category';
-    fab.onclick = openAddCategory;
-    fab.style.display = isPast ? 'none' : '';
-  } else {
-    fab.innerHTML = '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 2v12M2 8h12" stroke="#fff" stroke-width="2.5" stroke-linecap="round"/></svg> Add expense';
-    fab.onclick = openAddExpense;
-    fab.style.display = (isPast || state.categories.length === 0) ? 'none' : '';
-  }
+  renderTabs();
   renderContent();
 }
 
-// ── Render ────────────────────────────────────────────────────────────────────
-function tabHeader(title) {
-  return '<div style="font-size:26px;font-weight:700;letter-spacing:-0.5px;color:var(--text);margin-bottom:16px">' + title + '</div>';
+// ── Tab header + search system ────────────────────────────────────────────────
+const _tabSearch = {}; // { tabKey: queryString }
+const _tabSearchOpen = {}; // { tabKey: bool }
+
+function iconBtn(svg, onclick, title) {
+  return '<button onclick="' + onclick + '" title="' + (title||'') + '" style="background:var(--surface2);border:none;border-radius:50%;width:36px;height:36px;display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;color:var(--muted);transition:background 0.1s" onmousedown="this.style.background=\'var(--surface3)\'" onmouseup="this.style.background=\'var(--surface2)\'">' + svg + '</button>';
+}
+
+const SVG_SEARCH = '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="6.5" cy="6.5" r="4" stroke="currentColor" stroke-width="1.5"/><path d="M10 10l3.5 3.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>';
+const SVG_PLUS   = '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 2v12M2 8h12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>';
+const SVG_PENCIL = '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M11.5 2.5l2 2L5 13H3v-2L11.5 2.5z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>';
+
+function tabHeader(title, opts) {
+  // opts: { tabKey, searchPlaceholder, onSearch, actions: [{svg, onclick, title}] }
+  opts = opts || {};
+  const tabKey = opts.tabKey || title.toLowerCase();
+  const showSearch = !!opts.onSearch;
+  const isOpen = _tabSearchOpen[tabKey] || false;
+  const query = _tabSearch[tabKey] || '';
+
+  let actionsHtml = '';
+  if (showSearch) {
+    const searchColor = isOpen ? 'var(--accent)' : 'var(--muted)';
+    actionsHtml += '<button onclick="toggleTabSearch(\'' + tabKey + '\')" style="background:' + (isOpen ? 'var(--accent-dim)' : 'var(--surface2)') + ';border:none;border-radius:50%;width:36px;height:36px;display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;color:' + searchColor + ';transition:background 0.1s">' + SVG_SEARCH + '</button>';
+  }
+  if (opts.actions) {
+    opts.actions.forEach(a => { actionsHtml += iconBtn(a.svg, a.onclick, a.title); });
+  }
+
+  let html = '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:' + (isOpen ? '10px' : '16px') + '">' +
+    '<div style="font-size:26px;font-weight:700;letter-spacing:-0.5px;color:var(--text)">' + title + '</div>' +
+    '<div style="display:flex;gap:8px;align-items:center">' + actionsHtml + '</div>' +
+  '</div>';
+
+  if (isOpen) {
+    html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:14px;background:var(--surface);border-radius:var(--r);padding:0 14px;border:1.5px solid ' + (query ? 'var(--accent)' : 'var(--border)') + ';height:36px">' +
+      SVG_SEARCH.replace('width="16"','width="13"').replace('height="16"','height="13"').replace('stroke-width="1.5"','stroke-width="1.5" style="opacity:0.4;flex-shrink:0"') +
+      '<input id="tabSearchInput_' + tabKey + '" type="text" placeholder="' + (opts.searchPlaceholder || 'Search…') + '" value="' + query.replace(/"/g,'&quot;') + '" oninput="onTabSearchInput(\'' + tabKey + '\',this.value)" style="flex:1;background:none;border:none;outline:none;color:var(--text);font-size:16px;font-family:var(--font);padding:0;margin:0;height:100%">' +
+      (query ? '<button onclick="clearTabSearch(\'' + tabKey + '\')" style="background:none;border:none;color:var(--muted);font-size:18px;cursor:pointer;padding:0;line-height:1;flex-shrink:0">×</button>' : '') +
+    '</div>';
+  }
+  return html;
+}
+
+function toggleTabSearch(tabKey) {
+  _tabSearchOpen[tabKey] = !_tabSearchOpen[tabKey];
+  if (!_tabSearchOpen[tabKey]) { _tabSearch[tabKey] = ''; }
+  renderContent();
+  if (_tabSearchOpen[tabKey]) {
+    setTimeout(() => { const el = document.getElementById('tabSearchInput_' + tabKey); if (el) el.focus(); }, 100);
+  }
+}
+
+function onTabSearchInput(tabKey, val) {
+  _tabSearch[tabKey] = val;
+  // Re-render just the content area without rebuilding the search bar
+  renderContentBody();
+}
+
+function clearTabSearch(tabKey) {
+  _tabSearch[tabKey] = '';
+  _tabSearchOpen[tabKey] = false;
+  renderContent();
+}
+
+function renderContentBody() {
+  // Re-renders the current tab content without touching the header search bar
+  const tab = state.currentTab;
+  if      (tab === 'expenses')  { renderExpenseResults(document.getElementById('expenseResults')); }
+  else if (tab === 'goals')     renderGoals();
+  else if (tab === 'savings')   renderSavings();
+  else if (tab === 'portfolio') renderPortfolio();
+  else if (tab === 'giftcards') renderGiftCards();
+  else if (tab === 'tax')       renderTax();
+  else if (tab === 'notes')     renderNotes();
+  else renderContent();
 }
 
 function renderContent() {
@@ -3270,10 +3318,14 @@ function renderExpenses() {
 
   const query = expenseSearchQuery.trim().toLowerCase();
 
-  // Qantas-style header with underline tab indicator
+  // Qantas-style header with underline tab indicator and + add icon
+  const addExpBtn = state.categories.length > 0 && !isFutureCycle() ? iconBtn(SVG_PLUS, 'openAddExpense()', 'Add expense') : '';
   const subTabBar =
     '<div style="margin-bottom:4px">' +
-      '<div style="font-size:26px;font-weight:700;letter-spacing:-0.5px;color:var(--text);margin-bottom:12px">Expenses</div>' +
+      '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">' +
+        '<div style="font-size:26px;font-weight:700;letter-spacing:-0.5px;color:var(--text)">Expenses</div>' +
+        '<div style="display:flex;gap:8px;align-items:center">' + addExpBtn + '</div>' +
+      '</div>' +
       '<div style="display:flex;border-bottom:1px solid var(--surface2);margin-bottom:14px">' +
         '<button id="expSubTabLog" onclick="setExpensesSubTab(\'log\')" style="flex:1;padding:10px 0;border:none;background:none;font-size:14px;font-weight:600;font-family:var(--font);cursor:pointer;color:' + (_expensesSubTab==='log'?'var(--accent)':'var(--muted)') + ';border-bottom:2px solid ' + (_expensesSubTab==='log'?'var(--accent)':'transparent') + ';margin-bottom:-1px;transition:all 0.15s">Daily transactions</button>' +
         '<button id="expSubTabRecurring" onclick="setExpensesSubTab(\'recurring\')" style="flex:1;padding:10px 0;border:none;background:none;font-size:14px;font-weight:600;font-family:var(--font);cursor:pointer;color:' + (_expensesSubTab==='recurring'?'var(--accent)':'var(--muted)') + ';border-bottom:2px solid ' + (_expensesSubTab==='recurring'?'var(--accent)':'transparent') + ';margin-bottom:-1px;transition:all 0.15s">Recurring</button>' +
@@ -4191,7 +4243,14 @@ function renderGoals() {
     '<div class="spendly-tip-box" id="' + budgetInfoTipId + '" style="right:0;left:auto;transform:none;width:230px">This is the sum of all your category budgets. It should match your ' + cycleLabel + ' budget to make sure every dollar is accounted for.</div>' +
   '</span>';
 
-  let html = tabHeader('Budget') + '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:8px 0 14px">' +
+  const query = (_tabSearch['budget'] || '').toLowerCase().trim();
+  let html = tabHeader('Budget', {
+    tabKey: 'budget',
+    searchPlaceholder: 'Search categories…',
+    onSearch: true,
+    actions: [{ svg: SVG_PLUS, onclick: 'openAddCategory()', title: 'Add category' }]
+  });
+  html += '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:8px 0 14px">' +
     '<div style="background:var(--surface);border-radius:var(--r);padding:11px 12px"><div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:4px;display:flex;align-items:center;gap:2px">Budget' + budgetInfoIcon + budgetWarnIcon + '</div>' +
     '<div style="font-size:16px;font-weight:700;letter-spacing:-0.3px;color:' + (catSumOverBudget ? 'var(--orange)' : 'var(--text)') + '">' + fmt(totalBudget) + '</div>' +
     budgetTooltipHtml +
@@ -4201,7 +4260,7 @@ function renderGoals() {
   '</div>';
 
   ['fixed','variable'].forEach(type => {
-    const cats = state.categories.filter(c => c.type === type).slice().sort((a,b) => a.name.localeCompare(b.name));
+    const cats = state.categories.filter(c => c.type === type && (!query || c.name.toLowerCase().includes(query))).slice().sort((a,b) => a.name.localeCompare(b.name));
     if (cats.length === 0) return;
     const gBudget = cats.reduce((s,c)=>s+(c.budgetLimit||0),0);
     const gSpent  = cats.reduce((s,c)=>s+(bycat[c.id]||0),0);
@@ -5782,13 +5841,15 @@ function getSelectedColorFrom(gridId) {
 // ── Render Savings ────────────────────────────────────────────────────────────
 function renderSavings() {
   const el = document.getElementById('content');
-  const cats = state.savingsCategories || [];
+  const allCats = state.savingsCategories || [];
+  const savingsQuery = (_tabSearch['savings'] || '').toLowerCase().trim();
+  const cats = savingsQuery ? allCats.filter(c => c.name.toLowerCase().includes(savingsQuery)) : allCats;
   const totalAllSavings = (state.savingsDeposits||[]).reduce((s,d)=>s+(d.type==='withdrawal'?-d.amount:d.amount),0);
   const { cycleStart, cycleEnd } = getCycleRange();
   const cycleNetAll = (state.savingsDeposits||[]).filter(d=>{ const dt=new Date(d.date+'T00:00:00'); return dt>=cycleStart&&dt<=cycleEnd; }).reduce((s,d)=>s+(d.type==='withdrawal'?-d.amount:d.amount),0);
 
-  if (cats.length === 0) {
-    el.innerHTML = '<div class="empty"><div class="empty-icon">💰</div><div class="empty-text">No savings goals yet</div><div class="empty-sub">Tap + to create your first savings category</div></div>';
+  if (allCats.length === 0) {
+    el.innerHTML = tabHeader('Savings', { tabKey:'savings', searchPlaceholder:'Search goals…', onSearch:false, actions:[{svg:SVG_PLUS,onclick:'openAddSavingsCat()',title:'Add goal'}] }) + '<div class="empty"><div class="empty-icon">💰</div><div class="empty-text">No savings goals yet</div><div class="empty-sub">Tap + to create your first savings category</div></div>';
     return;
   }
 
@@ -5811,7 +5872,13 @@ function renderSavings() {
   // ── Header ────────────────────────────────────────────────────────────────
   const { cycleStart: cs, cycleEnd: ce } = getCycleRange();
   const cycleLabel = cs.toLocaleDateString('en-AU',{day:'numeric',month:'short'}) + ' – ' + ce.toLocaleDateString('en-AU',{day:'numeric',month:'short'});
-  let html = tabHeader('Savings') + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:8px 0 14px">' +
+  let html = tabHeader('Savings', {
+    tabKey: 'savings',
+    searchPlaceholder: 'Search goals…',
+    onSearch: true,
+    actions: [{ svg: SVG_PLUS, onclick: 'openAddSavingsCat()', title: 'Add goal' }]
+  });
+  html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:8px 0 14px">' +
     '<div style="background:var(--surface);border-radius:var(--r);padding:12px 14px">' +
       '<div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:4px">Total saved</div>' +
       '<div style="font-size:24px;font-weight:700;letter-spacing:-1px;color:var(--text)">'+fmt(totalAllSavings)+'</div>' +
@@ -6828,10 +6895,9 @@ function renderMortgage() {
   const { cycleStart, cycleEnd } = getMortgageCycleRange(mco);
   const cycleLabel = getMortgageCycleLabel(mco);
 
-  const headerRow = '<div style="display:flex;justify-content:space-between;align-items:center;margin:8px 0 8px">' +
-    '<div style="font-size:16px;font-weight:700">🏠 Mortgage</div>' +
-    '<button onclick="openMortgageSettings()" style="background:var(--surface);border:none;border-radius:8px;padding:7px 12px;font-size:12px;color:var(--muted);font-family:var(--font);cursor:pointer">' + (isSetup ? 'Edit details' : 'Set up') + '</button>' +
-  '</div>' +
+  const headerRow = tabHeader('Mortgage', {
+    actions: [{ svg: SVG_PENCIL, onclick: 'openMortgageSettings()', title: isSetup ? 'Edit details' : 'Set up' }]
+  }) +
   '<div class="cycle-nav" style="margin-bottom:10px">' +
     '<button class="cycle-nav-btn" onclick="navigateMortgageCycle(-1)">&#8249;</button>' +
     '<span style="font-size:12px;color:var(--muted);min-width:140px;text-align:center">' + cycleLabel + '</span>' +
@@ -7523,12 +7589,15 @@ function renderTax() {
   const missingReceipt = total - withReceipt;
   const startStr = start.toLocaleDateString('en-AU',{day:'numeric',month:'short',year:'numeric'});
   const endStr = end.toLocaleDateString('en-AU',{day:'numeric',month:'short',year:'numeric'});
+  const taxQuery = (_tabSearch['tax'] || '').toLowerCase().trim();
   const fmtAmt = n => '$' + n.toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2});
 
-  let html = '<div style="display:flex;justify-content:space-between;align-items:center;margin:8px 0 8px">' +
-    '<div style="font-size:16px;font-weight:700">🧾 Tax deductions</div>' +
-    '<button onclick="openAddTaxCat()" style="background:var(--surface);border:none;border-radius:8px;padding:7px 12px;font-size:12px;color:var(--muted);font-family:var(--font);cursor:pointer">+ Category</button>' +
-  '</div>';
+  let html = tabHeader('Tax', {
+    tabKey: 'tax',
+    searchPlaceholder: 'Search categories…',
+    onSearch: true,
+    actions: [{ svg: SVG_PLUS, onclick: 'openAddTaxCat()', title: 'Add category' }]
+  });
   html += '<div class="cycle-nav" style="margin-bottom:6px">' +
     '<button class="cycle-nav-btn" onclick="navigateTaxFY(-1)">&#8249;</button>' +
     '<span style="font-size:13px;font-weight:700;min-width:80px;text-align:center">' + fy + '</span>' +
@@ -7553,8 +7622,9 @@ function renderTax() {
     '</div>' +
   '</div>';
   html += '<button onclick="openAddTaxTx(null)" style="width:100%;background:var(--accent-dim);color:var(--accent);border:2px dashed rgba(79,142,247,0.3);border-radius:var(--r);padding:12px;font-size:13px;font-weight:600;font-family:var(--font);cursor:pointer;margin-bottom:16px">+ Add deduction</button>';
-  const cats = state.taxCategories||[];
-  if (cats.length===0 && txs.length===0) {
+  const allTaxCats = state.taxCategories||[];
+  const cats = taxQuery ? allTaxCats.filter(c => c.name.toLowerCase().includes(taxQuery)) : allTaxCats;
+  if (allTaxCats.length===0 && txs.length===0) {
     html += '<div class="empty"><div class="empty-icon">🧾</div><div class="empty-text">No categories yet</div><div class="empty-sub">Tap "+ Category" to add your first tax category<br>e.g. Work from home, Vehicle, Equipment</div></div>';
     el.innerHTML = html; return;
   }
@@ -8522,14 +8592,17 @@ function closeGcImageViewer() {
 // ── Render Gift Cards ─────────────────────────────────────────────────────────
 function renderGiftCards() {
   const el = document.getElementById('content');
-  const cards = state.giftCards || [];
+  const allCards = state.giftCards || [];
+  const walletQuery = (_tabSearch['wallet'] || '').toLowerCase().trim();
+  const cards = walletQuery ? allCards.filter(c => (c.name||'').toLowerCase().includes(walletQuery) || (c.type||'').toLowerCase().includes(walletQuery)) : allCards;
   const today = new Date(); today.setHours(0,0,0,0);
   const fmtF = n => '$' + n.toLocaleString('en-AU', {minimumFractionDigits:2, maximumFractionDigits:2});
   const typeLabel = { giftcard:'🎁 Gift Card', voucher:'🎟️ Voucher', promo:'🏷️ Promo Code', credit:'💳 Store Credit' };
   const usageLabel = { both:'In-store & Online', instore:'In-store only', online:'Online only' };
+  const walletHeaderOpts = { tabKey:'wallet', searchPlaceholder:'Search cards…', onSearch:true, actions:[{svg:SVG_PLUS,onclick:'openAddGiftCard()',title:'Add card'}] };
 
-  if (cards.length === 0) {
-    el.innerHTML = '<div class="empty"><div class="empty-icon">🎁</div><div class="empty-text">No cards yet</div><div class="empty-sub">Tap + to add a gift card, voucher, promo code or store credit</div></div>';
+  if (allCards.length === 0) {
+    el.innerHTML = tabHeader('Wallet', walletHeaderOpts) + '<div class="empty"><div class="empty-icon">🎁</div><div class="empty-text">No cards yet</div><div class="empty-sub">Tap + to add a gift card, voucher, promo code or store credit</div></div>';
     return;
   }
 
@@ -8541,15 +8614,15 @@ function renderGiftCards() {
   });
   const used = cards.filter(c=>c.used);
 
-  // Summary
-  const totalBalance = active.filter(c=>c.type!=='promo').reduce((s,c)=>s+c.balance,0);
-  const expiringSoon = active.filter(c => c.expiryDate && (new Date(c.expiryDate+'T00:00:00')-today)/86400000 <= 30).length;
+  // Summary (always based on all cards, not filtered)
+  const totalBalance = (allCards.filter(c=>!c.used&&c.type!=='promo')).reduce((s,c)=>s+c.balance,0);
+  const expiringSoon = (allCards.filter(c=>!c.used)).filter(c => c.expiryDate && (new Date(c.expiryDate+'T00:00:00')-today)/86400000 <= 30).length;
 
-  let html = tabHeader('Wallet') + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:16px">' +
+  let html = tabHeader('Wallet', walletHeaderOpts) + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:16px">' +
     '<div style="background:var(--surface);border-radius:var(--r);padding:12px 14px">' +
       '<div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:4px">Total balance</div>' +
       '<div style="font-size:22px;font-weight:700">' + fmtF(totalBalance) + '</div>' +
-      '<div style="font-size:11px;color:var(--muted)">' + active.length + ' active card' + (active.length!==1?'s':'') + '</div>' +
+      '<div style="font-size:11px;color:var(--muted)">' + allCards.filter(c=>!c.used).length + ' active card' + (allCards.filter(c=>!c.used).length!==1?'s':'') + '</div>' +
     '</div>' +
     '<div style="background:var(--surface);border-radius:var(--r);padding:12px 14px">' +
       '<div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:4px">Expiring soon</div>' +
@@ -9225,12 +9298,16 @@ function confirmPortfolioImport() {
 // ── Render Portfolio ──────────────────────────────────────────────────────────
 function renderPortfolio() {
   const el = document.getElementById('content');
-  const holdings = state.portfolio || [];
+  const allHoldings = state.portfolio || [];
+  const portfolioQuery = (_tabSearch['portfolio'] || '').toLowerCase().trim();
+  const holdings = portfolioQuery ? allHoldings.filter(h => (h.ticker||'').toLowerCase().includes(portfolioQuery) || (h.name||'').toLowerCase().includes(portfolioQuery)) : allHoldings;
   const fmt2 = n => '$' + n.toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2});
   const fmt0 = n => '$' + Math.round(n).toLocaleString('en-AU');
+  const portfolioHeaderOpts = { tabKey:'portfolio', searchPlaceholder:'Search holdings…', onSearch:true, actions:[{svg:SVG_PLUS,onclick:'openAddHolding()',title:'Add holding'}] };
 
-  if (holdings.length === 0) {
-    el.innerHTML = '<div class="empty">' +
+  if (allHoldings.length === 0) {
+    el.innerHTML = tabHeader('Portfolio', portfolioHeaderOpts) +
+      '<div class="empty">' +
       '<div class="empty-icon">📈</div>' +
       '<div class="empty-text">No holdings yet</div>' +
       '<div class="empty-sub">Add holdings manually or import from a screenshot</div>' +
@@ -9240,13 +9317,13 @@ function renderPortfolio() {
     return;
   }
 
-  const totalInvested = holdings.reduce((s,h) => s + h.units * h.avgCost, 0);
-  const totalValue = holdings.reduce((s,h) => s + h.units * h.currentPrice, 0);
+  const totalInvested = allHoldings.reduce((s,h) => s + h.units * h.avgCost, 0);
+  const totalValue = allHoldings.reduce((s,h) => s + h.units * h.currentPrice, 0);
   const totalGain = totalValue - totalInvested;
   const totalGainPct = totalInvested > 0 ? (totalGain/totalInvested)*100 : 0;
-  const totalDividends = holdings.reduce((s,h) => s + (h.dividends||[]).reduce((ds,d)=>ds+d.total,0), 0);
+  const totalDividends = allHoldings.reduce((s,h) => s + (h.dividends||[]).reduce((ds,d)=>ds+d.total,0), 0);
 
-  let html = tabHeader('Portfolio');
+  let html = tabHeader('Portfolio', portfolioHeaderOpts);
 
   // Summary cards
   html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">' +
@@ -9495,6 +9572,25 @@ function deletePropertyValuation() {
 }
 
 // ── Render Net Worth ──────────────────────────────────────────────────────────
+function openNetWorthAddSheet() {
+  // Show a small action sheet with options
+  const existing = document.getElementById('nwAddSheet');
+  if (existing) { existing.remove(); return; }
+  const sheet = document.createElement('div');
+  sheet.id = 'nwAddSheet';
+  sheet.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;z-index:300;display:flex;align-items:flex-end;justify-content:center';
+  sheet.innerHTML =
+    '<div onclick="document.getElementById(\'nwAddSheet\').remove()" style="position:absolute;inset:0;background:rgba(0,0,0,0.4)"></div>' +
+    '<div style="position:relative;background:var(--surface);border-radius:20px 20px 0 0;width:100%;max-width:600px;padding:16px 16px 36px;z-index:1">' +
+      '<div style="font-size:13px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:12px;text-align:center">Add to Net Worth</div>' +
+      '<button onclick="document.getElementById(\'nwAddSheet\').remove();openLogPropertyValuation()" style="width:100%;background:var(--surface2);border:none;border-radius:12px;padding:14px 16px;font-size:15px;font-weight:500;font-family:var(--font);cursor:pointer;text-align:left;margin-bottom:8px;display:flex;align-items:center;gap:12px"><span style="font-size:22px">🏠</span> Property valuation</button>' +
+      '<button onclick="document.getElementById(\'nwAddSheet\').remove();document.getElementById(\'superModal\').classList.add(\'open\')" style="width:100%;background:var(--surface2);border:none;border-radius:12px;padding:14px 16px;font-size:15px;font-weight:500;font-family:var(--font);cursor:pointer;text-align:left;margin-bottom:8px;display:flex;align-items:center;gap:12px"><span style="font-size:22px">🏛️</span> Super / retirement</button>' +
+      '<button onclick="document.getElementById(\'nwAddSheet\').remove();switchTab(\'portfolio\')" style="width:100%;background:var(--surface2);border:none;border-radius:12px;padding:14px 16px;font-size:15px;font-weight:500;font-family:var(--font);cursor:pointer;text-align:left;margin-bottom:8px;display:flex;align-items:center;gap:12px"><span style="font-size:22px">📈</span> Investment portfolio</button>' +
+      '<button onclick="document.getElementById(\'nwAddSheet\').remove()" style="width:100%;background:none;border:none;color:var(--muted);padding:12px;font-size:14px;font-family:var(--font);cursor:pointer">Cancel</button>' +
+    '</div>';
+  document.body.appendChild(sheet);
+}
+
 function renderNetWorth() {
   const el = document.getElementById('content');
   const mg = state.mortgage || {};
@@ -9527,7 +9623,9 @@ function renderNetWorth() {
     }
   }
 
-  let html = '<div style="font-size:16px;font-weight:700;margin:8px 0 4px">💎 Net Worth</div>';
+  let html = tabHeader('Net Worth', {
+    actions: [{ svg: SVG_PLUS, onclick: 'openNetWorthAddSheet()', title: 'Add entry' }]
+  });
 
   // Total net worth card
   html += '<div style="background:linear-gradient(135deg,var(--accent),#7b5cff);border-radius:var(--r);padding:20px;margin-bottom:16px;text-align:center">' +
@@ -9775,20 +9873,18 @@ function deleteNote() {
 function renderNotes() {
   const el = document.getElementById('content');
   const notes = state.notes || [];
+  const notesQuery = (_tabSearch['notes'] || '').toLowerCase().trim();
 
-  // Header with search + add
-  let html = tabHeader('Notes') + '<div style="display:flex;gap:8px;margin-bottom:14px">' +
-    '<div style="flex:1;display:inline-flex;align-items:center;gap:6px;background:var(--surface);border-radius:var(--r);padding:0 14px;height:38px">' +
-      '<svg width="13" height="13" viewBox="0 0 15 15" fill="none" style="flex-shrink:0;opacity:0.4"><circle cx="6" cy="6" r="4.5" stroke="currentColor" stroke-width="1.5"/><path d="M10 10l3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>' +
-      '<input id="noteSearch" type="text" placeholder="Search notes…" oninput="renderNotes()" style="flex:1;background:none;border:none;outline:none;color:var(--text);font-size:15px;font-family:var(--font);height:100%">' +
-    '</div>' +
-    '<button onclick="openAddNote()" style="background:var(--accent);color:#fff;border:none;border-radius:var(--r);padding:0 16px;font-size:13px;font-weight:700;font-family:var(--font);cursor:pointer;height:38px;white-space:nowrap">+ New</button>' +
-  '</div>';
+  let html = tabHeader('Notes', {
+    tabKey: 'notes',
+    searchPlaceholder: 'Search notes…',
+    onSearch: true,
+    actions: [{ svg: SVG_PLUS, onclick: 'openAddNote()', title: 'New note' }]
+  });
 
-  const query = (document.getElementById('noteSearch')?.value || '').toLowerCase().trim();
   let filtered = notes.filter(n => {
-    if (!query) return true;
-    return (n.title||'').toLowerCase().includes(query) || (n.body||'').toLowerCase().includes(query) || (n.category||'').toLowerCase().includes(query);
+    if (!notesQuery) return true;
+    return (n.title||'').toLowerCase().includes(notesQuery) || (n.body||'').toLowerCase().includes(notesQuery) || (n.category||'').toLowerCase().includes(notesQuery);
   });
 
   // Sort: pinned first, then by updatedAt desc
@@ -9799,7 +9895,7 @@ function renderNotes() {
   });
 
   if (filtered.length === 0) {
-    html += '<div class="empty"><div class="empty-icon">📝</div><div class="empty-text">' + (query ? 'No results' : 'No notes yet') + '</div><div class="empty-sub">' + (query ? 'Try a different search' : 'Tap + New to capture something quickly') + '</div></div>';
+    html += '<div class="empty"><div class="empty-icon">📝</div><div class="empty-text">' + (notesQuery ? 'No results' : 'No notes yet') + '</div><div class="empty-sub">' + (notesQuery ? 'Try a different search' : 'Tap + to capture something quickly') + '</div></div>';
     el.innerHTML = html; return;
   }
 
