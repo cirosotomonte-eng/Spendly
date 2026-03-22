@@ -36,7 +36,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '1.8.0-202603231040';
+  const APP_VER = '1.8.0-202603231052';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -948,7 +948,7 @@ async function applyUpdate() {
         <span class="settings-row-chevron">›</span>
       </div>
       <div class="settings-row" style="cursor:default">
-        <span style="font-size:28px;flex-shrink:0;width:24px;text-align:center">💚</span>
+        <span style="font-size:20px;flex-shrink:0;width:24px;text-align:center">💚</span>
         <span class="settings-row-info" style="flex:1;min-width:0">
           <span style="display:block;font-size:15px;font-weight:500">Spendly</span>
           <span style="display:block;font-size:12px;color:var(--muted);margin-top:1px">v<span id="appVersionDisplay"></span> · <span id="appBuildTime"></span></span>
@@ -1665,7 +1665,7 @@ const PALETTE = [
 // ── State ─────────────────────────────────────────────────────────────────────
 const APP_VERSION = '1.8.0';
 const BUILD_DATE = '2026-03-23';
-const BUILD_TIME = '23 Mar 2026 10:40 AM AEDT';
+const BUILD_TIME = '23 Mar 2026 10:52 AM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -2999,7 +2999,7 @@ const _tabSearch = {}; // { tabKey: queryString }
 const _tabSearchOpen = {}; // { tabKey: bool }
 
 function iconBtn(svg, onclick, title) {
-  return '<button onclick="' + onclick + '" title="' + (title||'') + '" style="background:var(--surface2);border:none;border-radius:50%;width:36px;height:36px;display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;color:var(--muted);transition:background 0.1s" onmousedown="this.style.background=\'var(--surface3)\'" onmouseup="this.style.background=\'var(--surface2)\'">' + svg + '</button>';
+  return '<button onclick="' + onclick + '" title="' + (title||'') + '" style="background:var(--surface);border:1px solid var(--border);border-radius:50%;width:36px;height:36px;display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;color:var(--muted);transition:background 0.1s" onmousedown="this.style.background=\'var(--surface2)\'" onmouseup="this.style.background=\'var(--surface)\'">' + svg + '</button>';
 }
 
 const SVG_SEARCH = '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="6.5" cy="6.5" r="4" stroke="currentColor" stroke-width="1.5"/><path d="M10 10l3.5 3.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>';
@@ -3017,16 +3017,17 @@ function tabHeader(title, opts) {
   let actionsHtml = '';
   if (showSearch) {
     const searchColor = isOpen ? 'var(--accent)' : 'var(--muted)';
-    actionsHtml += '<button onclick="toggleTabSearch(\'' + tabKey + '\')" style="background:' + (isOpen ? 'var(--accent-dim)' : 'var(--surface2)') + ';border:none;border-radius:50%;width:36px;height:36px;display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;color:' + searchColor + ';transition:background 0.1s">' + SVG_SEARCH + '</button>';
+    actionsHtml += '<button onclick="toggleTabSearch(\'' + tabKey + '\')" style="background:' + (isOpen ? 'var(--accent-dim)' : 'var(--surface)') + ';border:1px solid ' + (isOpen ? 'var(--accent)' : 'var(--border)') + ';border-radius:50%;width:36px;height:36px;display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;color:' + searchColor + ';transition:background 0.1s">' + SVG_SEARCH + '</button>';
   }
   if (opts.actions) {
     opts.actions.forEach(a => { actionsHtml += iconBtn(a.svg, a.onclick, a.title); });
   }
 
-  let html = '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:' + (isOpen ? '10px' : '16px') + '">' +
+  let html = '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0;padding-bottom:12px;border-bottom:1px solid var(--border)">' +
     '<div style="font-size:26px;font-weight:700;letter-spacing:-0.5px;color:var(--text)">' + title + '</div>' +
     '<div style="display:flex;gap:8px;align-items:center">' + actionsHtml + '</div>' +
-  '</div>';
+  '</div>' +
+  '<div style="height:' + (isOpen ? '10px' : '16px') + '"></div>';
 
   if (isOpen) {
     html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:14px;background:var(--surface);border-radius:var(--r);padding:0 14px;border:1.5px solid ' + (query ? 'var(--accent)' : 'var(--border)') + ';height:36px">' +
@@ -3322,7 +3323,7 @@ function renderExpenses() {
   const addExpBtn = state.categories.length > 0 && !isFutureCycle() ? iconBtn(SVG_PLUS, 'openAddExpense()', 'Add expense') : '';
   const subTabBar =
     '<div style="margin-bottom:4px">' +
-      '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">' +
+      '<div style="display:flex;align-items:center;justify-content:space-between;padding-bottom:12px;border-bottom:1px solid var(--border);margin-bottom:14px">' +
         '<div style="font-size:26px;font-weight:700;letter-spacing:-0.5px;color:var(--text)">Expenses</div>' +
         '<div style="display:flex;gap:8px;align-items:center">' + addExpBtn + '</div>' +
       '</div>' +
@@ -5454,10 +5455,10 @@ function renderRecycling() {
     days + (days === 1 ? ' day' : ' days'),
   ].filter(Boolean).join(', ');
 
-  let html = '<div style="display:flex;justify-content:space-between;align-items:center;margin:8px 0 14px">' +
-    '<div style="font-size:16px;font-weight:700">♻️ Recycling</div>' +
-    '<button onclick="openRecycleSettings()" style="background:var(--surface);border:none;border-radius:8px;padding:7px 12px;font-size:12px;color:var(--muted);font-family:var(--font);cursor:pointer">Settings</button>' +
-    '</div>';
+  const SVG_GEAR = '<svg width="16" height="16" viewBox="0 0 17 17" fill="none"><circle cx="8.5" cy="8.5" r="2" stroke="currentColor" stroke-width="1.5"/><path d="M8.5 1.5v1M8.5 14.5v1M1.5 8.5h1M14.5 8.5h1M3.5 3.5l.7.7M12.8 12.8l.7.7M3.5 13.5l.7-.7M12.8 4.2l.7-.7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>';
+  let html = tabHeader('Recycling', {
+    actions: [{ svg: SVG_GEAR, onclick: 'openRecycleSettings()', title: 'Recycling settings' }]
+  });
 
   // Stats cards — row 1
   html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">' +
