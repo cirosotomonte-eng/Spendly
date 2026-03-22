@@ -36,7 +36,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '1.7.9-202603230855';
+  const APP_VER = '1.7.9-202603230828';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -1653,7 +1653,7 @@ const PALETTE = [
 // ── State ─────────────────────────────────────────────────────────────────────
 const APP_VERSION = '1.7.9';
 const BUILD_DATE = '2026-03-23';
-const BUILD_TIME = '23 Mar 2026 8:55 AM AEDT';
+const BUILD_TIME = '23 Mar 2026 8:32 AM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -5801,6 +5801,8 @@ function renderSavings() {
   const { cycleStart: cs, cycleEnd: ce } = getCycleRange();
   const cycleLabel = cs.toLocaleDateString('en-AU',{day:'numeric',month:'short'}) + ' – ' + ce.toLocaleDateString('en-AU',{day:'numeric',month:'short'});
   let html = tabHeader('Savings') + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:8px 0 14px">' +
+    '<div style="background:var(--surface);border-radius:var(--r);padding:12px 14px">' +
+      '<div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:4px">Total saved</div>' +
       '<div style="font-size:24px;font-weight:700;letter-spacing:-1px;color:var(--text)">'+fmt(totalAllSavings)+'</div>' +
     '</div>' +
     '<div style="background:var(--surface);border-radius:var(--r);padding:12px 14px">' +
@@ -8533,6 +8535,8 @@ function renderGiftCards() {
   const expiringSoon = active.filter(c => c.expiryDate && (new Date(c.expiryDate+'T00:00:00')-today)/86400000 <= 30).length;
 
   let html = tabHeader('Wallet') + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:16px">' +
+    '<div style="background:var(--surface);border-radius:var(--r);padding:12px 14px">' +
+      '<div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:4px">Total balance</div>' +
       '<div style="font-size:22px;font-weight:700">' + fmtF(totalBalance) + '</div>' +
       '<div style="font-size:11px;color:var(--muted)">' + active.length + ' active card' + (active.length!==1?'s':'') + '</div>' +
     '</div>' +
