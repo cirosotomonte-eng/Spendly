@@ -36,7 +36,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '2.0.0-202603231659';
+  const APP_VER = '2.0.0-202603231720';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -1202,6 +1202,7 @@ async function applyUpdate() {
     <div class="modal-handle"></div>
     <div class="modal-title" id="savingsDepositTitle">Add transaction</div>
     <div id="savingsDepositSub" style="font-size:12px;color:var(--muted);margin-bottom:14px;"></div>
+    <div id="sdLinkedWarning" style="display:none;background:rgba(240,168,96,0.1);border:1px solid rgba(240,168,96,0.3);border-radius:10px;padding:10px 12px;margin-bottom:14px;font-size:12px;color:var(--muted);line-height:1.6"></div>
     <label>Type</label>
     <div style="display:flex;gap:8px;margin-bottom:14px">
       <button id="sdTypeDeposit" onclick="setSdType('deposit')" style="flex:1;padding:10px;border-radius:10px;border:2px solid var(--accent);background:var(--accent-dim);color:var(--accent);font-weight:700;font-family:var(--font);cursor:pointer;font-size:13px">💰 Deposit</button>
@@ -1714,7 +1715,7 @@ const PALETTE = [
 // ── State ─────────────────────────────────────────────────────────────────────
 const APP_VERSION = '2.0.0';
 const BUILD_DATE = '2026-03-23';
-const BUILD_TIME = '23 Mar 2026 4:59 PM AEDT';
+const BUILD_TIME = '23 Mar 2026 5:20 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -3561,11 +3562,11 @@ function renderExpenses() {
   const subTabBar =
     '<div style="margin-bottom:4px">' +
       '<div style="display:flex;align-items:center;justify-content:space-between;padding-bottom:12px;border-bottom:1px solid var(--border);margin-bottom:14px">' +
-        '<div style="font-size:26px;font-weight:700;letter-spacing:-0.5px;color:var(--text)">Expenses</div>' +
+        '<div style="font-size:26px;font-weight:700;letter-spacing:-0.5px;color:var(--text)">Transactions</div>' +
         '<div style="display:flex;gap:8px;align-items:center">' + addExpBtn + '</div>' +
       '</div>' +
       '<div style="display:flex;border-bottom:1px solid var(--surface2);margin-bottom:14px">' +
-        '<button id="expSubTabLog" onclick="setExpensesSubTab(\'log\')" style="flex:1;padding:10px 0;border:none;background:none;font-size:14px;font-weight:600;font-family:var(--font);cursor:pointer;color:' + (_expensesSubTab==='log'?'var(--accent)':'var(--muted)') + ';border-bottom:2px solid ' + (_expensesSubTab==='log'?'var(--accent)':'transparent') + ';margin-bottom:-1px;transition:all 0.15s">Transactions</button>' +
+        '<button id="expSubTabLog" onclick="setExpensesSubTab(\'log\')" style="flex:1;padding:10px 0;border:none;background:none;font-size:14px;font-weight:600;font-family:var(--font);cursor:pointer;color:' + (_expensesSubTab==='log'?'var(--accent)':'var(--muted)') + ';border-bottom:2px solid ' + (_expensesSubTab==='log'?'var(--accent)':'transparent') + ';margin-bottom:-1px;transition:all 0.15s">Daily transactions</button>' +
         '<button id="expSubTabRecurring" onclick="setExpensesSubTab(\'recurring\')" style="flex:1;padding:10px 0;border:none;background:none;font-size:14px;font-weight:600;font-family:var(--font);cursor:pointer;color:' + (_expensesSubTab==='recurring'?'var(--accent)':'var(--muted)') + ';border-bottom:2px solid ' + (_expensesSubTab==='recurring'?'var(--accent)':'transparent') + ';margin-bottom:-1px;transition:all 0.15s">Recurring</button>' +
       '</div>' +
     '</div>';
@@ -5987,8 +5988,8 @@ function savingsSubById(id) { return (state.savingsSubcategories||[]).find(s=>s.
 function subsForCat(catId) { return (state.savingsSubcategories||[]).filter(s=>s.catId===catId); }
 function depositsForTarget(targetId) { return (state.savingsDeposits||[]).filter(d=>d.targetId===targetId); }
 function depositsForCat(catId) { return (state.savingsDeposits||[]).filter(d=>d.catId===catId); }
-function totalSavedForTarget(targetId) { return depositsForTarget(targetId).reduce((s,d)=>s+(d.type==='withdrawal'?-d.amount:d.amount),0); }
-function totalSavedForCat(catId) { return depositsForCat(catId).reduce((s,d)=>s+(d.type==='withdrawal'?-d.amount:d.amount),0); }
+function totalSavedForTarget(targetId) { return depositsForTarget(targetId).reduce((s,d)=>s+(d.type==='withdrawal'||d.type==='bill-payment'?-d.amount:d.amount),0); }
+function totalSavedForCat(catId) { return depositsForCat(catId).reduce((s,d)=>s+(d.type==='withdrawal'||d.type==='bill-payment'?-d.amount:d.amount),0); }
 function cycleDepositsForTarget(targetId) {
   const { cycleStart, cycleEnd } = getCycleRange();
   return depositsForTarget(targetId).filter(d=>{ const dt=new Date(d.date+'T00:00:00'); return dt>=cycleStart&&dt<=cycleEnd; });
@@ -5997,8 +5998,8 @@ function cycleDepositsForCat(catId) {
   const { cycleStart, cycleEnd } = getCycleRange();
   return depositsForCat(catId).filter(d=>{ const dt=new Date(d.date+'T00:00:00'); return dt>=cycleStart&&dt<=cycleEnd; });
 }
-function cycleNetForTarget(targetId) { return cycleDepositsForTarget(targetId).reduce((s,d)=>s+(d.type==='withdrawal'?-d.amount:d.amount),0); }
-function cycleNetForCat(catId) { return cycleDepositsForCat(catId).reduce((s,d)=>s+(d.type==='withdrawal'?-d.amount:d.amount),0); }
+function cycleNetForTarget(targetId) { return cycleDepositsForTarget(targetId).reduce((s,d)=>s+(d.type==='withdrawal'||d.type==='bill-payment'?-d.amount:d.amount),0); }
+function cycleNetForCat(catId) { return cycleDepositsForCat(catId).reduce((s,d)=>s+(d.type==='withdrawal'||d.type==='bill-payment'?-d.amount:d.amount),0); }
 
 function daysUntil(dateStr) {
   if (!dateStr) return null;
@@ -6246,8 +6247,25 @@ function openEditDeposit(id) {
   document.getElementById('sdNote').value = dep.note||'';
   document.getElementById('sdDeleteBtn').style.display = 'block';
   setSdType(dep.type||'deposit');
+
+  // Show warning if linked to a transaction
+  const warnEl = document.getElementById('sdLinkedWarning');
+  if (dep.linkedExpenseId) {
+    const linkedExp = (state.expenses||[]).find(e=>e.id===dep.linkedExpenseId);
+    const linkedCat = linkedExp ? catById(linkedExp.categoryId) : null;
+    warnEl.innerHTML = '⚠️ This entry is linked to a <strong style="color:var(--text)">' +
+      (linkedCat ? linkedCat.icon + ' ' + linkedCat.name : 'transaction') +
+      '</strong> in your Transactions tab' +
+      (linkedExp ? ' on ' + new Date(linkedExp.date+'T00:00:00').toLocaleDateString('en-AU',{day:'numeric',month:'short',year:'numeric'}) : '') +
+      '. Deleting here will also delete that transaction.';
+    warnEl.style.display = '';
+  } else {
+    warnEl.style.display = 'none';
+  }
+
   document.getElementById('savingsDepositModal').classList.add('open');
 }
+
 function saveSavingsDeposit() {
   const amount = parseFloat(document.getElementById('sdAmount').value);
   const date = document.getElementById('sdDate').value;
@@ -6266,10 +6284,28 @@ function saveSavingsDeposit() {
   _savingsCatScrollTarget = catId;
   renderContent();
 }
+
 function deleteSavingsDeposit() {
   if (!editingSavingsDepositId) return;
+  const dep = (state.savingsDeposits||[]).find(d=>d.id===editingSavingsDepositId);
+  // Also delete the linked expense if it exists
+  if (dep && dep.linkedExpenseId) {
+    const linkedExp = (state.expenses||[]).find(e=>e.id===dep.linkedExpenseId);
+    if (linkedExp) {
+      // Clean up the other linked deposit/withdrawal on the expense
+      if (linkedExp.linkedDepositId && linkedExp.linkedDepositId !== editingSavingsDepositId) {
+        state.savingsDeposits = (state.savingsDeposits||[]).filter(d=>d.id!==linkedExp.linkedDepositId);
+      }
+      if (linkedExp.linkedWithdrawalId && linkedExp.linkedWithdrawalId !== editingSavingsDepositId) {
+        state.savingsDeposits = (state.savingsDeposits||[]).filter(d=>d.id!==linkedExp.linkedWithdrawalId);
+      }
+      state.expenses = (state.expenses||[]).filter(e=>e.id!==dep.linkedExpenseId);
+    }
+  }
   state.savingsDeposits = (state.savingsDeposits||[]).filter(d=>d.id!==editingSavingsDepositId);
-  saveState(); closeModal('savingsDepositModal'); renderContent();
+  saveState(); closeModal('savingsDepositModal');
+  updateHeader();
+  renderContent();
 }
 
 // ── Helper: scoped color grid ─────────────────────────────────────────────────
@@ -6300,9 +6336,9 @@ function renderSavings() {
   const allCats = state.savingsCategories || [];
   const savingsQuery = (_tabSearch['savings'] || '').toLowerCase().trim();
   const cats = savingsQuery ? allCats.filter(c => c.name.toLowerCase().includes(savingsQuery)) : allCats;
-  const totalAllSavings = (state.savingsDeposits||[]).reduce((s,d)=>s+(d.type==='withdrawal'?-d.amount:d.amount),0);
+  const totalAllSavings = (state.savingsDeposits||[]).reduce((s,d)=>s+(d.type==='withdrawal'||d.type==='bill-payment'?-d.amount:d.amount),0);
   const { cycleStart, cycleEnd } = getCycleRange();
-  const cycleNetAll = (state.savingsDeposits||[]).filter(d=>{ const dt=new Date(d.date+'T00:00:00'); return dt>=cycleStart&&dt<=cycleEnd; }).reduce((s,d)=>s+(d.type==='withdrawal'?-d.amount:d.amount),0);
+  const cycleNetAll = (state.savingsDeposits||[]).filter(d=>{ const dt=new Date(d.date+'T00:00:00'); return dt>=cycleStart&&dt<=cycleEnd; }).reduce((s,d)=>s+(d.type==='withdrawal'||d.type==='bill-payment'?-d.amount:d.amount),0);
 
   if (allCats.length === 0) {
     el.innerHTML = tabHeader('Savings', { tabKey:'savings', searchPlaceholder:'Search goals…', onSearch:false, actions:[{svg:SVG_PLUS,onclick:'openAddSavingsCat()',title:'Add goal'}] }) + '<div class="empty"><div class="empty-icon">💰</div><div class="empty-text">No savings goals yet</div><div class="empty-sub">Tap + to create your first savings category</div></div>';
@@ -6314,7 +6350,7 @@ function renderSavings() {
   const monthlyMap = {};
   deposits.forEach(d => {
     const m = d.date.slice(0,7);
-    monthlyMap[m] = (monthlyMap[m]||0) + (d.type==='withdrawal'?-d.amount:d.amount);
+    monthlyMap[m] = (monthlyMap[m]||0) + (d.type==='withdrawal'||d.type==='bill-payment'?-d.amount:d.amount);
   });
   const sortedMonths = Object.keys(monthlyMap).sort();
   let running = 0;
@@ -6421,7 +6457,7 @@ function renderSavings() {
           if (deps.length > 0) {
             const firstDate = new Date(deps.reduce((a,b)=>a.date<b.date?a:b).date+'T00:00:00');
             const monthsActive = Math.max((new Date()-firstDate)/(1000*60*60*24*30.44), 1);
-            const netTotal = deps.reduce((s,d)=>s+(d.type==='withdrawal'?-d.amount:d.amount),0);
+            const netTotal = deps.reduce((s,d)=>s+(d.type==='withdrawal'||d.type==='bill-payment'?-d.amount:d.amount),0);
             const avgMonthly = netTotal / monthsActive;
             if (avgMonthly > 0) {
               const monthsToGo = remaining / avgMonthly;
