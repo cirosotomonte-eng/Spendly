@@ -36,7 +36,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '2.0.0-202603232058';
+  const APP_VER = '2.0.0-202603232124';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -1204,6 +1204,7 @@ async function applyUpdate() {
     <div class="modal-title" id="savingsDepositTitle">Add transaction</div>
     <div id="savingsDepositSub" style="font-size:12px;color:var(--muted);margin-bottom:14px;"></div>
     <div id="sdLinkedWarning" style="display:none;background:rgba(240,168,96,0.1);border:1px solid rgba(240,168,96,0.3);border-radius:10px;padding:10px 12px;margin-bottom:14px;font-size:12px;color:var(--muted);line-height:1.6"></div>
+    <div id="sdEditableFields">
     <label>Type</label>
     <div id="sdTypeRow" style="display:flex;gap:8px;margin-bottom:14px">
       <button id="sdTypeDeposit" onclick="setSdType('deposit')" style="flex:1;padding:10px;border-radius:10px;border:2px solid var(--accent);background:var(--accent-dim);color:var(--accent);font-weight:700;font-family:var(--font);cursor:pointer;font-size:13px">💰 Deposit</button>
@@ -1216,6 +1217,7 @@ async function applyUpdate() {
     <label>Note (optional)</label>
     <input type="text" id="sdNote" placeholder="e.g. Monthly transfer">
     <button class="btn-primary" id="sdSaveBtn" onclick="saveSavingsDeposit()">Save</button>
+    </div>
     <button class="btn-danger" id="sdDeleteBtn" onclick="deleteSavingsDeposit()" style="display:none">Delete</button>
     <button class="btn-ghost" onclick="closeModal('savingsDepositModal')">Cancel</button>
   </div>
@@ -1716,7 +1718,7 @@ const PALETTE = [
 // ── State ─────────────────────────────────────────────────────────────────────
 const APP_VERSION = '2.0.0';
 const BUILD_DATE = '2026-03-23';
-const BUILD_TIME = '23 Mar 2026 8:58 PM AEDT';
+const BUILD_TIME = '23 Mar 2026 9:24 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -5062,10 +5064,25 @@ function _updateTxGoalInfo() {
   if (!cat || !cat.linkedSavingsGoalId) { infoEl.style.display = 'none'; return; }
   const goal = savingsCatById(cat.linkedSavingsGoalId);
   if (!goal) { infoEl.style.display = 'none'; return; }
-  const balance = totalSavedForCat(goal.id);
+
+  // Compute balance EXCLUDING the current transaction's linked deposit/withdrawal
+  // so editing doesn't double-count the existing effect
+  let excludeIds = new Set();
+  if (state.editingExpenseId) {
+    const existing = state.expenses.find(e=>e.id===state.editingExpenseId);
+    if (existing) {
+      if (existing.linkedDepositId) excludeIds.add(existing.linkedDepositId);
+      if (existing.linkedWithdrawalId) excludeIds.add(existing.linkedWithdrawalId);
+    }
+  }
+  const balance = (state.savingsDeposits||[])
+    .filter(d => d.catId===goal.id && !excludeIds.has(d.id))
+    .reduce((s,d)=>s+(d.type==='withdrawal'||d.type==='bill-payment'?-d.amount:d.amount),0);
+
   const fmtB = n => '$' + Math.abs(n).toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2});
   if (_txType === 'saving') {
-    infoEl.innerHTML = '💚 Depositing into <strong style="color:var(--text)">' + goal.icon + ' ' + goal.name + '</strong><br>Current balance: ' + fmtB(balance) + ' · Will become: <strong style="color:#34C759">' + fmtB(balance + (parseFloat(document.getElementById('expAmount').value)||0)) + '</strong><br><span style="color:var(--accent)">Also deducts from your monthly budget.</span>';
+    const newBal = balance + (parseFloat(document.getElementById('expAmount').value)||0);
+    infoEl.innerHTML = '💚 Depositing into <strong style="color:var(--text)">' + goal.icon + ' ' + goal.name + '</strong><br>Current balance: ' + fmtB(balance) + ' · Will become: <strong style="color:#34C759">' + fmtB(newBal) + '</strong><br><span style="color:var(--accent)">Also deducts from your monthly budget.</span>';
   } else {
     const amt = parseFloat(document.getElementById('expAmount').value) || 0;
     if (balance >= amt && amt > 0) {
@@ -5172,7 +5189,7 @@ function saveExpense() {
     goalCoveredAmount = Math.min(balance, amount); // how much the goal covers
     if (goalCoveredAmount > 0) {
       linkedWithdrawalId = uid();
-      state.savingsDeposits.push({ id:linkedWithdrawalId, catId:linkedGoalId, targetId:linkedGoalId, amount:goalCoveredAmount, date, note:name||'Bill payment', type:'bill-payment', linkedExpenseId:expId });
+      state.savingsDeposits.push({ id:linkedWithdrawalId, catId:linkedGoalId, targetId:linkedGoalId, amount:goalCoveredAmount, date, note:name||'Expense withdrawal', type:'bill-payment', linkedExpenseId:expId });
     }
   }
 
@@ -6248,6 +6265,8 @@ function openAddDeposit(targetId, catId) {
   document.getElementById('sdDeleteBtn').style.display = 'none';
   document.getElementById('sdSaveBtn').textContent = 'Save';
   document.getElementById('sdLinkedWarning').style.display = 'none';
+  const sdEditableFields = document.getElementById('sdEditableFields');
+  if (sdEditableFields) { sdEditableFields.style.opacity=''; sdEditableFields.style.pointerEvents=''; }
   const sdTypeRow = document.getElementById('sdTypeRow');
   if (sdTypeRow) { sdTypeRow.style.opacity=''; sdTypeRow.style.pointerEvents=''; }
   setSdType('deposit');
@@ -6268,22 +6287,25 @@ function openEditDeposit(id) {
   document.getElementById('sdDeleteBtn').style.display = 'block';
   setSdType(dep.type||'deposit');
 
-  // Show warning if linked to a transaction
+  // Show warning and lock/unlock fields based on whether linked to a transaction
   const warnEl = document.getElementById('sdLinkedWarning');
+  const editableFields = document.getElementById('sdEditableFields');
   const typeRow = document.getElementById('sdTypeRow');
   if (dep.linkedExpenseId) {
     const linkedExp = (state.expenses||[]).find(e=>e.id===dep.linkedExpenseId);
     const linkedCat = linkedExp ? catById(linkedExp.categoryId) : null;
-    warnEl.innerHTML = '⚠️ This entry is linked to a <strong style="color:var(--text)">' +
-      (linkedCat ? linkedCat.icon + ' ' + linkedCat.name : 'transaction') +
-      '</strong> in your Transactions tab' +
-      (linkedExp ? ' on ' + new Date(linkedExp.date+'T00:00:00').toLocaleDateString('en-AU',{day:'numeric',month:'short',year:'numeric'}) : '') +
-      '. Deleting here will also delete that transaction.<br><span style="color:var(--muted)">Transaction type cannot be changed here — edit the transaction directly.</span>';
+    const dateStr = linkedExp ? new Date(linkedExp.date+'T00:00:00').toLocaleDateString('en-AU',{day:'numeric',month:'short',year:'numeric'}) : '';
+    warnEl.innerHTML = '⚠️ This entry is linked to ' +
+      (linkedCat ? '<strong style="color:var(--text)">' + linkedCat.icon + ' ' + linkedCat.name + '</strong>' : 'a transaction') +
+      ' in your Transactions tab' + (dateStr ? ' on <strong style="color:var(--text)">' + dateStr + '</strong>' : '') +
+      '. Deleting here will also delete that transaction.<br><br>' +
+      '<strong style="color:var(--text)">You can edit this record in the Transactions tab.</strong>';
     warnEl.style.display = '';
-    // Disable the type buttons
-    if (typeRow) { typeRow.style.opacity='0.4'; typeRow.style.pointerEvents='none'; }
+    // Lock all editable fields
+    if (editableFields) { editableFields.style.opacity='0.35'; editableFields.style.pointerEvents='none'; }
   } else {
     warnEl.style.display = 'none';
+    if (editableFields) { editableFields.style.opacity=''; editableFields.style.pointerEvents=''; }
     if (typeRow) { typeRow.style.opacity=''; typeRow.style.pointerEvents=''; }
   }
 
