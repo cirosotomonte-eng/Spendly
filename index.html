@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Spendly">
 <meta name="theme-color" content="#0f0f0f" media="(prefers-color-scheme: dark)">
-<meta name="theme-color" content="#f5f5f0" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#f8f7f3" media="(prefers-color-scheme: light)">
 <title>Spendly — Expense Tracker</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -36,7 +36,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '1.9.0-202603231136';
+  const APP_VER = '1.9.0-202603231150';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -176,7 +176,7 @@ async function applyUpdate() {
   #cycleStats { margin: 8px 20px 12px; }
 
   /* Bottom nav */
-  .bottom-nav { position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:100%;max-width:900px;z-index:100;background:rgba(245,243,238,0.95);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border-top:1px solid var(--border);padding:8px 0 calc(env(safe-area-inset-bottom,34px) + 20px);display:flex; }
+  .bottom-nav { position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:100%;max-width:900px;z-index:100;background:rgba(248,247,243,0.95);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border-top:1px solid var(--border);padding:8px 0 calc(env(safe-area-inset-bottom,34px) + 20px);display:flex; }
   .bottom-nav-item { flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;padding:6px 4px;border:none;background:none;color:var(--muted);font-size:10px;font-weight:500;font-family:var(--font);cursor:pointer;transition:color 0.15s;letter-spacing:0.01em; }
   .bottom-nav-item .nav-icon { font-size:24px;line-height:1; }
   .bottom-nav-item.active { color:var(--accent); }
@@ -348,7 +348,7 @@ async function applyUpdate() {
   .cal-scroll { overflow-x: auto; overflow-y: auto; margin: 0 -20px; padding: 0 20px 16px; }
 
   @media (prefers-color-scheme: light) {
-    :root { --bg: #f5f5f0; --surface: #ffffff; --surface2: #f0f0ec; --surface3: #e8e8e3; --border: #e0e0da; --text: #111; --muted: #888; }
+    :root { --bg: #f8f7f3; --surface: #ffffff; --surface2: #f2f1ed; --surface3: #eceae5; --border: #e0e0da; --text: #111; --muted: #888; }
     .fab { box-shadow: 0 8px 32px rgba(79,142,247,0.2); }
   }
   @media (min-width: 600px) {
@@ -1698,7 +1698,7 @@ const PALETTE = [
 // ── State ─────────────────────────────────────────────────────────────────────
 const APP_VERSION = '1.9.0';
 const BUILD_DATE = '2026-03-23';
-const BUILD_TIME = '23 Mar 2026 11:36 AM AEDT';
+const BUILD_TIME = '23 Mar 2026 11:50 AM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -10144,7 +10144,7 @@ function renderNotes() {
   });
 
   // Quick add suggestions at bottom
-  if (!query && notes.length < 3) {
+  if (!notesQuery && notes.length < 3) {
     html += '<div style="margin-top:16px"><div class="section-label">Quick ideas</div>';
     ['Check mortgage rate options', 'Review super fund performance', 'Compare offset vs redraw', 'Tax deductions to claim'].forEach(s => {
       html += '<div onclick="openAddNote(\'' + s + '\')" style="padding:10px 14px;background:var(--surface);border-radius:10px;margin-bottom:6px;font-size:13px;color:var(--muted);cursor:pointer;display:flex;align-items:center;gap:8px"><span style="opacity:0.4">+</span>' + s + '</div>';
