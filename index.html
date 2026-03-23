@@ -36,7 +36,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '2.0.0-202603231720';
+  const APP_VER = '2.0.0-202603231728';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -1079,6 +1079,7 @@ async function applyUpdate() {
     <label>Date</label>
     <input type="date" id="expDate">
     <button class="btn-primary" id="expSaveBtn" onclick="saveExpense()">Save</button>
+    <div id="expLinkedWarning" style="display:none;background:rgba(240,168,96,0.1);border:1px solid rgba(240,168,96,0.3);border-radius:10px;padding:10px 12px;margin-bottom:8px;font-size:12px;color:var(--muted);line-height:1.6"></div>
     <button class="btn-danger" id="expDeleteBtn" onclick="deleteExpense()" style="display:none">Delete</button>
     <button class="btn-ghost" onclick="closeModal('expenseModal')">Cancel</button>
   </div>
@@ -1715,7 +1716,7 @@ const PALETTE = [
 // ── State ─────────────────────────────────────────────────────────────────────
 const APP_VERSION = '2.0.0';
 const BUILD_DATE = '2026-03-23';
-const BUILD_TIME = '23 Mar 2026 5:20 PM AEDT';
+const BUILD_TIME = '23 Mar 2026 5:28 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -5091,6 +5092,7 @@ function openAddExpense() {
   document.getElementById('expSaveBtn').textContent = 'Save';
   document.getElementById('txTypeRow').style.display = 'none';
   document.getElementById('txGoalInfo').style.display = 'none';
+  document.getElementById('expLinkedWarning').style.display = 'none';
   setTxType('expense');
   populateCatSelect();
   openModal('expenseModal');
@@ -5115,6 +5117,20 @@ function openEditExpense(id) {
   document.getElementById('txTypeRow').style.display = hasLinkedGoal ? '' : 'none';
   setTxType(_txType);
   _updateTxGoalInfo();
+
+  // Show linked warning if this transaction has a linked savings entry
+  const warnEl = document.getElementById('expLinkedWarning');
+  const hasLinked = e.linkedDepositId || e.linkedWithdrawalId;
+  if (hasLinked) {
+    const goal = hasLinkedGoal ? savingsCatById(cat.linkedSavingsGoalId) : null;
+    const txLabel = e.transactionType === 'saving' ? 'saving deposit' : 'goal withdrawal';
+    warnEl.innerHTML = '⚠️ Deleting this will also remove the linked ' + txLabel +
+      (goal ? ' from <strong style="color:var(--text)">' + goal.icon + ' ' + goal.name + '</strong>' : ' in your savings goal') + '.';
+    warnEl.style.display = '';
+  } else {
+    warnEl.style.display = 'none';
+  }
+
   openModal('expenseModal');
 }
 
