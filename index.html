@@ -36,7 +36,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '2.0.0-202603232144';
+  const APP_VER = '2.0.0-202603232153';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -1429,7 +1429,16 @@ async function applyUpdate() {
     <label>Amount ($)</label>
     <input type="number" inputmode="decimal" id="recAmount" placeholder="0.00" step="0.01" min="0" oninput="checkRecChanged()">
     <label>Category</label>
-    <select id="recCat" onchange="updateRecOffsetVisibility();checkRecChanged()"></select>
+    <select id="recCat" onchange="updateRecOffsetVisibility();updateRecTxGoalInfo();checkRecChanged()"></select>
+    <!-- Transaction type toggle — only shown for linked categories -->
+    <div id="recTxTypeRow" style="display:none;margin-bottom:14px">
+      <div style="display:flex;gap:8px">
+        <button type="button" id="recTxTypeExpense" onclick="setRecTxType('expense')" style="flex:1;padding:10px;border-radius:10px;border:2px solid var(--accent);background:var(--accent-dim);color:var(--accent);font-weight:700;font-family:var(--font);cursor:pointer;font-size:13px">💳 Expense</button>
+        <button type="button" id="recTxTypeSaving" onclick="setRecTxType('saving')" style="flex:1;padding:10px;border-radius:10px;border:2px solid var(--border);background:var(--surface2);color:var(--muted);font-weight:600;font-family:var(--font);cursor:pointer;font-size:13px">💚 Saving</button>
+      </div>
+    </div>
+    <!-- Goal info line -->
+    <div id="recTxGoalInfo" style="display:none;background:var(--surface2);border-radius:10px;padding:10px 12px;margin-bottom:14px;font-size:12px;color:var(--muted);line-height:1.6"></div>
     <label>Frequency</label>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px" id="recFreqBtns">
       <button type="button" onclick="setRecFreq('weekly')" id="recFreqWeekly" style="padding:10px;border-radius:10px;border:2px solid var(--accent);background:var(--accent-dim);color:var(--accent);font-weight:700;font-family:var(--font);cursor:pointer;font-size:13px">Weekly</button>
@@ -1718,7 +1727,7 @@ const PALETTE = [
 // ── State ─────────────────────────────────────────────────────────────────────
 const APP_VERSION = '2.0.0';
 const BUILD_DATE = '2026-03-23';
-const BUILD_TIME = '23 Mar 2026 9:44 PM AEDT';
+const BUILD_TIME = '23 Mar 2026 9:53 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -8443,6 +8452,7 @@ function getRecCurrentSnapshot() {
     frequency: recFreqState,
     active: recActiveState,
     autoOffset: recOffsetState,
+    transactionType: recTxType,
     weekday: recWeekdayState,
     monthDay: parseInt(document.getElementById('recMonthDay').value) || null,
     xweeksNum: parseInt(document.getElementById('recXweeksNum').value) || null,
@@ -8462,6 +8472,7 @@ function checkRecChanged() {
     curr.frequency !== orig.frequency ||
     curr.active !== orig.active ||
     curr.autoOffset !== orig.autoOffset ||
+    curr.transactionType !== orig.transactionType ||
     curr.weekday !== orig.weekday ||
     curr.monthDay !== orig.monthDay ||
     curr.xweeksNum !== orig.xweeksNum ||
@@ -8474,6 +8485,52 @@ function checkRecChanged() {
     btn.style.opacity = changed ? '1' : '0.4';
     btn.style.cursor = changed ? 'pointer' : 'default';
   }
+}
+
+let recTxType = 'expense'; // 'expense' | 'saving'
+
+function setRecTxType(type) {
+  recTxType = type;
+  const expBtn = document.getElementById('recTxTypeExpense');
+  const savBtn = document.getElementById('recTxTypeSaving');
+  if (expBtn) {
+    expBtn.style.border = type==='expense' ? '2px solid var(--accent)' : '2px solid var(--border)';
+    expBtn.style.background = type==='expense' ? 'var(--accent-dim)' : 'var(--surface2)';
+    expBtn.style.color = type==='expense' ? 'var(--accent)' : 'var(--muted)';
+    expBtn.style.fontWeight = type==='expense' ? '700' : '600';
+  }
+  if (savBtn) {
+    savBtn.style.border = type==='saving' ? '2px solid #34C759' : '2px solid var(--border)';
+    savBtn.style.background = type==='saving' ? 'rgba(52,199,89,0.1)' : 'var(--surface2)';
+    savBtn.style.color = type==='saving' ? '#34C759' : 'var(--muted)';
+    savBtn.style.fontWeight = type==='saving' ? '700' : '600';
+  }
+  updateRecTxGoalInfo();
+  checkRecChanged();
+}
+
+function updateRecTxGoalInfo() {
+  const catId = document.getElementById('recCat').value;
+  const cat = catById(catId);
+  const linkedGoalId = cat ? cat.linkedSavingsGoalId : null;
+  const typeRow = document.getElementById('recTxTypeRow');
+  const infoEl = document.getElementById('recTxGoalInfo');
+  if (!linkedGoalId) {
+    if (typeRow) typeRow.style.display = 'none';
+    if (infoEl) infoEl.style.display = 'none';
+    return;
+  }
+  if (typeRow) typeRow.style.display = '';
+  const goal = savingsCatById(linkedGoalId);
+  if (!goal || !infoEl) return;
+  const balance = totalSavedForCat(linkedGoalId);
+  const fmtB = n => '$' + Math.abs(n).toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2});
+  if (recTxType === 'saving') {
+    infoEl.innerHTML = '💚 Each fire will deposit into <strong style="color:var(--text)">' + goal.icon + ' ' + goal.name + '</strong> and deduct from budget.<br>Current balance: ' + fmtB(balance);
+  } else {
+    infoEl.innerHTML = '💳 Each fire will withdraw from <strong style="color:var(--text)">' + goal.icon + ' ' + goal.name + '</strong> first (current balance: ' + fmtB(balance) + ').<br>Any shortfall will deduct from budget instead.';
+  }
+  infoEl.style.display = '';
 }
 
 function openAddRecurring() {
@@ -8492,6 +8549,9 @@ function openAddRecurring() {
   if (ocheck) { ocheck.textContent=''; ocheck.style.background='var(--surface3)'; ocheck.style.border='2px solid var(--border)'; }
   populateRecCatSelect();
   updateRecOffsetVisibility();
+  recTxType = 'expense';
+  setRecTxType('expense');
+  updateRecTxGoalInfo();
   // Default: weekly, Monday
   setRecFreq('weekly');
   setRecWeekday(1);
@@ -8527,6 +8587,9 @@ function openEditRecurring(id) {
   populateRecCatSelect();
   if (rec.categoryId) document.getElementById('recCat').value = rec.categoryId;
   updateRecOffsetVisibility();
+  recTxType = rec.transactionType || 'expense';
+  setRecTxType(recTxType);
+  updateRecTxGoalInfo();
   // Restore frequency settings
   const freq = rec.frequency || 'weekly';
   setRecFreq(freq);
@@ -8568,6 +8631,7 @@ function saveRecurring() {
     frequency: recFreqState,
     active: recActiveState,
     autoOffset: recOffsetState,
+    transactionType: recTxType,
     // Frequency-specific
     weekday: recFreqState === 'weekly' ? recWeekdayState : undefined,
     monthDay: recFreqState === 'monthly' ? parseInt(document.getElementById('recMonthDay').value) : undefined,
@@ -8781,12 +8845,38 @@ function applyRecurringExpenses() {
     if (alreadyExists) { r.lastAdded = todayDateStr; return; }
 
     // Add the expense dated today
+    const expId = uid();
+    const txType = r.transactionType || 'expense';
+    const cat = catById(r.categoryId);
+    const linkedGoalId = cat ? cat.linkedSavingsGoalId : null;
+    let linkedDepositId = null;
+    let linkedWithdrawalId = null;
+    let goalCoveredAmount = 0;
+
+    if (!state.savingsDeposits) state.savingsDeposits = [];
+
+    if (txType === 'saving' && linkedGoalId) {
+      linkedDepositId = uid();
+      state.savingsDeposits.push({ id:linkedDepositId, catId:linkedGoalId, targetId:linkedGoalId, amount:r.amount, date:todayDateStr, note:r.name||'Saving deposit', type:'deposit', linkedExpenseId:expId });
+    } else if (txType === 'expense' && linkedGoalId) {
+      const balance = totalSavedForCat(linkedGoalId);
+      goalCoveredAmount = Math.min(balance, r.amount);
+      if (goalCoveredAmount > 0) {
+        linkedWithdrawalId = uid();
+        state.savingsDeposits.push({ id:linkedWithdrawalId, catId:linkedGoalId, targetId:linkedGoalId, amount:goalCoveredAmount, date:todayDateStr, note:r.name||'Expense withdrawal', type:'bill-payment', linkedExpenseId:expId });
+      }
+    }
+
     state.expenses.push({
-      id: uid(),
+      id: expId,
       amount: r.amount,
       name: r.name,
       categoryId: r.categoryId,
       date: todayDateStr,
+      transactionType: txType,
+      linkedDepositId,
+      linkedWithdrawalId,
+      goalCoveredAmount,
     });
     r.lastAdded = todayDateStr;
     added = true;
