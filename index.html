@@ -36,7 +36,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '2.0.0-202603232153';
+  const APP_VER = '2.0.0-202603240812';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -1727,7 +1727,7 @@ const PALETTE = [
 // ── State ─────────────────────────────────────────────────────────────────────
 const APP_VERSION = '2.0.0';
 const BUILD_DATE = '2026-03-23';
-const BUILD_TIME = '23 Mar 2026 9:53 PM AEDT';
+const BUILD_TIME = '24 Mar 2026 8:12 AM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -8711,16 +8711,17 @@ function isRecurringDueOn(r, dateStr) {
   return false;
 }
 
-function getRecNextDate(r) {
+function getRecNextDate(r, forDisplay = true) {
+  // forDisplay=true: if already applied today, advance to next occurrence (for UI)
+  // forDisplay=false: return the actual due date regardless of lastAdded (for firing logic)
   const today = new Date(); today.setHours(0,0,0,0);
   const todayDateStr = todayStr();
-  const alreadyAppliedToday = r.lastAdded === todayDateStr;
+  const alreadyAppliedToday = forDisplay && r.lastAdded === todayDateStr;
 
   if (r.frequency === 'weekly') {
     const wd = r.weekday !== undefined ? r.weekday : 1;
     const diff = (wd - today.getDay() + 7) % 7;
     const next = new Date(today);
-    // If today is the due day but already applied, show next occurrence (7 days ahead)
     if (diff === 0 && alreadyAppliedToday) {
       next.setDate(today.getDate() + 7);
     } else {
@@ -8732,14 +8733,12 @@ function getRecNextDate(r) {
     const weeks = r.xweeksNum * 7;
     const base = new Date(r.nextDate + 'T00:00:00');
     while (base < today) base.setDate(base.getDate() + weeks);
-    // If lands on today and already applied, advance one more cycle
     if (dateToStr(base) === todayDateStr && alreadyAppliedToday) base.setDate(base.getDate() + weeks);
     return base;
   }
   if (r.frequency === 'monthly' && r.monthDay) {
     const next = new Date(today.getFullYear(), today.getMonth(), r.monthDay);
     if (next < today) next.setMonth(next.getMonth() + 1);
-    // If lands on today and already applied, advance to next month
     if (dateToStr(next) === todayDateStr && alreadyAppliedToday) next.setMonth(next.getMonth() + 1);
     return next;
   }
@@ -8830,7 +8829,7 @@ function applyRecurringExpenses() {
   const autoOffsetFired = [];
 
   recs.forEach(r => {
-    const next = getRecNextDate(r);
+    const next = getRecNextDate(r, false); // false = don't advance past today based on lastAdded
     if (!next) return;
     next.setHours(0,0,0,0);
     if (next.getTime() !== today.getTime()) return;
@@ -8902,7 +8901,7 @@ function applyRecurringExpenses() {
     renderContent();
     updateHeader();
     const addedNames = recs.filter(r => {
-      const next = getRecNextDate(r); if (!next) return false;
+      const next = getRecNextDate(r, false); if (!next) return false;
       next.setHours(0,0,0,0);
       return next.getTime() === (new Date().setHours(0,0,0,0)) && r.lastAdded === todayDateStr;
     }).map(r => r.name);
@@ -11171,16 +11170,15 @@ document.addEventListener('visibilitychange', () => {
     // Reset inactivity timer when coming back to the tab
     resetInactivityTimer();
 
-    // Check if the day has changed since last recurring run
+    // Always check recurring when returning to the app — date may have changed or
+    // a recurring may have been missed. loadState ensures we have fresh data first.
     const currentDate = todayStr();
-    if (currentDate !== _lastRecurringCheckDate) {
-      _lastRecurringCheckDate = currentDate;
-      loadState().then(() => {
-        applyRecurringExpenses();
-        recordTodayOffsetSaving();
-        renderContent();
-      });
-    }
+    _lastRecurringCheckDate = currentDate;
+    loadState().then(() => {
+      applyRecurringExpenses();
+      recordTodayOffsetSaving();
+      renderContent();
+    });
   }
 });
 </script>
