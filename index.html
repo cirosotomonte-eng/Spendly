@@ -36,7 +36,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '1.9.0-202603231110';
+  const APP_VER = '1.9.0-202603231118';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -176,19 +176,20 @@ async function applyUpdate() {
   #cycleStats { margin: 8px 20px 12px; }
 
   /* Bottom nav */
-  .bottom-nav { position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:100%;max-width:900px;z-index:100;background:rgba(245,243,238,0.95);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border-top:1px solid var(--border);padding:6px 0 env(safe-area-inset-bottom,16px);display:flex; }
+  .bottom-nav { position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:100%;max-width:900px;z-index:100;background:rgba(245,243,238,0.95);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border-top:1px solid var(--border);padding:8px 0 calc(env(safe-area-inset-bottom,20px) + 8px);display:flex; }
   .bottom-nav-item { flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;padding:6px 4px;border:none;background:none;color:var(--muted);font-size:10px;font-weight:500;font-family:var(--font);cursor:pointer;transition:color 0.15s;letter-spacing:0.01em; }
   .bottom-nav-item .nav-icon { font-size:24px;line-height:1; }
   .bottom-nav-item.active { color:var(--accent); }
-  /* Sub-tabs strip */
-  .sub-tabs { display:flex;gap:0;padding:0 16px;overflow-x:auto;scrollbar-width:none;border-bottom:1px solid var(--surface2);margin-bottom:0; }
+  /* Sub-tabs strip — card style with emoji */
+  .sub-tabs { display:flex;gap:6px;padding:6px 16px 10px;overflow-x:auto;scrollbar-width:none; }
   .sub-tabs::-webkit-scrollbar { display:none; }
-  .sub-tab { flex-shrink:0;padding:10px 14px;border:none;background:none;font-size:13px;font-weight:600;font-family:var(--font);cursor:pointer;color:var(--muted);border-bottom:2px solid transparent;margin-bottom:-1px;transition:all 0.15s;white-space:nowrap; }
-  .sub-tab.active { color:var(--accent);border-bottom-color:var(--accent); }
-  /* Old tab grid — hidden, kept for tab customise modal compat */
+  .sub-tab { flex-shrink:0;display:flex;flex-direction:column;align-items:center;gap:3px;padding:8px 12px;border:1px solid var(--surface2);border-radius:var(--r);background:var(--surface);font-size:10px;font-weight:500;font-family:var(--font);cursor:pointer;color:var(--muted);transition:all 0.15s;white-space:nowrap;line-height:1.2; }
+  .sub-tab .sub-tab-icon { font-size:18px;line-height:1; }
+  .sub-tab.active { background:var(--accent-dim);border-color:var(--accent);color:var(--accent);font-weight:700; }
+  /* Old tab grid — hidden */
   .tabs { display:none; }
   .tab { display:none; }
-  .content { flex:1;padding:0 20px;padding-bottom:120px; }
+  .content { flex:1;padding:0 20px;padding-bottom:140px; }
 
   /* FAB */
   .fab { position: fixed; bottom: 28px; left: 50%; transform: translateX(-50%); background: var(--accent); color: #fff; border: none; border-radius: 100px; padding: 14px 28px; font-size: 15px; font-weight: 700; font-family: var(--font); cursor: pointer; display: flex; align-items: center; gap: 8px; box-shadow: 0 8px 32px rgba(79,142,247,0.2); transition: all 0.15s; z-index: 50; white-space: nowrap; }
@@ -871,15 +872,31 @@ async function applyUpdate() {
   </nav>
 </div>
 
-<!-- Tab customise modal -->
-<div class="modal-overlay" id="tabCustomiseModal">
+<!-- Nav customise modal -->
+<div class="modal-overlay" id="navCustomiseModal">
   <div class="modal">
     <div class="modal-handle"></div>
-    <div class="modal-title">Customise tabs</div>
-    <div style="font-size:12px;color:var(--muted);margin-bottom:14px;line-height:1.5">Use ▲▼ to reorder · tap toggle to show/hide. Expenses is always first.</div>
-    <div id="tabCustomiseList"></div>
-    <button class="btn-primary" onclick="saveTabConfig()">Save</button>
-    <button class="btn-ghost" onclick="closeModal('tabCustomiseModal')">Cancel</button>
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:0 20px 4px;margin-bottom:8px">
+      <div style="font-size:18px;font-weight:700">Customise navigation</div>
+      <button onclick="closeModal('navCustomiseModal')" style="background:var(--surface2);border:none;border-radius:50%;width:32px;height:32px;font-size:16px;color:var(--muted);cursor:pointer;display:flex;align-items:center;justify-content:center">✕</button>
+    </div>
+    <div style="font-size:12px;color:var(--muted);padding:0 20px 12px;line-height:1.5">Drag tabs to reorder · tap a name to rename · tap a section chip to move it</div>
+    <div style="flex:1;overflow-y:auto;padding:0 16px 16px" id="navCustomiseBody"></div>
+    <div style="padding:0 16px 8px;display:flex;flex-direction:column;gap:8px">
+      <button class="btn-primary" onclick="saveNavConfig()">Save</button>
+      <button class="btn-secondary" onclick="resetNavConfig()">Reset to defaults</button>
+      <button class="btn-ghost" onclick="closeModal('navCustomiseModal')">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- Section move picker (shown inline) -->
+<div class="modal-overlay" id="sectionMoveModal">
+  <div class="modal" style="max-height:60vh">
+    <div class="modal-handle"></div>
+    <div class="modal-title" id="sectionMoveTitle">Move to tab</div>
+    <div id="sectionMoveBody" style="padding:0 20px 8px"></div>
+    <button class="btn-ghost" onclick="closeModal('sectionMoveModal')">Cancel</button>
   </div>
 </div>
 
@@ -921,8 +938,11 @@ async function applyUpdate() {
         <span class="settings-row-label">Amount colours</span>
         <span class="settings-row-chevron">›</span>
       </div>
-      <div class="settings-row" onclick="closeModal('settingsModal');openTabCustomise()">
-        <span class="settings-row-icon">⚙️</span>
+      <div class="settings-row" onclick="closeModal('settingsModal');openNavCustomise()">
+        <span class="settings-row-icon">🗂️</span>
+        <span class="settings-row-label">Customise navigation</span>
+        <span class="settings-row-chevron">›</span>
+      </div>
         <span class="settings-row-label">Manage tabs</span>
         <span class="settings-row-chevron">›</span>
       </div>
@@ -1681,7 +1701,7 @@ const PALETTE = [
 // ── State ─────────────────────────────────────────────────────────────────────
 const APP_VERSION = '1.9.0';
 const BUILD_DATE = '2026-03-23';
-const BUILD_TIME = '23 Mar 2026 11:10 AM AEDT';
+const BUILD_TIME = '23 Mar 2026 11:18 AM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -2792,6 +2812,8 @@ function updateHeader() {
 // ── Tab switching ─────────────────────────────────────────────────────────────
 // ── Tab config ────────────────────────────────────────────────────────────────
 // ── Bottom nav + sub-tab system ───────────────────────────────────────────────
+// MAIN_TABS is now dynamic — always read via getNavConfig()
+// Kept as a reference default only
 const MAIN_TABS = {
   spend:    { label:'Spend',    icon:'💳', sections:['expenses','goals'] },
   save:     { label:'Save',     icon:'💰', sections:['savings','giftcards','recycling'] },
@@ -2819,33 +2841,48 @@ const ALL_TABS = [
 ];
 const DEFAULT_TAB_IDS = ['expenses', 'goals', 'savings', 'analytics'];
 function getCurrentMainTab() {
-  for (const [key, mt] of Object.entries(MAIN_TABS)) {
-    if (mt.sections.includes(state.currentTab)) return key;
+  const cfg = getNavConfig();
+  for (const t of cfg) {
+    if (t.sections.includes(state.currentTab)) return t.id;
   }
-  return 'spend';
+  return cfg[0]?.id || 'spend';
 }
 function switchMainTab(mainKey) {
-  const sections = MAIN_TABS[mainKey].sections;
-  const lastInGroup = sections.find(id => id === state.currentTab);
-  switchTab(lastInGroup || sections[0]);
+  const cfg = getNavConfig();
+  const tab = cfg.find(t => t.id === mainKey);
+  if (!tab) return;
+  const lastInGroup = tab.sections.find(id => id === state.currentTab);
+  switchTab(lastInGroup || tab.sections[0]);
 }
 
 function renderTabs() {
-  Object.keys(MAIN_TABS).forEach(key => {
-    const btn = document.getElementById('bn' + key.charAt(0).toUpperCase() + key.slice(1));
-    if (btn) btn.classList.toggle('active', getCurrentMainTab() === key);
+  const cfg = getNavConfig();
+  const currentMain = getCurrentMainTab();
+  cfg.forEach(t => {
+    const btn = document.getElementById('bn' + t.id.charAt(0).toUpperCase() + t.id.slice(1));
+    if (btn) btn.classList.toggle('active', currentMain === t.id);
   });
   renderSubTabs();
 }
 function renderSubTabs() {
   const strip = document.getElementById('subTabStrip');
   if (!strip) return;
-  const mainKey = getCurrentMainTab();
-  const sections = MAIN_TABS[mainKey].sections;
-  if (sections.length <= 1) { strip.innerHTML = ''; return; }
+  const cfg = getNavConfig();
+  const currentMain = getCurrentMainTab();
+  const tab = cfg.find(t => t.id === currentMain);
+  if (!tab || tab.sections.length <= 1) { strip.innerHTML = ''; return; }
+  const sectionIcons = {
+    expenses:'💸', goals:'🎯', savings:'💰', giftcards:'🎁',
+    recycling:'♻️', portfolio:'📈', networth:'💎', mortgage:'🏠',
+    tax:'🧾', analytics:'📊', notes:'📝', investor:'💡',
+  };
   let html = '<div class="sub-tabs">';
-  sections.forEach(id => {
-    html += '<button class="sub-tab' + (state.currentTab === id ? ' active' : '') + '" onclick="switchTab(\'' + id + '\')">' + SECTION_LABELS[id] + '</button>';
+  tab.sections.forEach(id => {
+    const isActive = state.currentTab === id;
+    html += '<button class="sub-tab' + (isActive ? ' active' : '') + '" onclick="switchTab(\'' + id + '\')">' +
+      '<span class="sub-tab-icon">' + (sectionIcons[id] || '📌') + '</span>' +
+      SECTION_LABELS[id] +
+    '</button>';
   });
   html += '</div>';
   strip.innerHTML = html;
@@ -2999,6 +3036,183 @@ function switchTab(tab) {
 function getTabConfig() {
   return ALL_TABS.map(t => ({ ...t, enabled: true }));
 }
+
+// ── Nav customise system ──────────────────────────────────────────────────────
+const DEFAULT_NAV_CONFIG = [
+  { id:'spend',    label:'Spend',    icon:'💳', sections:['expenses','goals'] },
+  { id:'save',     label:'Save',     icon:'💰', sections:['savings','giftcards','recycling'] },
+  { id:'finance',  label:'Finance',  icon:'🏦', sections:['portfolio','networth','mortgage','tax'] },
+  { id:'insights', label:'Insights', icon:'📊', sections:['analytics','notes','investor'] },
+];
+
+function getNavConfig() {
+  if (state.navConfig && state.navConfig.length > 0) {
+    // Ensure all sections are present (handle new sections added in updates)
+    const allSections = DEFAULT_NAV_CONFIG.flatMap(t => t.sections);
+    const usedSections = state.navConfig.flatMap(t => t.sections);
+    const missingSections = allSections.filter(s => !usedSections.includes(s));
+    if (missingSections.length > 0 && state.navConfig.length > 0) {
+      state.navConfig[state.navConfig.length - 1].sections.push(...missingSections);
+    }
+    return state.navConfig;
+  }
+  return DEFAULT_NAV_CONFIG.map(t => ({ ...t }));
+}
+
+// Override MAIN_TABS dynamically from navConfig
+function getMainTabs() {
+  const cfg = getNavConfig();
+  const result = {};
+  cfg.forEach(t => { result[t.id] = { label: t.label, icon: t.icon, sections: t.sections }; });
+  return result;
+}
+
+let _navDraft = []; // working copy
+let _navDragSrc = null;
+let _movingSectionId = null;
+let _movingSectionFromTabId = null;
+
+function openNavCustomise() {
+  _navDraft = getNavConfig().map(t => ({ ...t, sections: [...t.sections] }));
+  renderNavCustomiseBody();
+  openModal('navCustomiseModal');
+}
+
+function renderNavCustomiseBody() {
+  const body = document.getElementById('navCustomiseBody');
+  if (!body) return;
+  let html = '';
+  _navDraft.forEach((tab, ti) => {
+    html += '<div class="nav-cust-card" data-ti="' + ti + '" draggable="true" ' +
+      'ondragstart="navDragStart(event,' + ti + ')" ondragover="navDragOver(event,' + ti + ')" ondragleave="navDragLeave(event)" ondrop="navDrop(event,' + ti + ')" ' +
+      'style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:12px 14px;margin-bottom:10px">' +
+      // Header: drag handle + icon + editable name + order arrows
+      '<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">' +
+        '<span style="color:var(--muted);font-size:18px;cursor:grab;flex-shrink:0">⠿</span>' +
+        '<span style="font-size:20px;flex-shrink:0">' + tab.icon + '</span>' +
+        '<input value="' + tab.label.replace(/"/g,'&quot;') + '" ' +
+          'onchange="_navDraft[' + ti + '].label=this.value" ' +
+          'style="flex:1;background:none;border:none;border-bottom:1.5px solid var(--border);color:var(--text);font-size:15px;font-weight:600;font-family:var(--font);padding:2px 0;outline:none" ' +
+          'onfocus="this.style.borderColor=\'var(--accent)\'" onblur="this.style.borderColor=\'var(--border)\'">' +
+        '<div style="display:flex;gap:4px">' +
+          '<button onclick="navMoveUp(' + ti + ')" ' + (ti===0?'disabled':'') + ' style="background:var(--surface2);border:none;border-radius:6px;width:26px;height:26px;font-size:12px;cursor:pointer;color:var(--text);font-family:var(--font);opacity:' + (ti===0?'0.3':'1') + '">▲</button>' +
+          '<button onclick="navMoveDown(' + ti + ')" ' + (ti===_navDraft.length-1?'disabled':'') + ' style="background:var(--surface2);border:none;border-radius:6px;width:26px;height:26px;font-size:12px;cursor:pointer;color:var(--text);font-family:var(--font);opacity:' + (ti===_navDraft.length-1?'0.3':'1') + '">▼</button>' +
+        '</div>' +
+      '</div>' +
+      // Section chips
+      '<div style="display:flex;flex-wrap:wrap;gap:6px">' +
+      tab.sections.map(sid =>
+        '<button onclick="openSectionMove(\'' + sid + '\',\'' + tab.id + '\')" ' +
+          'style="background:var(--accent-dim);color:var(--accent);border:1px solid rgba(79,142,247,0.25);border-radius:100px;padding:4px 12px;font-size:12px;font-weight:600;font-family:var(--font);cursor:pointer">' +
+          SECTION_LABELS[sid] + ' ›' +
+        '</button>'
+      ).join('') +
+      '</div>' +
+    '</div>';
+  });
+  body.innerHTML = html;
+}
+
+function navMoveUp(ti) {
+  if (ti <= 0) return;
+  [_navDraft[ti-1], _navDraft[ti]] = [_navDraft[ti], _navDraft[ti-1]];
+  renderNavCustomiseBody();
+}
+function navMoveDown(ti) {
+  if (ti >= _navDraft.length - 1) return;
+  [_navDraft[ti], _navDraft[ti+1]] = [_navDraft[ti+1], _navDraft[ti]];
+  renderNavCustomiseBody();
+}
+function navDragStart(e, ti) { _navDragSrc = ti; e.currentTarget.style.opacity='0.4'; }
+function navDragOver(e, ti) { e.preventDefault(); if (ti !== _navDragSrc) e.currentTarget.style.borderColor='var(--accent)'; }
+function navDragLeave(e) { e.currentTarget.style.borderColor='var(--border)'; }
+function navDrop(e, ti) {
+  e.currentTarget.style.borderColor='var(--border)';
+  e.currentTarget.style.opacity='1';
+  if (_navDragSrc === null || _navDragSrc === ti) return;
+  const dragged = _navDraft.splice(_navDragSrc, 1)[0];
+  _navDraft.splice(ti, 0, dragged);
+  _navDragSrc = null;
+  renderNavCustomiseBody();
+}
+
+function openSectionMove(sectionId, fromTabId) {
+  _movingSectionId = sectionId;
+  _movingSectionFromTabId = fromTabId;
+  const title = document.getElementById('sectionMoveTitle');
+  if (title) title.textContent = 'Move "' + SECTION_LABELS[sectionId] + '" to…';
+  const body = document.getElementById('sectionMoveBody');
+  if (!body) return;
+  let html = '';
+  _navDraft.forEach(tab => {
+    const isCurrent = tab.id === fromTabId;
+    html += '<button onclick="moveSectionToTab(\'' + tab.id + '\')" ' +
+      'style="width:100%;display:flex;align-items:center;gap:12px;padding:14px 0;border:none;background:none;cursor:' + (isCurrent?'default':'pointer') + ';opacity:' + (isCurrent?'0.4':'1') + ';font-family:var(--font);border-bottom:1px solid var(--surface2)">' +
+      '<span style="font-size:22px">' + tab.icon + '</span>' +
+      '<span style="font-size:15px;font-weight:500;color:var(--text)">' + tab.label + '</span>' +
+      (isCurrent ? '<span style="font-size:12px;color:var(--muted);margin-left:auto">current</span>' : '<span style="font-size:12px;color:var(--accent);margin-left:auto;font-weight:600">Move here</span>') +
+    '</button>';
+  });
+  body.innerHTML = html;
+  openModal('sectionMoveModal');
+}
+
+function moveSectionToTab(toTabId) {
+  if (toTabId === _movingSectionFromTabId) { closeModal('sectionMoveModal'); return; }
+  // Remove from source
+  const src = _navDraft.find(t => t.id === _movingSectionFromTabId);
+  if (src) src.sections = src.sections.filter(s => s !== _movingSectionId);
+  // Add to dest
+  const dest = _navDraft.find(t => t.id === toTabId);
+  if (dest && !dest.sections.includes(_movingSectionId)) dest.sections.push(_movingSectionId);
+  closeModal('sectionMoveModal');
+  renderNavCustomiseBody();
+}
+
+function saveNavConfig() {
+  // Sync labels from input fields before saving
+  document.querySelectorAll('.nav-cust-card').forEach((card, ti) => {
+    const input = card.querySelector('input');
+    if (input && _navDraft[ti]) _navDraft[ti].label = input.value.trim() || _navDraft[ti].label;
+  });
+  state.navConfig = _navDraft.map(t => ({ ...t, sections: [...t.sections] }));
+  saveState();
+  // Rebuild bottom nav buttons
+  rebuildBottomNav();
+  // Switch to first tab if current section is now unreachable
+  const allSections = state.navConfig.flatMap(t => t.sections);
+  if (!allSections.includes(state.currentTab)) {
+    state.currentTab = state.navConfig[0]?.sections[0] || 'expenses';
+  }
+  closeModal('navCustomiseModal');
+  renderTabs();
+  renderContent();
+  showToast('✅ Navigation saved', 2000);
+}
+
+function resetNavConfig() {
+  if (!confirm('Reset navigation to defaults?')) return;
+  state.navConfig = null;
+  saveState();
+  rebuildBottomNav();
+  state.currentTab = 'expenses';
+  closeModal('navCustomiseModal');
+  renderTabs();
+  renderContent();
+  showToast('✅ Reset to defaults', 2000);
+}
+
+function rebuildBottomNav() {
+  const nav = document.getElementById('bottomNav');
+  if (!nav) return;
+  const cfg = getNavConfig();
+  nav.innerHTML = cfg.map(t =>
+    '<button class="bottom-nav-item" id="bn' + t.id.charAt(0).toUpperCase() + t.id.slice(1) + '" onclick="switchMainTab(\'' + t.id + '\')">' +
+      '<span class="nav-icon">' + t.icon + '</span>' + t.label +
+    '</button>'
+  ).join('');
+}
+
 
 // ── Tab header + search system ────────────────────────────────────────────────
 const _tabSearch = {}; // { tabKey: queryString }
@@ -6753,6 +6967,7 @@ function deleteOffsetTx() {
 
 function showApp() {
   document.getElementById('app').style.visibility = 'visible';
+  rebuildBottomNav();
 }
 // ── Mortgage interest log ─────────────────────────────────────────────────────
 let editingMortgageInterestId = null;
