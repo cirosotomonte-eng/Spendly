@@ -36,7 +36,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '1.8.0-202603231052';
+  const APP_VER = '1.9.0-202603231110';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -175,14 +175,20 @@ async function applyUpdate() {
   /* Stats cards */
   #cycleStats { margin: 8px 20px 12px; }
 
-  /* Tabs — icon grid */
-  .tabs { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; padding: 0 16px 14px; }
-  .tab { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 8px 4px; background: var(--surface); border: 1px solid var(--surface2); border-radius: var(--r); color: var(--muted); font-size: 10px; font-family: var(--font); cursor: pointer; transition: all 0.15s; white-space: nowrap; line-height: 1.2; }
-  .tab .tab-icon { font-size: 18px; line-height: 1; }
-  .tab.active { background: var(--accent-dim); border-color: var(--accent); color: var(--accent); font-weight: 700; }
-
-  /* Content */
-  .content { flex: 1; padding: 0 20px; padding-bottom: 100px; }
+  /* Bottom nav */
+  .bottom-nav { position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:100%;max-width:900px;z-index:100;background:rgba(245,243,238,0.95);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border-top:1px solid var(--border);padding:6px 0 env(safe-area-inset-bottom,16px);display:flex; }
+  .bottom-nav-item { flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;padding:6px 4px;border:none;background:none;color:var(--muted);font-size:10px;font-weight:500;font-family:var(--font);cursor:pointer;transition:color 0.15s;letter-spacing:0.01em; }
+  .bottom-nav-item .nav-icon { font-size:24px;line-height:1; }
+  .bottom-nav-item.active { color:var(--accent); }
+  /* Sub-tabs strip */
+  .sub-tabs { display:flex;gap:0;padding:0 16px;overflow-x:auto;scrollbar-width:none;border-bottom:1px solid var(--surface2);margin-bottom:0; }
+  .sub-tabs::-webkit-scrollbar { display:none; }
+  .sub-tab { flex-shrink:0;padding:10px 14px;border:none;background:none;font-size:13px;font-weight:600;font-family:var(--font);cursor:pointer;color:var(--muted);border-bottom:2px solid transparent;margin-bottom:-1px;transition:all 0.15s;white-space:nowrap; }
+  .sub-tab.active { color:var(--accent);border-bottom-color:var(--accent); }
+  /* Old tab grid — hidden, kept for tab customise modal compat */
+  .tabs { display:none; }
+  .tab { display:none; }
+  .content { flex:1;padding:0 20px;padding-bottom:120px; }
 
   /* FAB */
   .fab { position: fixed; bottom: 28px; left: 50%; transform: translateX(-50%); background: var(--accent); color: #fff; border: none; border-radius: 100px; padding: 14px 28px; font-size: 15px; font-weight: 700; font-family: var(--font); cursor: pointer; display: flex; align-items: center; gap: 8px; box-shadow: 0 8px 32px rgba(79,142,247,0.2); transition: all 0.15s; z-index: 50; white-space: nowrap; }
@@ -346,8 +352,7 @@ async function applyUpdate() {
   }
   @media (min-width: 600px) {
     .header { padding: 36px 28px 12px; }
-    .content, .budget-section, #cycleStats, .cycle-nav { padding-left: 28px; padding-right: 28px; margin-left: 0; margin-right: 0; }
-    .tabs { padding: 0 28px 14px; }
+    .content, .budget-section, #cycleStats, .cycle-nav { padding-left: 28px; padding-right: 28px; margin-left: 0; margin-right: 0; }    .tabs { padding: 0 28px 14px; }
     .content { padding: 0 28px 100px; }
     .budget-section { margin: 12px 0; padding: 0 28px; }
     #cycleStats { margin: 8px 0 12px; padding: 0 28px; }
@@ -840,12 +845,7 @@ async function applyUpdate() {
 
   <div id="cycleStats"></div>
 
-  <div id="tabsContainer">
-    <!-- Rendered dynamically by renderTabs() -->
-  </div>
-  <div id="tabsHint" style="text-align:center;font-size:11px;color:var(--muted);padding:0 16px 6px;display:none">
-    More tabs available in <button onclick="openSettings()" style="background:none;border:none;color:var(--accent);font-size:11px;font-family:var(--font);cursor:pointer;padding:0">Settings ⚙️</button>
-  </div>
+  <div id="subTabStrip"></div>
 
   <div class="content" id="content"></div>
 
@@ -853,6 +853,22 @@ async function applyUpdate() {
     <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 2v12M2 8h12" stroke="#fff" stroke-width="2.5" stroke-linecap="round"/></svg>
     Add expense
   </button>
+
+  <!-- Bottom nav -->
+  <nav class="bottom-nav" id="bottomNav">
+    <button class="bottom-nav-item" id="bnSpend" onclick="switchMainTab('spend')">
+      <span class="nav-icon">💳</span>Spend
+    </button>
+    <button class="bottom-nav-item" id="bnSave" onclick="switchMainTab('save')">
+      <span class="nav-icon">💰</span>Save
+    </button>
+    <button class="bottom-nav-item" id="bnFinance" onclick="switchMainTab('finance')">
+      <span class="nav-icon">🏦</span>Finance
+    </button>
+    <button class="bottom-nav-item" id="bnInsights" onclick="switchMainTab('insights')">
+      <span class="nav-icon">📊</span>Insights
+    </button>
+  </nav>
 </div>
 
 <!-- Tab customise modal -->
@@ -1663,9 +1679,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '1.8.0';
+const APP_VERSION = '1.9.0';
 const BUILD_DATE = '2026-03-23';
-const BUILD_TIME = '23 Mar 2026 10:52 AM AEDT';
+const BUILD_TIME = '23 Mar 2026 11:10 AM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -2775,6 +2791,18 @@ function updateHeader() {
 
 // ── Tab switching ─────────────────────────────────────────────────────────────
 // ── Tab config ────────────────────────────────────────────────────────────────
+// ── Bottom nav + sub-tab system ───────────────────────────────────────────────
+const MAIN_TABS = {
+  spend:    { label:'Spend',    icon:'💳', sections:['expenses','goals'] },
+  save:     { label:'Save',     icon:'💰', sections:['savings','giftcards','recycling'] },
+  finance:  { label:'Finance',  icon:'🏦', sections:['portfolio','networth','mortgage','tax'] },
+  insights: { label:'Insights', icon:'📊', sections:['analytics','notes','investor'] },
+};
+const SECTION_LABELS = {
+  expenses:'Expenses', goals:'Budget', savings:'Savings', giftcards:'Wallet',
+  recycling:'Recycling', portfolio:'Portfolio', networth:'Net Worth',
+  mortgage:'Mortgage', tax:'Tax', analytics:'Analytics', notes:'Notes', investor:'Investor',
+};
 const ALL_TABS = [
   { id:'expenses',  icon:'💸', label:'Expenses',  locked:true  },
   { id:'goals',     icon:'🎯', label:'Budget'              },
@@ -2789,63 +2817,38 @@ const ALL_TABS = [
   { id:'analytics', icon:'📊', label:'Analytics'           },
   { id:'notes',     icon:'📝', label:'Notes'               },
 ];
-
 const DEFAULT_TAB_IDS = ['expenses', 'goals', 'savings', 'analytics'];
-
-function getTabConfig() {
-  // Returns ordered array of { id, icon, label, enabled, locked }
-  // Merges saved state.tabConfig with ALL_TABS (handles new tabs added later)
-  const saved = state.tabConfig || [];
-
-  // Brand new user — no saved config yet: enable only default tabs
-  if (saved.length === 0) {
-    return ALL_TABS.map(t => ({
-      ...t,
-      enabled: DEFAULT_TAB_IDS.includes(t.id),
-    }));
+function getCurrentMainTab() {
+  for (const [key, mt] of Object.entries(MAIN_TABS)) {
+    if (mt.sections.includes(state.currentTab)) return key;
   }
-
-  const savedMap = {};
-  saved.forEach(t => { savedMap[t.id] = t; });
-
-  // Build ordered list: saved order first, then any new tabs not yet in saved
-  const result = [];
-  saved.forEach(t => {
-    const def = ALL_TABS.find(d => d.id === t.id);
-    if (def) result.push({ ...def, enabled: t.enabled !== false });
-  });
-  ALL_TABS.forEach(def => {
-    if (!savedMap[def.id]) result.push({ ...def, enabled: true });
-  });
-
-  // Expenses always first and always enabled
-  const expIdx = result.findIndex(t => t.id === 'expenses');
-  if (expIdx > 0) { const [exp] = result.splice(expIdx, 1); result.unshift(exp); }
-  if (result.length > 0) { result[0].enabled = true; result[0].locked = true; }
-
-  return result;
+  return 'spend';
+}
+function switchMainTab(mainKey) {
+  const sections = MAIN_TABS[mainKey].sections;
+  const lastInGroup = sections.find(id => id === state.currentTab);
+  switchTab(lastInGroup || sections[0]);
 }
 
 function renderTabs() {
-  const container = document.getElementById('tabsContainer');
-  if (!container) return;
-  const config = getTabConfig();
-  const enabled = config.filter(t => t.enabled);
-  const hasHidden = config.some(t => !t.enabled);
-
-  let html = '<div class="tabs">';
-  enabled.forEach(t => {
-    const isActive = state.currentTab === t.id;
-    html += '<button class="tab' + (isActive ? ' active' : '') + '" onclick="switchTab(\'' + t.id + '\')">' +
-      '<span class="tab-icon">' + t.icon + '</span>' + t.label +
-      '</button>';
+  Object.keys(MAIN_TABS).forEach(key => {
+    const btn = document.getElementById('bn' + key.charAt(0).toUpperCase() + key.slice(1));
+    if (btn) btn.classList.toggle('active', getCurrentMainTab() === key);
+  });
+  renderSubTabs();
+}
+function renderSubTabs() {
+  const strip = document.getElementById('subTabStrip');
+  if (!strip) return;
+  const mainKey = getCurrentMainTab();
+  const sections = MAIN_TABS[mainKey].sections;
+  if (sections.length <= 1) { strip.innerHTML = ''; return; }
+  let html = '<div class="sub-tabs">';
+  sections.forEach(id => {
+    html += '<button class="sub-tab' + (state.currentTab === id ? ' active' : '') + '" onclick="switchTab(\'' + id + '\')">' + SECTION_LABELS[id] + '</button>';
   });
   html += '</div>';
-  container.innerHTML = html;
-
-  // Show hint if some tabs are hidden
-  const hint = document.getElementById('tabsHint');
-  if (hint) hint.style.display = hasHidden ? '' : 'none';
+  strip.innerHTML = html;
 }
 
 // ── Tab customise modal ───────────────────────────────────────────────────────
@@ -2992,6 +2995,9 @@ function switchTab(tab) {
   state.currentTab = tab;
   renderTabs();
   renderContent();
+}
+function getTabConfig() {
+  return ALL_TABS.map(t => ({ ...t, enabled: true }));
 }
 
 // ── Tab header + search system ────────────────────────────────────────────────
