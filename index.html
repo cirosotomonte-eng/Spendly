@@ -36,7 +36,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '1.9.0-202603231423';
+  const APP_VER = '1.9.0-202603231540';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -1701,7 +1701,7 @@ const PALETTE = [
 // ── State ─────────────────────────────────────────────────────────────────────
 const APP_VERSION = '1.9.0';
 const BUILD_DATE = '2026-03-23';
-const BUILD_TIME = '23 Mar 2026 2:23 PM AEDT';
+const BUILD_TIME = '23 Mar 2026 3:40 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -2823,7 +2823,7 @@ const MAIN_TABS = {
 const SECTION_LABELS = {
   expenses:'Expenses', goals:'Budget', savings:'Savings', giftcards:'Wallet',
   recycling:'Recycling', portfolio:'Portfolio', networth:'Net Worth',
-  mortgage:'Mortgage', tax:'Tax', analytics:'Analytics', notes:'Notes', investor:'Investor',
+  mortgage:'Mortgage', tax:'Tax', analytics:'Analytics', notes:'Notes', investor:'Playbook',
 };
 const ALL_TABS = [
   { id:'expenses',  icon:'💸', label:'Expenses',  locked:true  },
@@ -2835,7 +2835,7 @@ const ALL_TABS = [
   { id:'giftcards', icon:'🎁', label:'Wallet'              },
   { id:'portfolio', icon:'📈', label:'Portfolio'           },
   { id:'networth',  icon:'💎', label:'Net Worth'           },
-  { id:'investor',  icon:'💡', label:'Investor'            },
+  { id:'investor',  icon:'💡', label:'Playbook'            },
   { id:'analytics', icon:'📊', label:'Analytics'           },
   { id:'notes',     icon:'📝', label:'Notes'               },
 ];
@@ -8528,9 +8528,25 @@ function renderInvestor() {
   const splurgeAcct = income * 0.10;
   const fireAcct = income * 0.20;
   const smileAcct = income * 0.10;
+  const autoSave = income * 0.10;
 
-  let html = tabHeader('Investor') +
-    '<div style="font-size:12px;color:var(--muted);margin-bottom:16px;line-height:1.5">Two popular frameworks for dividing your money. Based on your monthly budget of <strong style="color:var(--text)">' + fmtI(income) + '</strong>.</div>';
+  let html = tabHeader('Playbook') +
+    '<div style="font-size:12px;color:var(--muted);margin-bottom:16px;line-height:1.5">Research-backed frameworks for spending, saving and building wealth. Based on your monthly budget of <strong style="color:var(--text)">' + fmtI(income) + '</strong>.</div>';
+
+  // ── Pay Yourself First ────────────────────────────────────────────────────
+  html += '<div style="background:var(--surface);border-radius:var(--r);padding:14px;margin-bottom:12px">' +
+    '<div style="font-size:14px;font-weight:700;margin-bottom:4px">Pay Yourself First</div>' +
+    '<div style="font-size:12px;color:var(--muted);margin-bottom:14px;line-height:1.6">The most evidence-backed saving method, supported by Nobel Prize-winning research from Richard Thaler and Shlomo Benartzi. Instead of saving what\'s left over, you move money to savings <em>before</em> you can spend it — removing willpower from the equation entirely.</div>' +
+    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">' +
+      _allocCard('Automate first', fmtI(autoSave), '#34C759', 'Transfer on payday — even 5–10% makes a difference') +
+      _allocCard('Label the goal', fmtI(autoSave), '#4F8EF7', 'Named accounts improve follow-through (e.g. "Strata fund")') +
+    '</div>' +
+    '<div style="background:var(--surface2);border-radius:10px;padding:12px;font-size:12px;color:var(--muted);line-height:1.6">' +
+      '<strong style="color:var(--text)">Why it works:</strong> Present bias makes us overvalue today vs. the future. Automation bypasses this — you never "see" the money so you don\'t miss it. Research shows one setup decision beats 12 monthly willpower decisions.<br><br>' +
+      '<strong style="color:var(--text)">In Spendly today:</strong> Create a Savings goal (e.g. "Strata") in the Save tab, set a target and date, and log a deposit each month to track progress. To also deduct it from your budget, log it as an expense under a dedicated "Savings transfer" category — a manual two-step for now.<br><br>' +
+      '<strong style="color:var(--text)">Coming soon:</strong> A smarter category type that automatically links an expense to a Savings goal — one tap reduces your budget <em>and</em> records your progress.' +
+    '</div>' +
+  '</div>';
 
   // ── 50/30/20 ──────────────────────────────────────────────────────────────
   html += '<div style="background:var(--surface);border-radius:var(--r);padding:14px;margin-bottom:12px">' +
