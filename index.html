@@ -36,7 +36,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '1.9.0-202603231355';
+  const APP_VER = '1.9.0-202603231401';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -1698,7 +1698,7 @@ const PALETTE = [
 // ── State ─────────────────────────────────────────────────────────────────────
 const APP_VERSION = '1.9.0';
 const BUILD_DATE = '2026-03-23';
-const BUILD_TIME = '23 Mar 2026 1:55 PM AEDT';
+const BUILD_TIME = '23 Mar 2026 2:01 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -3600,7 +3600,8 @@ function renderRecurringPane() {
       return na - nb;
     });
     const todayStr_ = todayStr();
-    sorted.forEach(r => {
+      html += '<div style="display:flex;flex-direction:column;gap:10px">';
+      sorted.forEach(r => {
       const cat = catById(r.categoryId);
       const next = getRecNextDate(r);
       const nextStr = next ? next.toLocaleDateString('en-AU',{weekday:'short',day:'numeric',month:'short'}) : '—';
@@ -3628,6 +3629,7 @@ function renderRecurringPane() {
         '</div>' +
       '</div>';
     });
+    html += '</div>';
   }
   pane.innerHTML = html;
 }
@@ -8331,7 +8333,7 @@ function openRecurringList() {
     });
     const todayStr_ = todayStr();
     const pencilSvg = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>';
-    content.innerHTML = sorted.map(r => {
+    content.innerHTML = '<div style="display:flex;flex-direction:column;gap:10px">' + sorted.map(r => {
       const cat = catById(r.categoryId);
       const next = getRecNextDate(r);
       const nextStr = next ? next.toLocaleDateString('en-AU',{weekday:'short',day:'numeric',month:'short'}) : '—';
@@ -8357,7 +8359,7 @@ function openRecurringList() {
           '<button onclick="openEditRecurring(\'' + r.id + '\')" style="background:var(--surface2);border:none;border-radius:50%;width:32px;height:32px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--muted);flex-shrink:0">' + pencilSvg + '</button>' +
         '</div>' +
       '</div>';
-    }).join('');
+    }).join('') + '</div>';
   }
   openModal('recurringListModal');
 }
