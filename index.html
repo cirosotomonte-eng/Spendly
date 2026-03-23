@@ -36,7 +36,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '2.0.0-202603232124';
+  const APP_VER = '2.0.0-202603232144';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -1718,7 +1718,7 @@ const PALETTE = [
 // ── State ─────────────────────────────────────────────────────────────────────
 const APP_VERSION = '2.0.0';
 const BUILD_DATE = '2026-03-23';
-const BUILD_TIME = '23 Mar 2026 9:24 PM AEDT';
+const BUILD_TIME = '23 Mar 2026 9:44 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -3681,7 +3681,12 @@ function renderExpenseResults(resultsEl) {
 
   const expenses = query ? allExpenses.filter(e => {
     const cat = catById(e.categoryId);
-    return (cat ? cat.name.toLowerCase() : '').includes(query) || (e.name||'').toLowerCase().includes(query);
+    const badge = e.transactionType === 'saving' ? 'saving' :
+                  e.goalCoveredAmount > 0 && e.goalCoveredAmount < e.amount ? 'split' :
+                  e.goalCoveredAmount >= e.amount && e.goalCoveredAmount > 0 ? 'goal' : '';
+    return (cat ? cat.name.toLowerCase() : '').includes(query) ||
+           (e.name||'').toLowerCase().includes(query) ||
+           badge.includes(query);
   }) : allExpenses;
 
   // Filter upcoming when searching
@@ -6264,6 +6269,7 @@ function openAddDeposit(targetId, catId) {
   document.getElementById('sdNote').value = '';
   document.getElementById('sdDeleteBtn').style.display = 'none';
   document.getElementById('sdSaveBtn').textContent = 'Save';
+  document.getElementById('sdSaveBtn').style.display = '';
   document.getElementById('sdLinkedWarning').style.display = 'none';
   const sdEditableFields = document.getElementById('sdEditableFields');
   if (sdEditableFields) { sdEditableFields.style.opacity=''; sdEditableFields.style.pointerEvents=''; }
@@ -6301,12 +6307,25 @@ function openEditDeposit(id) {
       '. Deleting here will also delete that transaction.<br><br>' +
       '<strong style="color:var(--text)">You can edit this record in the Transactions tab.</strong>';
     warnEl.style.display = '';
-    // Lock all editable fields
+    // Lock all editable fields and hide Save, make Delete prominent
     if (editableFields) { editableFields.style.opacity='0.35'; editableFields.style.pointerEvents='none'; }
+    const saveBtn = document.getElementById('sdSaveBtn');
+    if (saveBtn) saveBtn.style.display = 'none';
+    const deleteBtn = document.getElementById('sdDeleteBtn');
+    if (deleteBtn) {
+      deleteBtn.style.display = 'block';
+      deleteBtn.style.background = 'var(--red)';
+      deleteBtn.style.color = '#fff';
+      deleteBtn.style.opacity = '1';
+    }
   } else {
     warnEl.style.display = 'none';
     if (editableFields) { editableFields.style.opacity=''; editableFields.style.pointerEvents=''; }
     if (typeRow) { typeRow.style.opacity=''; typeRow.style.pointerEvents=''; }
+    const saveBtn2 = document.getElementById('sdSaveBtn');
+    if (saveBtn2) saveBtn2.style.display = '';
+    const deleteBtn2 = document.getElementById('sdDeleteBtn');
+    if (deleteBtn2) { deleteBtn2.style.background=''; deleteBtn2.style.color=''; deleteBtn2.style.opacity=''; }
   }
 
   document.getElementById('savingsDepositModal').classList.add('open');
