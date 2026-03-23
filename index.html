@@ -36,7 +36,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '1.9.0-202603231540';
+  const APP_VER = '2.0.0-202603231604';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -1097,6 +1097,10 @@ async function applyUpdate() {
     <div class="color-grid" id="colorGrid"></div>
     <label>Monthly budget for this category ($)</label>
     <input type="number" inputmode="decimal" id="catBudget" placeholder="0 (optional)">
+    <label>Link to savings goal <span style="font-size:11px;color:var(--muted);font-weight:400">(optional — auto-deposits when you log an expense)</span></label>
+    <select id="catLinkedGoal">
+      <option value="">None</option>
+    </select>
     <button class="btn-primary" id="catSaveBtn" onclick="saveCategory()">Save category</button>
     <button class="btn-danger" id="catDeleteBtn" onclick="deleteCategory()" style="display:none">Delete category</button>
     <button class="btn-ghost" onclick="closeModal('catModal')">Cancel</button>
@@ -1699,9 +1703,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '1.9.0';
+const APP_VERSION = '2.0.0';
 const BUILD_DATE = '2026-03-23';
-const BUILD_TIME = '23 Mar 2026 3:40 PM AEDT';
+const BUILD_TIME = '23 Mar 2026 4:04 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -3722,7 +3726,7 @@ function renderExpenseResults(resultsEl) {
         '</div>' +
         '<div class="list-item" onclick="openEditExpense(\'' + e.id + '\')">' +
         '<div class="cat-icon">' + cat.icon + '</div>' +
-        '<div class="item-info"><div class="item-name">' + cat.name + '</div>' + (e.name ? '<div class="item-meta">' + e.name + '</div>' : '') + '</div>' +
+        '<div class="item-info"><div class="item-name">' + cat.name + (e.linkedDepositId ? '<span style="font-size:9px;background:rgba(79,142,247,0.12);color:var(--accent);border-radius:4px;padding:1px 5px;font-weight:700;margin-left:5px;vertical-align:middle">SAVING</span>' : '') + '</div>' + (e.name ? '<div class="item-meta">' + e.name + '</div>' : '') + '</div>' +
         '<div class="item-amount" style="color:' + getSpendColor(e.categoryId) + '">' + fmt(e.amount) + '</div></div></div>';
     });
   });
@@ -4909,6 +4913,7 @@ function openAddCategory() {
   buildColorGrid(randomColor);
   buildEmojiGrid('');
   document.getElementById('catIconPreview').textContent = '📌';
+  _populateLinkedGoalDropdown('');
   openModal('catModal');
   setTimeout(()=>document.getElementById('catName').focus(), 350);
 }
@@ -4925,30 +4930,38 @@ function openEditCategory(id) {
   buildColorGrid(cat.color);
   buildEmojiGrid(cat.icon);
   document.getElementById('catIconPreview').textContent = cat.icon || '📌';
+  _populateLinkedGoalDropdown(cat.linkedSavingsGoalId || '');
   openModal('catModal');
 }
+function _populateLinkedGoalDropdown(selectedId) {
+  const sel = document.getElementById('catLinkedGoal');
+  if (!sel) return;
+  const goals = state.savingsCategories || [];
+  sel.innerHTML = '<option value="">None — regular expense category</option>' +
+    goals.map(g => '<option value="' + g.id + '"' + (g.id === selectedId ? ' selected' : '') + '>' + (g.icon||'💰') + ' ' + g.name + '</option>').join('');
+}
+
 function saveCategory() {
   const name = document.getElementById('catName').value.trim();
   const icon = document.getElementById('catIcon').value.trim() || '📌';
   const type = document.getElementById('catType').value;
   const color = getSelectedColor();
   const budgetLimit = parseFloat(document.getElementById('catBudget').value) || 0;
+  const linkedSavingsGoalId = document.getElementById('catLinkedGoal').value || null;
   if (!name) return;
   if (state.editingCatId) {
     const idx = state.categories.findIndex(c=>c.id===state.editingCatId);
-    if (idx>=0) state.categories[idx] = { ...state.categories[idx], name, icon, type, color, budgetLimit };
+    if (idx>=0) state.categories[idx] = { ...state.categories[idx], name, icon, type, color, budgetLimit, linkedSavingsGoalId };
   } else {
-    state.categories.push({ id: uid(), name, icon, type, color, budgetLimit });
+    state.categories.push({ id: uid(), name, icon, type, color, budgetLimit, linkedSavingsGoalId });
   }
   saveState();
   closeModal('catModal');
   renderContent();
   updateHeader();
-  // Show fab if first category added
   if (state.categories.length === 1 && state.currentTab !== 'goals') {
     document.getElementById('fab').style.display = '';
   }
-
 }
 function deleteCategory() {
   if (!state.editingCatId) return;
@@ -5010,11 +5023,35 @@ function saveExpense() {
   const categoryId = document.getElementById('expCat').value;
   const date = document.getElementById('expDate').value;
   if (!amount || amount<=0 || !date || !categoryId) return;
+
+  const cat = catById(categoryId);
+  const linkedGoalId = cat ? cat.linkedSavingsGoalId : null;
+
   if (state.editingExpenseId) {
     const idx = state.expenses.findIndex(e=>e.id===state.editingExpenseId);
-    if (idx>=0) state.expenses[idx] = { ...state.expenses[idx], amount, name, categoryId, date };
+    if (idx>=0) {
+      const existing = state.expenses[idx];
+      // Remove old linked deposit if it exists
+      if (existing.linkedDepositId) {
+        state.savingsDeposits = (state.savingsDeposits||[]).filter(d=>d.id!==existing.linkedDepositId);
+      }
+      let linkedDepositId = null;
+      if (linkedGoalId) {
+        linkedDepositId = uid();
+        if (!state.savingsDeposits) state.savingsDeposits = [];
+        state.savingsDeposits.push({ id:linkedDepositId, catId:linkedGoalId, targetId:linkedGoalId, amount, date, note:name||'Auto-deposit from expense', type:'deposit', linkedExpenseId:state.editingExpenseId });
+      }
+      state.expenses[idx] = { ...existing, amount, name, categoryId, date, linkedDepositId };
+    }
   } else {
-    state.expenses.push({ id: uid(), amount, name, categoryId, date });
+    const expId = uid();
+    let linkedDepositId = null;
+    if (linkedGoalId) {
+      linkedDepositId = uid();
+      if (!state.savingsDeposits) state.savingsDeposits = [];
+      state.savingsDeposits.push({ id:linkedDepositId, catId:linkedGoalId, targetId:linkedGoalId, amount, date, note:name||'Auto-deposit from expense', type:'deposit', linkedExpenseId:expId });
+    }
+    state.expenses.push({ id:expId, amount, name, categoryId, date, linkedDepositId });
   }
   saveState();
   closeModal('expenseModal');
@@ -5022,6 +5059,10 @@ function saveExpense() {
   renderContent();
 }
 function quickDeleteExpense(id) {
+  const exp = state.expenses.find(e=>e.id===id);
+  if (exp && exp.linkedDepositId) {
+    state.savingsDeposits = (state.savingsDeposits||[]).filter(d=>d.id!==exp.linkedDepositId);
+  }
   const w = document.getElementById('sw-' + id);
   if (w) {
     w.style.transition = 'opacity 0.2s, transform 0.2s';
@@ -5041,6 +5082,10 @@ function quickDeleteExpense(id) {
   }
 }
 function deleteExpense() {
+  const exp = state.expenses.find(e=>e.id===state.editingExpenseId);
+  if (exp && exp.linkedDepositId) {
+    state.savingsDeposits = (state.savingsDeposits||[]).filter(d=>d.id!==exp.linkedDepositId);
+  }
   state.expenses = state.expenses.filter(e=>e.id!==state.editingExpenseId);
   saveState();
   closeModal('expenseModal');
@@ -5986,6 +6031,76 @@ function setSdType(type) {
     depBtn.style.border = '2px solid var(--border)'; depBtn.style.background = 'var(--surface2)';   depBtn.style.color = 'var(--muted)';
   }
 }
+function openPayBill(savingsGoalId) {
+  const goal = savingsCatById(savingsGoalId);
+  if (!goal) return;
+  const balance = totalSavedForCat(savingsGoalId);
+  const linkedCats = (state.categories||[]).filter(c=>c.linkedSavingsGoalId===savingsGoalId);
+
+  // Build a simple sheet
+  const existing = document.getElementById('payBillSheet');
+  if (existing) existing.remove();
+
+  const sheet = document.createElement('div');
+  sheet.id = 'payBillSheet';
+  sheet.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;z-index:400;display:flex;align-items:flex-end;justify-content:center';
+  const today = new Date().toISOString().slice(0,10);
+
+  sheet.innerHTML =
+    '<div onclick="document.getElementById(\'payBillSheet\').remove()" style="position:absolute;inset:0;background:rgba(0,0,0,0.4)"></div>' +
+    '<div style="position:relative;background:var(--surface);border-radius:20px 20px 0 0;width:100%;max-width:600px;padding:20px 20px 40px;z-index:1">' +
+      '<div style="text-align:center;margin-bottom:4px"><div style="width:36px;height:4px;border-radius:2px;background:var(--border);margin:0 auto 16px"></div></div>' +
+      '<div style="font-size:17px;font-weight:700;margin-bottom:4px">💸 Pay bill from ' + (goal.icon||'💰') + ' ' + goal.name + '</div>' +
+      '<div style="font-size:12px;color:var(--muted);margin-bottom:16px">Current balance: <strong style="color:var(--text)">$' + balance.toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2}) + '</strong></div>' +
+      '<label style="font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;display:block;margin-bottom:6px">Bill amount ($)</label>' +
+      '<input type="number" inputmode="decimal" id="payBillAmount" placeholder="e.g. 250.00" style="width:100%;box-sizing:border-box;background:var(--surface2);border:1.5px solid var(--border);border-radius:10px;color:var(--text);font-size:18px;font-family:var(--font);padding:12px 14px;outline:none;margin-bottom:12px">' +
+      '<label style="font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;display:block;margin-bottom:6px">Date paid</label>' +
+      '<input type="date" id="payBillDate" value="' + today + '" style="width:100%;box-sizing:border-box;background:var(--surface2);border:1.5px solid var(--border);border-radius:10px;color:var(--text);font-size:15px;font-family:var(--font);padding:12px 14px;outline:none;margin-bottom:12px">' +
+      '<label style="font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;display:block;margin-bottom:6px">Note (optional)</label>' +
+      '<input type="text" id="payBillNote" placeholder="e.g. Q2 strata levy" style="width:100%;box-sizing:border-box;background:var(--surface2);border:1.5px solid var(--border);border-radius:10px;color:var(--text);font-size:15px;font-family:var(--font);padding:12px 14px;outline:none;margin-bottom:16px">' +
+      '<div style="font-size:11px;color:var(--muted);background:var(--surface2);border-radius:10px;padding:10px 12px;margin-bottom:16px;line-height:1.6">' +
+        '✅ This will withdraw from your <strong style="color:var(--text)">' + goal.name + '</strong> savings balance.<br>' +
+        '✅ It will <strong style="color:var(--text)">not</strong> hit your monthly budget — the cost was already absorbed across your monthly savings contributions.' +
+      '</div>' +
+      '<button onclick="confirmPayBill(\'' + savingsGoalId + '\')" style="width:100%;background:var(--red);color:#fff;border:none;border-radius:12px;padding:14px;font-size:15px;font-weight:700;font-family:var(--font);cursor:pointer;margin-bottom:8px">Pay bill</button>' +
+      '<button onclick="document.getElementById(\'payBillSheet\').remove()" style="width:100%;background:none;border:none;color:var(--muted);padding:10px;font-size:14px;font-family:var(--font);cursor:pointer">Cancel</button>' +
+    '</div>';
+  document.body.appendChild(sheet);
+  setTimeout(() => { const el = document.getElementById('payBillAmount'); if (el) el.focus(); }, 300);
+}
+
+function confirmPayBill(savingsGoalId) {
+  const amount = parseFloat(document.getElementById('payBillAmount').value);
+  const date = document.getElementById('payBillDate').value;
+  const note = document.getElementById('payBillNote').value.trim() || 'Bill payment';
+  if (!amount || amount <= 0 || !date) { showToast('Enter a valid amount and date', 2000); return; }
+
+  // 1. Log a withdrawal from the savings goal (type: 'bill-payment' so we know it's special)
+  const depositId = uid();
+  if (!state.savingsDeposits) state.savingsDeposits = [];
+  state.savingsDeposits.push({
+    id: depositId,
+    catId: savingsGoalId,
+    targetId: savingsGoalId,
+    amount,
+    date,
+    note,
+    type: 'bill-payment', // distinct from regular withdrawal
+  });
+
+  saveState();
+  document.getElementById('payBillSheet').remove();
+  renderContent();
+
+  const goal = savingsCatById(savingsGoalId);
+  const newBalance = totalSavedForCat(savingsGoalId);
+  const surplus = newBalance;
+  const msg = surplus >= 0
+    ? '✅ Bill paid · $' + surplus.toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2}) + ' remaining in ' + (goal?goal.name:'goal')
+    : '✅ Bill paid · ' + (goal?goal.name:'Goal') + ' is $' + Math.abs(surplus).toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2}) + ' short — keep saving';
+  showToast(msg, 3500);
+}
+
 function openAddDeposit(targetId, catId) {
   editingSavingsDepositId = null;
   depositTargetId = targetId; depositCatId = catId;
@@ -6261,20 +6376,27 @@ function renderSavings() {
     } else {
       // Direct deposits/withdrawals on category
       const allDeps = depositsForCat(cat.id).sort((a,b)=>b.date.localeCompare(a.date)||b.id.localeCompare(a.id));
+      // Check if any expense category is linked to this goal
+      const linkedCats = (state.categories||[]).filter(c=>c.linkedSavingsGoalId===cat.id);
+      const hasLinkedCat = linkedCats.length > 0;
       html += '<div style="border-top:1px solid var(--surface2);padding:10px 14px;display:flex;gap:8px">' +
-        '<button onclick="openAddDeposit(null,\''+cat.id+'\')" style="flex:1;background:var(--accent-dim);color:var(--accent);border:none;border-radius:8px;padding:10px;font-size:13px;font-weight:700;font-family:var(--font);cursor:pointer">+ Add / Withdraw</button>' +
+        (hasLinkedCat
+          ? '<button onclick="openPayBill(\''+cat.id+'\')" style="flex:1;background:rgba(255,92,92,0.1);color:var(--red);border:1px solid rgba(255,92,92,0.25);border-radius:8px;padding:10px;font-size:13px;font-weight:700;font-family:var(--font);cursor:pointer">💸 Pay bill</button>'
+          : '<button onclick="openAddDeposit(null,\''+cat.id+'\')" style="flex:1;background:var(--accent-dim);color:var(--accent);border:none;border-radius:8px;padding:10px;font-size:13px;font-weight:700;font-family:var(--font);cursor:pointer">+ Add / Withdraw</button>') +
         '<button onclick="openAddSavingsSub(\''+cat.id+'\')" style="background:var(--surface2);color:var(--muted);border:none;border-radius:8px;padding:10px 12px;font-size:12px;font-family:var(--font);cursor:pointer">Add goals</button>' +
       '</div>';
       if (allDeps.length > 0) {
         html += '<div style="border-top:1px solid var(--surface2)">';
         allDeps.slice(0,4).forEach(d => {
-          const isW = d.type==='withdrawal';
+          const isW = d.type==='withdrawal' || d.type==='bill-payment';
+          const isAuto = !!d.linkedExpenseId;
+          const isBill = d.type==='bill-payment';
           html += '<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 14px;cursor:pointer" onclick="openEditDeposit(\''+d.id+'\')">' +
             '<div>' +
-              '<div style="display:flex;align-items:center;gap:6px"><span style="font-size:11px">'+(isW?'💸':'💰')+'</span><span style="font-size:13px">'+(d.note||(isW?'Withdrawal':'Deposit'))+'</span></div>' +
+              '<div style="display:flex;align-items:center;gap:6px"><span style="font-size:11px">'+(isBill?'🧾':isAuto?'🔗':isW?'💸':'💰')+'</span><span style="font-size:13px">'+(d.note||(isBill?'Bill payment':isW?'Withdrawal':'Deposit'))+'</span>'+(isAuto&&!isBill?'<span style="font-size:9px;background:rgba(79,142,247,0.12);color:var(--accent);border-radius:4px;padding:1px 5px;font-weight:700">AUTO</span>':'')+'</div>' +
               '<div style="font-size:11px;color:var(--muted)">'+new Date(d.date+'T00:00:00').toLocaleDateString('en-AU',{day:'numeric',month:'short',year:'numeric'})+'</div>' +
             '</div>' +
-            '<div style="font-size:13px;font-weight:600;color:'+(isW?'var(--red)':'var(--accent)')+'">'+( isW?'-':'+' )+fmt(d.amount)+'</div>' +
+            '<div style="font-size:13px;font-weight:600;color:'+(isW||isBill?'var(--red)':'var(--accent)')+'">'+( isW||isBill?'-':'+' )+fmt(d.amount)+'</div>' +
           '</div>';
         });
         if (allDeps.length > 4) html += '<div style="padding:8px 14px;font-size:11px;color:var(--muted)">+'+(allDeps.length-4)+' more</div>';
