@@ -36,7 +36,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '2.0.0-202603232037';
+  const APP_VER = '2.0.0-202603232058';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -183,7 +183,7 @@ async function applyUpdate() {
   /* Sub-tabs strip — card style with emoji */
   .sub-tabs { display:flex;gap:6px;padding:6px 16px 10px;overflow-x:auto;scrollbar-width:none; }
   .sub-tabs::-webkit-scrollbar { display:none; }
-  .sub-tab { flex-shrink:0;display:flex;flex-direction:column;align-items:center;gap:3px;padding:8px 12px;border:1px solid var(--surface2);border-radius:var(--r);background:var(--surface);font-size:10px;font-weight:500;font-family:var(--font);cursor:pointer;color:var(--muted);transition:all 0.15s;white-space:nowrap;line-height:1.2; }
+  .sub-tab { flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;padding:8px 12px;border:1px solid var(--surface2);border-radius:var(--r);background:var(--surface);font-size:10px;font-weight:500;font-family:var(--font);cursor:pointer;color:var(--muted);transition:all 0.15s;white-space:nowrap;line-height:1.2; }
   .sub-tab .sub-tab-icon { font-size:18px;line-height:1; }
   .sub-tab.active { background:var(--accent-dim);border-color:var(--accent);color:var(--accent);font-weight:700; }
   /* Old tab grid — hidden */
@@ -905,7 +905,7 @@ async function applyUpdate() {
 
 <!-- Onboarding / Settings modal -->
 <div class="modal-overlay" id="settingsModal">
-  <div class="modal">
+  <div class="modal" style="background:var(--surface2)">
     <div class="modal-handle"></div>
     <div style="display:flex;align-items:center;justify-content:space-between;padding:0 20px 4px">
       <div style="font-size:22px;font-weight:700;letter-spacing:-0.3px;display:flex;align-items:center;gap:8px">Settings <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="opacity:0.5;margin-top:1px"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l-.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></div>
@@ -1205,7 +1205,8 @@ async function applyUpdate() {
     <div id="savingsDepositSub" style="font-size:12px;color:var(--muted);margin-bottom:14px;"></div>
     <div id="sdLinkedWarning" style="display:none;background:rgba(240,168,96,0.1);border:1px solid rgba(240,168,96,0.3);border-radius:10px;padding:10px 12px;margin-bottom:14px;font-size:12px;color:var(--muted);line-height:1.6"></div>
     <label>Type</label>
-    <div id="sdTypeRow" style="display:flex;gap:8px;margin-bottom:14px"> style="flex:1;padding:10px;border-radius:10px;border:2px solid var(--accent);background:var(--accent-dim);color:var(--accent);font-weight:700;font-family:var(--font);cursor:pointer;font-size:13px">💰 Deposit</button>
+    <div id="sdTypeRow" style="display:flex;gap:8px;margin-bottom:14px">
+      <button id="sdTypeDeposit" onclick="setSdType('deposit')" style="flex:1;padding:10px;border-radius:10px;border:2px solid var(--accent);background:var(--accent-dim);color:var(--accent);font-weight:700;font-family:var(--font);cursor:pointer;font-size:13px">💰 Deposit</button>
       <button id="sdTypeWithdraw" onclick="setSdType('withdrawal')" style="flex:1;padding:10px;border-radius:10px;border:2px solid var(--border);background:var(--surface2);color:var(--muted);font-weight:600;font-family:var(--font);cursor:pointer;font-size:13px">💸 Withdrawal</button>
     </div>
     <label>Amount ($)</label>
@@ -1715,7 +1716,7 @@ const PALETTE = [
 // ── State ─────────────────────────────────────────────────────────────────────
 const APP_VERSION = '2.0.0';
 const BUILD_DATE = '2026-03-23';
-const BUILD_TIME = '23 Mar 2026 8:37 PM AEDT';
+const BUILD_TIME = '23 Mar 2026 8:58 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -6465,15 +6466,7 @@ function renderSavings() {
     '</div>';
 
     if (hasSubs) {
-      // Full-width responsive layouts per count
-      const subCount = subs.length;
-      let gridStyle;
-      if (subCount === 1) gridStyle = 'display:grid;grid-template-columns:1fr;';
-      else if (subCount === 2) gridStyle = 'display:grid;grid-template-columns:1fr 1fr;';
-      else if (subCount === 3) gridStyle = 'display:grid;grid-template-columns:1fr 1fr 1fr;';
-      else if (subCount === 4) gridStyle = 'display:grid;grid-template-columns:1fr 1fr;';
-      else gridStyle = 'display:grid;grid-template-columns:1fr 1fr 1fr;'; // 5+
-      html += '<div style="' + gridStyle + 'gap:1px;border-top:1px solid var(--surface2)">';
+      html += '<div style="display:flex;flex-direction:column;border-top:1px solid var(--surface2)">';
       subs.forEach((sub, subIdx) => {
         const saved = totalSavedForTarget(sub.id);
         const cycleNet = cycleNetForTarget(sub.id);
@@ -6514,8 +6507,8 @@ function renderSavings() {
         } else if (sub.target > 0 && saved >= sub.target) {
           etaHtml = '<div style="font-size:11px;color:var(--accent);font-weight:600;margin-top:4px">🎉 Goal reached!</div>';
         }
-        const spanStyle = (subCount === 5 && subIdx === 3) ? 'grid-column:1/3;' : (subCount === 5 && subIdx === 4) ? 'grid-column:3/4;' : '';
-        html += '<div style="padding:12px 14px;background:var(--surface);' + spanStyle + '">' +
+        const spanStyle = '';
+        html += '<div style="padding:12px 14px;background:var(--surface);border-top:1px solid var(--surface2)">' +
           '<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">' +
             '<div style="width:32px;height:32px;border-radius:8px;background:'+cat.color+'22;display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0">'+sub.icon+'</div>' +
             '<div style="flex:1;min-width:0;cursor:pointer" onclick="openEditSavingsSub(\''+sub.id+'\')">' +
