@@ -36,7 +36,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '1.9.0-202603231150';
+  const APP_VER = '1.9.0-202603231355';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -1698,7 +1698,7 @@ const PALETTE = [
 // ── State ─────────────────────────────────────────────────────────────────────
 const APP_VERSION = '1.9.0';
 const BUILD_DATE = '2026-03-23';
-const BUILD_TIME = '23 Mar 2026 11:50 AM AEDT';
+const BUILD_TIME = '23 Mar 2026 1:55 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -3610,18 +3610,21 @@ function renderRecurringPane() {
       const autoOffsetBadge = r.autoOffset ? '<span style="font-size:9px;background:rgba(79,142,247,0.15);color:var(--accent);border-radius:4px;padding:2px 5px;font-weight:700;margin-left:4px">🏦 AUTO</span>' : '';
       const pausedBadge = r.active===false ? '<span style="font-size:10px;color:var(--orange);font-weight:400"> · Paused</span>' : '';
       const dueBadge = isDueToday ? '<span style="font-size:9px;background:rgba(52,199,89,0.15);color:#34C759;border-radius:4px;padding:2px 5px;font-weight:700;margin-left:4px">TODAY</span>' : '';
-      html += '<div style="display:flex;align-items:center;gap:12px;padding:13px 0;border-bottom:1px solid var(--surface2)">' +
-        '<div style="width:38px;height:38px;border-radius:10px;background:'+(cat?cat.color:'#888')+'22;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">'+(cat?cat.icon:'❓')+'</div>' +
-        '<div style="flex:1;min-width:0">' +
-          '<div style="font-size:13px;font-weight:600">' + r.name + autoOffsetBadge + pausedBadge + dueBadge + '</div>' +
-          '<div style="font-size:11px;color:'+(isDueToday?'#34C759':isOverdue?'var(--red)':'var(--muted)')+'">' + recFreqLabel(r) + ' · Next: ' + nextStr + '</div>' +
+      const pencilSvg = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>';
+      html += '<div class="list-item" style="justify-content:space-between;margin-bottom:8px">' +
+        '<div style="display:flex;align-items:center;gap:12px;flex:1;min-width:0">' +
+          '<div class="cat-icon" style="background:'+(cat?cat.color:'#888')+'22">'+(cat?cat.icon:'❓')+'</div>' +
+          '<div class="item-info">' +
+            '<div class="item-name">' + r.name + autoOffsetBadge + pausedBadge + dueBadge + '</div>' +
+            '<div class="item-meta" style="color:'+(isDueToday?'#34C759':isOverdue?'var(--red)':'var(--muted)')+'">' + recFreqLabel(r) + ' · Next: ' + nextStr + '</div>' +
+          '</div>' +
         '</div>' +
         '<div style="display:flex;align-items:center;gap:10px;flex-shrink:0">' +
           '<div style="text-align:right">' +
-            '<div style="font-size:13px;font-weight:600">' + fmt(r.amount) + '</div>' +
+            '<div class="item-amount">' + fmt(r.amount) + '</div>' +
             '<div style="font-size:10px;color:var(--muted)">' + (cat?cat.name:'') + '</div>' +
           '</div>' +
-          '<button onclick="openEditRecurringInline(\'' + r.id + '\')" style="background:var(--surface2);border:none;border-radius:8px;padding:8px 12px;font-size:12px;font-weight:600;color:var(--muted);font-family:var(--font);cursor:pointer">Edit</button>' +
+          '<button onclick="openEditRecurringInline(\'' + r.id + '\')" style="background:var(--surface2);border:none;border-radius:50%;width:32px;height:32px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--muted);flex-shrink:0">' + pencilSvg + '</button>' +
         '</div>' +
       '</div>';
     });
@@ -8327,6 +8330,7 @@ function openRecurringList() {
       return na - nb;
     });
     const todayStr_ = todayStr();
+    const pencilSvg = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>';
     content.innerHTML = sorted.map(r => {
       const cat = catById(r.categoryId);
       const next = getRecNextDate(r);
@@ -8337,18 +8341,20 @@ function openRecurringList() {
       const autoOffsetBadge = r.autoOffset ? '<span style="font-size:9px;background:rgba(79,142,247,0.15);color:var(--accent);border-radius:4px;padding:2px 5px;font-weight:700;margin-left:4px">🏦 AUTO</span>' : '';
       const pausedBadge = r.active===false ? '<span style="font-size:10px;color:var(--orange);font-weight:400"> · Paused</span>' : '';
       const dueBadge = isDueToday ? '<span style="font-size:9px;background:rgba(52,199,89,0.15);color:#34C759;border-radius:4px;padding:2px 5px;font-weight:700;margin-left:4px">TODAY</span>' : '';
-      return '<div style="display:flex;align-items:center;gap:12px;padding:13px 0;border-bottom:1px solid var(--surface2)">' +
-        '<div style="width:38px;height:38px;border-radius:10px;background:'+(cat?cat.color:'#888')+'22;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">'+(cat?cat.icon:'❓')+'</div>' +
-        '<div style="flex:1;min-width:0">' +
-          '<div style="font-size:13px;font-weight:600">' + r.name + autoOffsetBadge + pausedBadge + dueBadge + '</div>' +
-          '<div style="font-size:11px;color:'+(isDueToday?'#34C759':isOverdue?'var(--red)':'var(--muted)')+'">' + recFreqLabel(r) + ' · Next: ' + nextStr + '</div>' +
+      return '<div class="list-item" style="justify-content:space-between;margin-bottom:8px">' +
+        '<div style="display:flex;align-items:center;gap:12px;flex:1;min-width:0">' +
+          '<div class="cat-icon" style="background:'+(cat?cat.color:'#888')+'22">'+(cat?cat.icon:'❓')+'</div>' +
+          '<div class="item-info">' +
+            '<div class="item-name">' + r.name + autoOffsetBadge + pausedBadge + dueBadge + '</div>' +
+            '<div class="item-meta" style="color:'+(isDueToday?'#34C759':isOverdue?'var(--red)':'var(--muted)')+'">' + recFreqLabel(r) + ' · Next: ' + nextStr + '</div>' +
+          '</div>' +
         '</div>' +
         '<div style="display:flex;align-items:center;gap:10px;flex-shrink:0">' +
           '<div style="text-align:right">' +
-            '<div style="font-size:13px;font-weight:600">' + fmt(r.amount) + '</div>' +
+            '<div class="item-amount">' + fmt(r.amount) + '</div>' +
             '<div style="font-size:10px;color:var(--muted)">' + (cat?cat.name:'') + '</div>' +
           '</div>' +
-          '<button onclick="openEditRecurring(\'' + r.id + '\')" style="background:var(--surface2);border:none;border-radius:8px;padding:8px 12px;font-size:12px;font-weight:600;color:var(--muted);font-family:var(--font);cursor:pointer;white-space:nowrap">Edit</button>' +
+          '<button onclick="openEditRecurring(\'' + r.id + '\')" style="background:var(--surface2);border:none;border-radius:50%;width:32px;height:32px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--muted);flex-shrink:0">' + pencilSvg + '</button>' +
         '</div>' +
       '</div>';
     }).join('');
