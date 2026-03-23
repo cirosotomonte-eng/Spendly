@@ -36,7 +36,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '1.9.0-202603231418';
+  const APP_VER = '1.9.0-202603231423';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -292,7 +292,7 @@ async function applyUpdate() {
   .tab-config-locked { font-size:11px; color:var(--muted); flex-shrink:0; }
 
   /* Settings */
-  .settings-section-label { font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;padding:20px 4px 8px; }
+  .settings-section-label { font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;padding:20px 4px 8px; }
   .settings-group { margin-bottom:8px;display:flex;flex-direction:column;gap:6px; }
   .settings-row { background:var(--surface);border:1px solid var(--border);border-radius:14px !important;display:flex;align-items:center;gap:12px;padding:14px 16px;cursor:pointer;transition:background 0.1s;-webkit-tap-highlight-color:transparent; }
   .settings-row:first-child { border-radius:14px; }
@@ -913,7 +913,7 @@ async function applyUpdate() {
     </div>
 
     <!-- App identity card -->
-    <div style="flex:1;overflow-y:auto;background:var(--surface2);padding:0 0 32px">
+    <div style="flex:1;overflow-y:auto;background:var(--surface);padding:0 0 32px">
 
     <!-- Hidden form fields still needed by saveSettings() -->
     <div style="display:none">
@@ -1701,7 +1701,7 @@ const PALETTE = [
 // ── State ─────────────────────────────────────────────────────────────────────
 const APP_VERSION = '1.9.0';
 const BUILD_DATE = '2026-03-23';
-const BUILD_TIME = '23 Mar 2026 2:18 PM AEDT';
+const BUILD_TIME = '23 Mar 2026 2:23 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
