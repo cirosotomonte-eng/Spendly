@@ -36,7 +36,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '2.0.0-202603231728';
+  const APP_VER = '2.0.0-202603232037';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -913,7 +913,7 @@ async function applyUpdate() {
     </div>
 
     <!-- App identity card -->
-    <div style="flex:1;overflow-y:auto;background:var(--surface);padding:0 0 32px">
+    <div style="flex:1;overflow-y:auto;background:var(--surface2);padding:0 0 32px">
 
     <!-- Hidden form fields still needed by saveSettings() -->
     <div style="display:none">
@@ -1205,8 +1205,7 @@ async function applyUpdate() {
     <div id="savingsDepositSub" style="font-size:12px;color:var(--muted);margin-bottom:14px;"></div>
     <div id="sdLinkedWarning" style="display:none;background:rgba(240,168,96,0.1);border:1px solid rgba(240,168,96,0.3);border-radius:10px;padding:10px 12px;margin-bottom:14px;font-size:12px;color:var(--muted);line-height:1.6"></div>
     <label>Type</label>
-    <div style="display:flex;gap:8px;margin-bottom:14px">
-      <button id="sdTypeDeposit" onclick="setSdType('deposit')" style="flex:1;padding:10px;border-radius:10px;border:2px solid var(--accent);background:var(--accent-dim);color:var(--accent);font-weight:700;font-family:var(--font);cursor:pointer;font-size:13px">💰 Deposit</button>
+    <div id="sdTypeRow" style="display:flex;gap:8px;margin-bottom:14px"> style="flex:1;padding:10px;border-radius:10px;border:2px solid var(--accent);background:var(--accent-dim);color:var(--accent);font-weight:700;font-family:var(--font);cursor:pointer;font-size:13px">💰 Deposit</button>
       <button id="sdTypeWithdraw" onclick="setSdType('withdrawal')" style="flex:1;padding:10px;border-radius:10px;border:2px solid var(--border);background:var(--surface2);color:var(--muted);font-weight:600;font-family:var(--font);cursor:pointer;font-size:13px">💸 Withdrawal</button>
     </div>
     <label>Amount ($)</label>
@@ -1716,7 +1715,7 @@ const PALETTE = [
 // ── State ─────────────────────────────────────────────────────────────────────
 const APP_VERSION = '2.0.0';
 const BUILD_DATE = '2026-03-23';
-const BUILD_TIME = '23 Mar 2026 5:28 PM AEDT';
+const BUILD_TIME = '23 Mar 2026 8:37 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -3567,7 +3566,7 @@ function renderExpenses() {
         '<div style="display:flex;gap:8px;align-items:center">' + addExpBtn + '</div>' +
       '</div>' +
       '<div style="display:flex;border-bottom:1px solid var(--surface2);margin-bottom:14px">' +
-        '<button id="expSubTabLog" onclick="setExpensesSubTab(\'log\')" style="flex:1;padding:10px 0;border:none;background:none;font-size:14px;font-weight:600;font-family:var(--font);cursor:pointer;color:' + (_expensesSubTab==='log'?'var(--accent)':'var(--muted)') + ';border-bottom:2px solid ' + (_expensesSubTab==='log'?'var(--accent)':'transparent') + ';margin-bottom:-1px;transition:all 0.15s">Daily transactions</button>' +
+        '<button id="expSubTabLog" onclick="setExpensesSubTab(\'log\')" style="flex:1;padding:10px 0;border:none;background:none;font-size:14px;font-weight:600;font-family:var(--font);cursor:pointer;color:' + (_expensesSubTab==='log'?'var(--accent)':'var(--muted)') + ';border-bottom:2px solid ' + (_expensesSubTab==='log'?'var(--accent)':'transparent') + ';margin-bottom:-1px;transition:all 0.15s">Daily</button>' +
         '<button id="expSubTabRecurring" onclick="setExpensesSubTab(\'recurring\')" style="flex:1;padding:10px 0;border:none;background:none;font-size:14px;font-weight:600;font-family:var(--font);cursor:pointer;color:' + (_expensesSubTab==='recurring'?'var(--accent)':'var(--muted)') + ';border-bottom:2px solid ' + (_expensesSubTab==='recurring'?'var(--accent)':'transparent') + ';margin-bottom:-1px;transition:all 0.15s">Recurring</button>' +
       '</div>' +
     '</div>';
@@ -3744,8 +3743,9 @@ function renderExpenseResults(resultsEl) {
         '<div class="cat-icon">' + cat.icon + '</div>' +
         '<div class="item-info"><div class="item-name">' + cat.name +
           (e.transactionType==='saving' ? '<span style="font-size:9px;background:rgba(52,199,89,0.15);color:#34C759;border-radius:4px;padding:1px 5px;font-weight:700;margin-left:5px;vertical-align:middle">SAVING</span>' :
-           e.goalCoveredAmount > 0 ? '<span style="font-size:9px;background:rgba(79,142,247,0.12);color:var(--accent);border-radius:4px;padding:1px 5px;font-weight:700;margin-left:5px;vertical-align:middle">SPLIT</span>' :
-           e.linkedDepositId ? '<span style="font-size:9px;background:rgba(79,142,247,0.12);color:var(--accent);border-radius:4px;padding:1px 5px;font-weight:700;margin-left:5px;vertical-align:middle">SAVING</span>' : '') +
+           e.goalCoveredAmount > 0 && e.goalCoveredAmount < e.amount ? '<span style="font-size:9px;background:rgba(240,168,96,0.15);color:var(--orange);border-radius:4px;padding:1px 5px;font-weight:700;margin-left:5px;vertical-align:middle">SPLIT</span>' :
+           e.goalCoveredAmount >= e.amount && e.goalCoveredAmount > 0 ? '<span style="font-size:9px;background:rgba(52,199,89,0.15);color:#34C759;border-radius:4px;padding:1px 5px;font-weight:700;margin-left:5px;vertical-align:middle">GOAL</span>' :
+           e.linkedDepositId ? '<span style="font-size:9px;background:rgba(52,199,89,0.15);color:#34C759;border-radius:4px;padding:1px 5px;font-weight:700;margin-left:5px;vertical-align:middle">SAVING</span>' : '') +
         '</div>' +
         (e.name ? '<div class="item-meta">' + e.name + '</div>' : '') +
         (e.goalCoveredAmount > 0 && e.transactionType !== 'saving' ? (() => {
@@ -3757,7 +3757,7 @@ function renderExpenseResults(resultsEl) {
           '</div>';
         })() : '') +
         '</div>' +
-        '<div class="item-amount" style="color:' + (e.transactionType==='saving' ? '#34C759' : getSpendColor(e.categoryId)) + '">' + (e.transactionType==='saving' ? '+' : '') + fmt(e.amount) + '</div></div></div>';
+        '<div class="item-amount" style="color:' + (e.transactionType==='saving' ? '#34C759' : getSpendColor(e.categoryId)) + '">' + (e.transactionType==='saving' ? '+' : '-') + fmt(e.amount) + '</div></div></div>';
     });
   });
   resultsEl.innerHTML = html;
@@ -5071,7 +5071,7 @@ function _updateTxGoalInfo() {
       infoEl.innerHTML = '💚 Full amount covered by <strong style="color:var(--text)">' + goal.icon + ' ' + goal.name + '</strong> (balance: ' + fmtB(balance) + ')<br><span style="color:#34C759">Budget unaffected.</span>';
     } else if (balance > 0 && amt > 0) {
       const shortfall = amt - balance;
-      infoEl.innerHTML = '💚 ' + fmtB(balance) + ' from <strong style="color:var(--text)">' + goal.name + '</strong> · 💳 ' + fmtB(shortfall) + ' from budget<br><span style="color:var(--orange)">Split transaction — shortfall deducted from budget.</span>';
+      infoEl.innerHTML = '<strong style="color:var(--orange)">Split transaction!</strong> ' + fmtB(balance) + ' deducted from <strong style="color:var(--text)">' + goal.icon + ' ' + goal.name + '</strong> and ' + fmtB(shortfall) + ' deducted from budget.';
     } else {
       infoEl.innerHTML = '💚 Linked to <strong style="color:var(--text)">' + goal.icon + ' ' + goal.name + '</strong> (balance: ' + fmtB(balance) + ')<br>' + (balance <= 0 ? '<span style="color:var(--red)">No savings available — full amount from budget.</span>' : '<span style="color:var(--muted)">Enter an amount to see the breakdown.</span>');
     }
@@ -6246,6 +6246,9 @@ function openAddDeposit(targetId, catId) {
   document.getElementById('sdNote').value = '';
   document.getElementById('sdDeleteBtn').style.display = 'none';
   document.getElementById('sdSaveBtn').textContent = 'Save';
+  document.getElementById('sdLinkedWarning').style.display = 'none';
+  const sdTypeRow = document.getElementById('sdTypeRow');
+  if (sdTypeRow) { sdTypeRow.style.opacity=''; sdTypeRow.style.pointerEvents=''; }
   setSdType('deposit');
   document.getElementById('savingsDepositModal').classList.add('open');
   setTimeout(()=>document.getElementById('sdAmount').focus(),350);
@@ -6266,6 +6269,7 @@ function openEditDeposit(id) {
 
   // Show warning if linked to a transaction
   const warnEl = document.getElementById('sdLinkedWarning');
+  const typeRow = document.getElementById('sdTypeRow');
   if (dep.linkedExpenseId) {
     const linkedExp = (state.expenses||[]).find(e=>e.id===dep.linkedExpenseId);
     const linkedCat = linkedExp ? catById(linkedExp.categoryId) : null;
@@ -6273,10 +6277,13 @@ function openEditDeposit(id) {
       (linkedCat ? linkedCat.icon + ' ' + linkedCat.name : 'transaction') +
       '</strong> in your Transactions tab' +
       (linkedExp ? ' on ' + new Date(linkedExp.date+'T00:00:00').toLocaleDateString('en-AU',{day:'numeric',month:'short',year:'numeric'}) : '') +
-      '. Deleting here will also delete that transaction.';
+      '. Deleting here will also delete that transaction.<br><span style="color:var(--muted)">Transaction type cannot be changed here — edit the transaction directly.</span>';
     warnEl.style.display = '';
+    // Disable the type buttons
+    if (typeRow) { typeRow.style.opacity='0.4'; typeRow.style.pointerEvents='none'; }
   } else {
     warnEl.style.display = 'none';
+    if (typeRow) { typeRow.style.opacity=''; typeRow.style.pointerEvents=''; }
   }
 
   document.getElementById('savingsDepositModal').classList.add('open');
@@ -6458,7 +6465,16 @@ function renderSavings() {
     '</div>';
 
     if (hasSubs) {
-      subs.forEach((sub) => {
+      // Full-width responsive layouts per count
+      const subCount = subs.length;
+      let gridStyle;
+      if (subCount === 1) gridStyle = 'display:grid;grid-template-columns:1fr;';
+      else if (subCount === 2) gridStyle = 'display:grid;grid-template-columns:1fr 1fr;';
+      else if (subCount === 3) gridStyle = 'display:grid;grid-template-columns:1fr 1fr 1fr;';
+      else if (subCount === 4) gridStyle = 'display:grid;grid-template-columns:1fr 1fr;';
+      else gridStyle = 'display:grid;grid-template-columns:1fr 1fr 1fr;'; // 5+
+      html += '<div style="' + gridStyle + 'gap:1px;border-top:1px solid var(--surface2)">';
+      subs.forEach((sub, subIdx) => {
         const saved = totalSavedForTarget(sub.id);
         const cycleNet = cycleNetForTarget(sub.id);
         const pct = sub.target > 0 ? Math.min((saved/sub.target)*100,100) : 0;
@@ -6498,7 +6514,8 @@ function renderSavings() {
         } else if (sub.target > 0 && saved >= sub.target) {
           etaHtml = '<div style="font-size:11px;color:var(--accent);font-weight:600;margin-top:4px">🎉 Goal reached!</div>';
         }
-        html += '<div style="border-top:1px solid var(--surface2);padding:12px 14px">' +
+        const spanStyle = (subCount === 5 && subIdx === 3) ? 'grid-column:1/3;' : (subCount === 5 && subIdx === 4) ? 'grid-column:3/4;' : '';
+        html += '<div style="padding:12px 14px;background:var(--surface);' + spanStyle + '">' +
           '<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">' +
             '<div style="width:32px;height:32px;border-radius:8px;background:'+cat.color+'22;display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0">'+sub.icon+'</div>' +
             '<div style="flex:1;min-width:0;cursor:pointer" onclick="openEditSavingsSub(\''+sub.id+'\')">' +
@@ -6538,6 +6555,7 @@ function renderSavings() {
         })() +
         '</div>';
       });
+      html += '</div>'; // close grid
       html += '<div style="border-top:1px solid var(--surface2);padding:10px 14px">' +
         '<button onclick="openAddSavingsSub(\''+cat.id+'\')" style="background:none;border:1.5px dashed var(--border);border-radius:8px;padding:8px 14px;font-size:12px;color:var(--muted);font-family:var(--font);cursor:pointer;width:100%">+ Add goal to '+cat.name+'</button>' +
       '</div>';
