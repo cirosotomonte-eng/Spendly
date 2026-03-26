@@ -36,7 +36,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '2.0.0-202603240812';
+  const APP_VER = '2.0.0-202603260825';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -1111,6 +1111,15 @@ async function applyUpdate() {
     <select id="catLinkedGoal">
       <option value="">None</option>
     </select>
+    <div style="background:var(--surface2);border-radius:12px;padding:12px 14px;margin-bottom:14px">
+      <div style="display:flex;align-items:center;gap:12px">
+        <div id="catOffsetCheck" onclick="toggleCatOffset()" style="width:22px;height:22px;border-radius:6px;background:var(--surface3);border:2px solid var(--border);display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:13px;color:#fff;flex-shrink:0"></div>
+        <div>
+          <div style="font-size:13px;font-weight:600">Auto-deduct from offset account</div>
+          <div style="font-size:11px;color:var(--muted);margin-top:2px">Every transaction in this category automatically logs a withdrawal from your offset account</div>
+        </div>
+      </div>
+    </div>
     <button class="btn-primary" id="catSaveBtn" onclick="saveCategory()">Save category</button>
     <button class="btn-danger" id="catDeleteBtn" onclick="deleteCategory()" style="display:none">Delete category</button>
     <button class="btn-ghost" onclick="closeModal('catModal')">Cancel</button>
@@ -1727,7 +1736,7 @@ const PALETTE = [
 // ── State ─────────────────────────────────────────────────────────────────────
 const APP_VERSION = '2.0.0';
 const BUILD_DATE = '2026-03-23';
-const BUILD_TIME = '24 Mar 2026 8:12 AM AEDT';
+const BUILD_TIME = '26 Mar 2026 8:25 AM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -4960,6 +4969,7 @@ function openAddCategory() {
   buildColorGrid(randomColor);
   buildEmojiGrid('');
   document.getElementById('catIconPreview').textContent = '📌';
+  _setCatOffset(false);
   _populateLinkedGoalDropdown('');
   openModal('catModal');
   setTimeout(()=>document.getElementById('catName').focus(), 350);
@@ -4977,9 +4987,32 @@ function openEditCategory(id) {
   buildColorGrid(cat.color);
   buildEmojiGrid(cat.icon);
   document.getElementById('catIconPreview').textContent = cat.icon || '📌';
+  _setCatOffset(cat.autoOffset || false);
   _populateLinkedGoalDropdown(cat.linkedSavingsGoalId || '');
   openModal('catModal');
 }
+let _catOffsetState = false;
+
+function toggleCatOffset() {
+  _catOffsetState = !_catOffsetState;
+  const el = document.getElementById('catOffsetCheck');
+  if (el) {
+    el.textContent = _catOffsetState ? '✓' : '';
+    el.style.background = _catOffsetState ? 'var(--accent)' : 'var(--surface3)';
+    el.style.border = '2px solid ' + (_catOffsetState ? 'var(--accent)' : 'var(--border)');
+  }
+}
+
+function _setCatOffset(val) {
+  _catOffsetState = !!val;
+  const el = document.getElementById('catOffsetCheck');
+  if (el) {
+    el.textContent = _catOffsetState ? '✓' : '';
+    el.style.background = _catOffsetState ? 'var(--accent)' : 'var(--surface3)';
+    el.style.border = '2px solid ' + (_catOffsetState ? 'var(--accent)' : 'var(--border)');
+  }
+}
+
 function _populateLinkedGoalDropdown(selectedId) {
   const sel = document.getElementById('catLinkedGoal');
   if (!sel) return;
@@ -4995,12 +5028,13 @@ function saveCategory() {
   const color = getSelectedColor();
   const budgetLimit = parseFloat(document.getElementById('catBudget').value) || 0;
   const linkedSavingsGoalId = document.getElementById('catLinkedGoal').value || null;
+  const autoOffset = _catOffsetState;
   if (!name) return;
   if (state.editingCatId) {
     const idx = state.categories.findIndex(c=>c.id===state.editingCatId);
-    if (idx>=0) state.categories[idx] = { ...state.categories[idx], name, icon, type, color, budgetLimit, linkedSavingsGoalId };
+    if (idx>=0) state.categories[idx] = { ...state.categories[idx], name, icon, type, color, budgetLimit, linkedSavingsGoalId, autoOffset };
   } else {
-    state.categories.push({ id: uid(), name, icon, type, color, budgetLimit, linkedSavingsGoalId });
+    state.categories.push({ id: uid(), name, icon, type, color, budgetLimit, linkedSavingsGoalId, autoOffset });
   }
   saveState();
   closeModal('catModal');
@@ -5212,8 +5246,22 @@ function saveExpense() {
   if (state.editingExpenseId) {
     const idx = state.expenses.findIndex(e=>e.id===state.editingExpenseId);
     if (idx>=0) state.expenses[idx] = expRecord;
+    // Remove old auto-offset entry if editing
+    state.offsetTransactions = (state.offsetTransactions||[]).filter(t=>t.linkedExpenseId !== state.editingExpenseId);
   } else {
     state.expenses.push(expRecord);
+  }
+
+  // Auto-deduct from offset if category has autoOffset enabled
+  if (cat && cat.autoOffset) {
+    if (!state.offsetTransactions) state.offsetTransactions = [];
+    const offsetAlreadyExists = state.offsetTransactions.some(t=>t.linkedExpenseId===expId);
+    if (!offsetAlreadyExists) {
+      state.offsetTransactions.push({
+        id: uid(), type: 'withdrawal', amount, date,
+        note: (name || cat.name) + ' (auto)', linkedExpenseId: expId,
+      });
+    }
   }
 
   saveState();
@@ -5226,6 +5274,7 @@ function quickDeleteExpense(id) {
   if (exp) {
     if (exp.linkedDepositId) state.savingsDeposits = (state.savingsDeposits||[]).filter(d=>d.id!==exp.linkedDepositId);
     if (exp.linkedWithdrawalId) state.savingsDeposits = (state.savingsDeposits||[]).filter(d=>d.id!==exp.linkedWithdrawalId);
+    state.offsetTransactions = (state.offsetTransactions||[]).filter(t=>t.linkedExpenseId!==id);
   }
   const w = document.getElementById('sw-' + id);
   if (w) {
@@ -5250,6 +5299,7 @@ function deleteExpense() {
   if (exp) {
     if (exp.linkedDepositId) state.savingsDeposits = (state.savingsDeposits||[]).filter(d=>d.id!==exp.linkedDepositId);
     if (exp.linkedWithdrawalId) state.savingsDeposits = (state.savingsDeposits||[]).filter(d=>d.id!==exp.linkedWithdrawalId);
+    state.offsetTransactions = (state.offsetTransactions||[]).filter(t=>t.linkedExpenseId!==exp.id);
   }
   state.expenses = state.expenses.filter(e=>e.id!==state.editingExpenseId);
   saveState();
@@ -8314,15 +8364,26 @@ function updateRecOffsetVisibility() {
   const catSel = document.getElementById('recCat');
   const catId = catSel ? catSel.value : '';
   const cat = catById(catId);
-  const isMortgage = cat && (
-    cat.name.toLowerCase().includes('mortgage') ||
-    cat.name.toLowerCase().includes('home loan') ||
-    cat.name.toLowerCase().includes('housing') ||
-    cat.icon === '🏠'
-  );
   const sec = document.getElementById('recOffsetSection');
-  if (sec) sec.style.display = isMortgage ? 'block' : 'none';
-  if (!isMortgage) { recOffsetState = false; const el = document.getElementById('recOffsetCheck'); if(el){el.textContent='';el.style.background='var(--surface3)';el.style.border='2px solid var(--border)';} }
+  if (!sec) return;
+  // If category already has autoOffset, hide the per-recurring toggle (category handles it)
+  if (cat && cat.autoOffset) {
+    sec.style.display = 'block';
+    sec.innerHTML = '<div style="display:flex;align-items:center;gap:10px;opacity:0.5">' +
+      '<div style="width:22px;height:22px;border-radius:6px;background:var(--accent);border:2px solid var(--accent);display:flex;align-items:center;justify-content:center;font-size:13px;color:#fff;flex-shrink:0">✓</div>' +
+      '<div><div style="font-size:13px;font-weight:600">Auto-deduct from offset</div>' +
+      '<div style="font-size:11px;color:var(--muted);margin-top:2px">Enabled via category setting — applies to all transactions in this category</div></div>' +
+      '</div>';
+    recOffsetState = false; // don't double-fire
+  } else {
+    // Show the manual toggle for any category
+    sec.style.display = 'block';
+    sec.innerHTML = '<div style="display:flex;align-items:center;gap:10px">' +
+      '<div id="recOffsetCheck" onclick="toggleRecOffset()" style="width:22px;height:22px;border-radius:6px;background:' + (recOffsetState?'var(--accent)':'var(--surface3)') + ';border:2px solid ' + (recOffsetState?'var(--accent)':'var(--border)') + ';display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:13px;color:#fff;flex-shrink:0">' + (recOffsetState?'✓':'') + '</div>' +
+      '<div><div style="font-size:13px;font-weight:600">Auto-deduct from offset account</div>' +
+      '<div style="font-size:11px;color:var(--muted);margin-top:2px">When this expense fires, automatically log a withdrawal from your offset account for the same amount and date</div></div>' +
+      '</div>';
+  }
 }
 
 function setRecFreq(freq) {
@@ -8880,8 +8941,10 @@ function applyRecurringExpenses() {
     r.lastAdded = todayDateStr;
     added = true;
 
-    // Auto offset withdrawal if enabled — guard against duplicates too
-    if (r.autoOffset) {
+    // Auto offset withdrawal — use category setting, fall back to per-recurring setting
+    const recCat = catById(r.categoryId);
+    const shouldAutoOffset = (recCat && recCat.autoOffset) || r.autoOffset;
+    if (shouldAutoOffset) {
       if (!state.offsetTransactions) state.offsetTransactions = [];
       const offsetExists = (state.offsetTransactions||[]).some(t =>
         t.date === todayDateStr && t.amount === r.amount && t.note === r.name + ' (auto)'
@@ -8889,7 +8952,7 @@ function applyRecurringExpenses() {
       if (!offsetExists) {
         state.offsetTransactions.push({
           id: uid(), type: 'withdrawal', amount: r.amount,
-          date: todayDateStr, note: r.name + ' (auto)',
+          date: todayDateStr, note: r.name + ' (auto)', linkedExpenseId: expId,
         });
         autoOffsetFired.push({ name: r.name, amount: r.amount });
       }
