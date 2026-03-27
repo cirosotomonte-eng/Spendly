@@ -36,7 +36,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '2.0.0-202603272225';
+  const APP_VER = '2.0.0-202603280847';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -1736,7 +1736,7 @@ const PALETTE = [
 // ── State ─────────────────────────────────────────────────────────────────────
 const APP_VERSION = '2.0.0';
 const BUILD_DATE = '2026-03-23';
-const BUILD_TIME = '27 Mar 2026 10:25 PM AEDT';
+const BUILD_TIME = '28 Mar 2026 8:47 AM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -6174,6 +6174,53 @@ function openAddSavingsCat() {
   openModal('savingsCatModal');
   setTimeout(()=>document.getElementById('scName').focus(),350);
 }
+function openSavingsHistory(catId, subId) {
+  const existing = document.getElementById('savingsActionSheet');
+  if (existing) existing.remove();
+
+  const cat = savingsCatById(catId);
+  const sub = subId ? savingsSubById(subId) : null;
+  const label = sub ? (sub.icon||'✨') + ' ' + sub.name : (cat ? (cat.icon||'💰') + ' ' + cat.name : 'Goal');
+
+  const sheet = document.createElement('div');
+  sheet.id = 'savingsActionSheet';
+  sheet.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;z-index:400;display:flex;align-items:flex-end;justify-content:center';
+  sheet.innerHTML =
+    '<div onclick="document.getElementById(\'savingsActionSheet\').remove()" style="position:absolute;inset:0;background:rgba(0,0,0,0.4)"></div>' +
+    '<div style="position:relative;background:var(--surface);border-radius:20px 20px 0 0;width:100%;max-width:600px;padding:16px 16px 40px;z-index:1">' +
+      '<div style="width:36px;height:4px;border-radius:2px;background:var(--border);margin:0 auto 16px"></div>' +
+      '<div style="font-size:15px;font-weight:700;margin-bottom:16px;text-align:center">' + label + '</div>' +
+      '<button onclick="document.getElementById(\'savingsActionSheet\').remove();' + (sub ? 'openEditSavingsSub(\'' + subId + '\')' : 'openEditSavingsCat(\'' + catId + '\')') + '" style="width:100%;background:var(--surface2);border:none;border-radius:12px;padding:14px 16px;font-size:15px;font-weight:500;font-family:var(--font);cursor:pointer;text-align:left;margin-bottom:8px;display:flex;align-items:center;gap:12px"><span style="font-size:20px">✏️</span> Edit ' + (sub ? 'goal' : 'category') + '</button>' +
+      '<button onclick="document.getElementById(\'savingsActionSheet\').remove();_confirmDeleteSavings(\'' + catId + '\',\'' + (subId||'') + '\')" style="width:100%;background:rgba(255,92,92,0.08);border:1px solid rgba(255,92,92,0.2);border-radius:12px;padding:14px 16px;font-size:15px;font-weight:500;font-family:var(--font);cursor:pointer;text-align:left;margin-bottom:8px;display:flex;align-items:center;gap:12px;color:var(--red)"><span style="font-size:20px">🗑️</span> Delete ' + (sub ? 'goal' : 'category') + (sub ? '' : ' and all data') + '</button>' +
+      '<button onclick="document.getElementById(\'savingsActionSheet\').remove()" style="width:100%;background:none;border:none;color:var(--muted);padding:12px;font-size:14px;font-family:var(--font);cursor:pointer">Cancel</button>' +
+    '</div>';
+  document.body.appendChild(sheet);
+}
+
+function _confirmDeleteSavings(catId, subId) {
+  if (subId) {
+    // Delete sub-goal
+    const sub = savingsSubById(subId); if (!sub) return;
+    if (!confirm('Delete "' + sub.name + '"? This will also remove all deposits for this goal.')) return;
+    state.savingsDeposits = (state.savingsDeposits||[]).filter(d=>d.targetId!==subId);
+    state.savingsSubcategories = (state.savingsSubcategories||[]).filter(s=>s.id!==subId);
+    saveState(); renderContent();
+    showToast('✅ Goal deleted', 2000);
+  } else {
+    // Delete parent category
+    const cat = savingsCatById(catId); if (!cat) return;
+    const subCount = (state.savingsSubcategories||[]).filter(s=>s.catId===catId).length;
+    const depCount = (state.savingsDeposits||[]).filter(d=>d.catId===catId).length;
+    const msg = 'Delete "' + cat.name + '"?' + (subCount > 0 ? ' This will also delete ' + subCount + ' sub-goal' + (subCount!==1?'s':'') + ' and' : ' This will also delete') + ' all deposits and history.';
+    if (!confirm(msg)) return;
+    state.savingsSubcategories = (state.savingsSubcategories||[]).filter(s=>s.catId!==catId);
+    state.savingsDeposits = (state.savingsDeposits||[]).filter(d=>d.catId!==catId);
+    state.savingsCategories = (state.savingsCategories||[]).filter(c=>c.id!==catId);
+    saveState(); renderContent();
+    showToast('✅ Category deleted', 2000);
+  }
+}
+
 function openEditSavingsCat(id) {
   const cat = savingsCatById(id); if (!cat) return;
   editingSavingsCatId = id;
