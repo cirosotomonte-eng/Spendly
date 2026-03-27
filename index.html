@@ -36,7 +36,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '2.0.0-202603260825';
+  const APP_VER = '2.0.0-202603272225';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -816,7 +816,7 @@ async function applyUpdate() {
       <div style="display:flex;align-items:center;justify-content:space-between">
         <span style="font-size:15px;font-weight:700;letter-spacing:-0.2px;color:var(--text)" id="headerGreeting">Good morning</span>
         <div class="header-actions">
-          <span id="syncIndicator" title="Cloud sync" style="font-size:13px;color:var(--muted);cursor:default;padding:4px;line-height:1">☁</span>
+          <span id="syncIndicator" title="Cloud sync" style="display:flex;align-items:center;justify-content:center;min-width:28px;height:28px;color:var(--muted);cursor:default;border-radius:8px;transition:all 0.2s"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/></svg></span>
           <button class="icon-btn" onclick="openSettings()" title="Settings">
             <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
           </button>
@@ -1736,7 +1736,7 @@ const PALETTE = [
 // ── State ─────────────────────────────────────────────────────────────────────
 const APP_VERSION = '2.0.0';
 const BUILD_DATE = '2026-03-23';
-const BUILD_TIME = '26 Mar 2026 8:25 AM AEDT';
+const BUILD_TIME = '27 Mar 2026 10:25 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -2018,10 +2018,46 @@ function setSyncStatus(s) {
   syncStatus = s;
   const el = document.getElementById('syncIndicator');
   if (!el) return;
-  if (s === 'saving') { el.textContent = '↑'; el.style.color = 'var(--muted)'; el.title = 'Saving…'; }
-  else if (s === 'saved') { el.textContent = '✓'; el.style.color = 'var(--accent)'; el.title = 'Saved to cloud'; }
-  else if (s === 'error') { el.textContent = '!'; el.style.color = 'var(--orange)'; el.title = 'Cloud save failed — stored locally'; }
-  else { el.textContent = '☁'; el.style.color = 'var(--muted)'; el.title = 'Cloud sync'; }
+  const SVG_CLOUD = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/></svg>';
+  const SVG_UP    = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 16 12 12 8 16"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"/></svg>';
+  const SVG_CHECK = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
+  const SVG_WARN  = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>';
+  if (s === 'saving') {
+    el.innerHTML = SVG_UP; el.style.color = 'var(--muted)';
+    el.title = 'Saving to cloud…'; el.style.cursor = 'default'; el.onclick = null;
+    el.style.background = ''; el.style.borderRadius = ''; el.style.padding = '';
+  } else if (s === 'saved') {
+    el.innerHTML = SVG_CHECK; el.style.color = 'var(--accent)';
+    el.title = 'Saved to cloud'; el.style.cursor = 'default'; el.onclick = null;
+    el.style.background = ''; el.style.borderRadius = ''; el.style.padding = '';
+  } else if (s === 'error') {
+    el.innerHTML = SVG_WARN + '<span style="font-size:10px;font-weight:700;margin-left:3px;vertical-align:middle">Tap to retry</span>';
+    el.style.color = 'var(--orange)';
+    el.style.background = 'rgba(240,168,96,0.15)';
+    el.style.borderRadius = '8px';
+    el.style.border = '1px solid rgba(240,168,96,0.4)';
+    el.style.padding = '4px 8px';
+    el.title = 'Sync failed — tap to retry';
+    el.style.cursor = 'pointer';
+    el.onclick = async () => {
+      el.onclick = null;
+      el.style.border = '';
+      showToast('↑ Retrying sync…', 1500);
+      setSyncStatus('saving');
+      try {
+        const { currentTab, viewingCycleOffset, mortgageCycleOffset, editingExpenseId, editingCatId, ...persistState } = state;
+        await syncToSupabase(persistState);
+        setSyncStatus('saved');
+        setTimeout(() => setSyncStatus('idle'), 2000);
+      } catch(e) {
+        setSyncStatus('error');
+      }
+    };
+  } else {
+    el.innerHTML = SVG_CLOUD; el.style.color = 'var(--muted)';
+    el.title = 'Cloud sync'; el.style.cursor = 'default'; el.onclick = null;
+    el.style.background = ''; el.style.borderRadius = ''; el.style.padding = '';
+  }
 }
 
 async function syncToSupabase(data) {
