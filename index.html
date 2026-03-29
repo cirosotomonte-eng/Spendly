@@ -36,7 +36,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '2.1.0-202603292242';
+  const APP_VER = '2.1.1-202603292259';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -1749,9 +1749,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.1.0';
+const APP_VERSION = '2.1.1';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '29 Mar 2026 10:42 PM AEDT';
+const BUILD_TIME = '29 Mar 2026 10:59 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -5284,7 +5284,7 @@ let _taxDeductible = false;
 function toggleTaxDeductible() {
   _taxDeductible = !_taxDeductible;
   applyTaxToggleUI(_taxDeductible);
-  if (_taxDeductible) populateTaxCatSelect();
+  if (_taxDeductible) populateExpTaxCatSelect();
 }
 
 function applyTaxToggleUI(on) {
@@ -5299,17 +5299,18 @@ function applyTaxToggleUI(on) {
 function onTaxToggleChange() {
   // Legacy — kept for safety, delegates to new system
   applyTaxToggleUI(_taxDeductible);
-  if (_taxDeductible) populateTaxCatSelect();
+  if (_taxDeductible) populateExpTaxCatSelect();
 }
 
-function populateTaxCatSelect() {
+function populateExpTaxCatSelect() {
   const sel = document.getElementById('expTaxCat');
   if (!sel) return;
   const cats = state.taxCategories || [];
   if (cats.length === 0) {
-    sel.innerHTML = '<option value="">— No tax categories yet —</option>';
+    sel.innerHTML = '<option value="">Other (no category)</option>';
   } else {
-    sel.innerHTML = cats.map(c => '<option value="' + c.id + '">' + c.icon + ' ' + c.name + '</option>').join('');
+    sel.innerHTML = '<option value="">Other (no category)</option>' +
+      cats.map(c => '<option value="' + c.id + '">' + c.icon + ' ' + c.name + '</option>').join('');
   }
 }
 
@@ -5317,7 +5318,7 @@ function setExpTaxToggle(on, taxCatId) {
   _taxDeductible = !!on;
   applyTaxToggleUI(_taxDeductible);
   if (on) {
-    populateTaxCatSelect();
+    populateExpTaxCatSelect();
     const sel = document.getElementById('expTaxCat');
     if (sel && taxCatId) sel.value = taxCatId;
   }
@@ -8664,6 +8665,44 @@ function renderTax() {
     }
     html += '</div>';
   });
+
+  // "Other" — uncategorised transactions (no catId or catId not matching any known category)
+  const knownCatIds = new Set((state.taxCategories||[]).map(c=>c.id));
+  const otherTxs = txs.filter(t => !t.catId || !knownCatIds.has(t.catId)).sort((a,b)=>b.date.localeCompare(a.date));
+  if (otherTxs.length > 0) {
+    const otherTotal = otherTxs.reduce((s,t)=>s+t.amount,0);
+    const otherReceipts = otherTxs.filter(t=>t.receipt||t.attachment).length;
+    html += '<div style="background:var(--surface);border-radius:var(--r);margin-bottom:10px;overflow:hidden">';
+    html += '<div style="display:flex;align-items:center;gap:12px;padding:12px 14px">' +
+      '<div style="width:38px;height:38px;border-radius:10px;background:rgba(142,142,147,0.15);display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0">📋</div>' +
+      '<div style="flex:1;min-width:0">' +
+        '<div style="font-size:14px;font-weight:700">Other</div>' +
+        '<div style="font-size:11px;color:var(--muted)">'+otherTxs.length+' item'+(otherTxs.length!==1?'s':'')+' · '+otherReceipts+' with receipt</div>' +
+      '</div>' +
+      '<div style="text-align:right;flex-shrink:0"><div style="font-size:15px;font-weight:700">'+fmtAmt(otherTotal)+'</div></div>' +
+    '</div>';
+    html += '<div style="border-top:1px solid var(--surface2)">';
+    otherTxs.forEach((t,i) => {
+      const dStr = new Date(t.date+'T00:00:00').toLocaleDateString('en-AU',{day:'numeric',month:'short'});
+      html += '<div style="display:flex;align-items:center;gap:10px;padding:10px 14px;'+(i>0?'border-top:1px solid var(--surface2)':'')+'">' +
+        '<div style="flex:1;min-width:0;cursor:pointer" onclick="openEditTaxTx(\'' + t.id + '\')">' +
+          '<div style="font-size:13px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+(t.description||'Deduction')+'</div>' +
+          '<div style="display:flex;align-items:center;gap:6px;margin-top:2px">' +
+            '<span style="font-size:10px;color:var(--muted)">'+dStr+'</span>' +
+            (t.attachment
+              ? '<span style="font-size:10px;background:rgba(79,142,247,0.12);color:var(--accent);padding:1px 6px;border-radius:4px;font-weight:600">📎 receipt</span>'
+              : t.receipt
+                ? '<span style="font-size:10px;background:rgba(79,142,247,0.12);color:var(--accent);padding:1px 6px;border-radius:4px;font-weight:600">✓ receipt</span>'
+                : '<span style="font-size:10px;background:rgba(240,168,96,0.12);color:var(--orange);padding:1px 6px;border-radius:4px;font-weight:600">⚠ no receipt</span>') +
+          '</div>' +
+        '</div>' +
+        (t.attachment ? '<button onclick="downloadAttachmentById(\'' + t.id + '\')" style="background:var(--accent-dim);border:none;border-radius:8px;padding:6px 9px;font-size:11px;font-weight:600;color:var(--accent);cursor:pointer;font-family:var(--font);flex-shrink:0">↓</button>' : '') +
+        '<div style="font-size:13px;font-weight:600;flex-shrink:0;cursor:pointer" onclick="openEditTaxTx(\'' + t.id + '\')">'+fmtAmt(t.amount)+'</div>' +
+      '</div>';
+    });
+    html += '</div></div>';
+  }
+
   el.innerHTML = html;
 }
 
