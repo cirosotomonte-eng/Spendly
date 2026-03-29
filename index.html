@@ -36,7 +36,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '2.0.3-202603292122';
+  const APP_VER = '2.0.4-202603292130';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -1734,9 +1734,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.0.3';
+const APP_VERSION = '2.0.4';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '29 Mar 2026 9:22 PM AEDT';
+const BUILD_TIME = '29 Mar 2026 9:30 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -2198,19 +2198,36 @@ function showRecoveryBanner(localData, cloudCount, localCount) {
       '<button onclick="document.getElementById(\'recoveryBanner\').remove()" style="background:var(--surface2);border:none;border-radius:10px;padding:10px 14px;font-size:13px;color:var(--muted);font-family:var(--font);cursor:pointer">Dismiss</button>' +
     '</div>';
   document.body.appendChild(banner);
-  // Store local data for recovery
-  window._recoveryLocalData = localData;
 }
 
 function recoverFromLocal() {
-  if (!window._recoveryLocalData) return;
-  state = { ...state, ...window._recoveryLocalData };
+  // Read directly from localStorage at time of restore — more reliable than stored variable
+  const sources = [
+    localStorage.getItem(STORAGE_KEY),
+    localStorage.getItem(BACKUP_KEY),
+    sessionStorage.getItem(BACKUP_KEY2),
+  ];
+  let best = null;
+  let bestCount = 0;
+  for (const raw of sources) {
+    if (!raw) continue;
+    try {
+      const parsed = JSON.parse(raw);
+      const count = (parsed.expenses || []).length;
+      if (count > bestCount) { best = parsed; bestCount = count; }
+    } catch(e) {}
+  }
+  if (!best || bestCount === 0) {
+    showToast('❌ No local data found to restore', 3000);
+    return;
+  }
+  state = { ...state, ...best };
   saveState();
   updateHeader();
   renderContent();
   const banner = document.getElementById('recoveryBanner');
   if (banner) banner.remove();
-  showToast('✅ Local data restored and synced to cloud', 4000);
+  showToast('✅ Restored ' + bestCount + ' expenses from local data and synced to cloud', 4000);
 }
 
 
