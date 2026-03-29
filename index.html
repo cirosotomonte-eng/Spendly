@@ -36,7 +36,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '2.0.6-202603292203';
+  const APP_VER = '2.0.7-202603292210';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -1734,9 +1734,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.0.6';
+const APP_VERSION = '2.0.7';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '29 Mar 2026 10:03 PM AEDT';
+const BUILD_TIME = '29 Mar 2026 10:10 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -7560,12 +7560,18 @@ function saveOffsetTx() {
   } else {
     state.offsetTransactions.push({id:uid(), amount, date, note, type});
   }
-  saveState(); closeModal('offsetTxModal'); renderContent();
+  saveState();
+  closeModal('offsetTxModal');
+  if (window._refreshOffsetSheet) window._refreshOffsetSheet();
+  renderContent();
 }
 function deleteOffsetTx() {
   if (!editingOffsetTxId) return;
   state.offsetTransactions = (state.offsetTransactions||[]).filter(t=>t.id!==editingOffsetTxId);
-  saveState(); closeModal('offsetTxModal'); renderContent();
+  saveState();
+  closeModal('offsetTxModal');
+  if (window._refreshOffsetSheet) window._refreshOffsetSheet();
+  renderContent();
 }
 
 
@@ -9686,7 +9692,7 @@ function openOffsetTxSheet() {
         return '<div style="display:flex;align-items:center;gap:10px;padding:11px 0;' + (i>0?'border-top:1px solid var(--surface2)':'') + '">' +
           '<div style="flex:1;min-width:0;cursor:pointer" onclick="openEditOffsetTx(\'' + t.id + '\')">' +
             '<div style="font-size:13px;font-weight:500">' + (isW?'💸 ':' 💰 ') + (t.note||(isW?'Withdrawal':'Deposit')) + '</div>' +
-            '<div style="font-size:11px;color:var(--muted)">' + new Date(t.date+'T00:00:00').toLocaleDateString('en-AU',{weekday:'short',day:'numeric',month:'short'}) + '</div>' +
+            '<div style="font-size:11px;color:var(--muted)">' + new Date(t.date+'T00:00:00').toLocaleDateString('en-AU',{weekday:'short',day:'numeric',month:'short'}) + ' · <span style="color:var(--accent)">Edit</span></div>' +
           '</div>' +
           '<div style="font-size:13px;font-weight:600;color:' + (isW?'var(--red)':'var(--accent)') + '">' + (isW?'-':'+') + fmtF(t.amount) + '</div>' +
           '<button onclick="deleteOffsetTxInline(\'' + t.id + '\')" style="background:rgba(255,59,48,0.1);color:var(--red);border:none;border-radius:8px;width:32px;height:32px;display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;font-size:15px">×</button>' +
