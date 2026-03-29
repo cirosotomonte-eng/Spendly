@@ -36,7 +36,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '2.0.0-202603280847';
+  const APP_VER = '2.0.2-202603291857';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -1734,9 +1734,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.0.0';
-const BUILD_DATE = '2026-03-23';
-const BUILD_TIME = '28 Mar 2026 8:47 AM AEDT';
+const APP_VERSION = '2.0.2';
+const BUILD_DATE = '2026-03-29';
+const BUILD_TIME = '29 Mar 2026 6:57 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -2101,10 +2101,9 @@ function saveState() {
   try { localStorage.setItem(BACKUP_KEY, data); } catch(e) {}
   try { sessionStorage.setItem(BACKUP_KEY2, data); } catch(e) {}
   try { localStorage.setItem(BACKUP_TS_KEY, new Date().toISOString()); } catch(e) {}
-  // Cloud sync only in cloud mode
+  // Cloud sync — immediate, no debounce. Every change goes to Supabase right away.
   if (SPENDLY_MODE === 'cloud') {
-    clearTimeout(syncTimer);
-    syncTimer = setTimeout(() => syncToSupabase(persistState), 1500);
+    syncToSupabase(persistState);
   }
 }
 
@@ -2118,6 +2117,26 @@ async function loadState() {
         (cloudData.expenses && cloudData.expenses.length > 0) ||
         (cloudData.savingsCategories && cloudData.savingsCategories.length > 0);
       if (hasData) {
+        // Check if localStorage has MORE expenses than cloud — possible data loss scenario
+        try {
+          const localRaw = localStorage.getItem(STORAGE_KEY) || localStorage.getItem(BACKUP_KEY);
+          if (localRaw) {
+            const localData = JSON.parse(localRaw);
+            const cloudExpCount = (cloudData.expenses || []).length;
+            const localExpCount = (localData.expenses || []).length;
+            // If local has meaningfully more expenses, offer recovery
+            if (localExpCount > cloudExpCount + 2) {
+              state = { ...state, ...cloudData };
+              if (!state.setupDone) { state.setupDone = true; }
+              localStorage.setItem(ONBOARDED_KEY, '1');
+              setSyncStatus('saved');
+              setTimeout(() => setSyncStatus('idle'), 2000);
+              // Show recovery banner after UI loads
+              setTimeout(() => showRecoveryBanner(localData, cloudExpCount, localExpCount), 2000);
+              return;
+            }
+          }
+        } catch(e) {}
         state = { ...state, ...cloudData };
         if (!state.setupDone) { state.setupDone = true; }
         localStorage.setItem(ONBOARDED_KEY, '1');
@@ -2141,7 +2160,7 @@ async function loadState() {
         const parsed = JSON.parse(saved);
         if (parsed && (parsed.budget > 0 || (parsed.categories && parsed.categories.length > 0) || (parsed.expenses && parsed.expenses.length > 0))) {
           state = { ...state, ...parsed };
-          if (SPENDLY_MODE === 'cloud') saveState(); // push to cloud too
+          if (SPENDLY_MODE === 'cloud') saveState();
           return;
         }
       }
@@ -2153,6 +2172,35 @@ async function loadState() {
       if (saved) { state = { ...state, ...JSON.parse(saved) }; return; }
     } catch(e) {}
   }
+}
+
+function showRecoveryBanner(localData, cloudCount, localCount) {
+  const existing = document.getElementById('recoveryBanner');
+  if (existing) return;
+  const banner = document.createElement('div');
+  banner.id = 'recoveryBanner';
+  banner.style.cssText = 'position:fixed;bottom:90px;left:16px;right:16px;z-index:9000;background:var(--surface);border:2px solid var(--orange);border-radius:16px;padding:14px 16px;box-shadow:0 4px 24px rgba(0,0,0,0.3)';
+  banner.innerHTML =
+    '<div style="font-size:14px;font-weight:700;margin-bottom:4px">⚠️ Possible missing data detected</div>' +
+    '<div style="font-size:12px;color:var(--muted);margin-bottom:12px;line-height:1.5">Your device has <strong style="color:var(--text)">' + localCount + ' expenses</strong> locally but Supabase only has <strong style="color:var(--text)">' + cloudCount + '</strong>. You may be able to recover recent transactions.</div>' +
+    '<div style="display:flex;gap:8px">' +
+      '<button onclick="recoverFromLocal()" style="flex:1;background:var(--accent);border:none;border-radius:10px;padding:10px;font-size:13px;font-weight:700;color:#fff;font-family:var(--font);cursor:pointer">Restore local data</button>' +
+      '<button onclick="document.getElementById(\'recoveryBanner\').remove()" style="background:var(--surface2);border:none;border-radius:10px;padding:10px 14px;font-size:13px;color:var(--muted);font-family:var(--font);cursor:pointer">Dismiss</button>' +
+    '</div>';
+  document.body.appendChild(banner);
+  // Store local data for recovery
+  window._recoveryLocalData = localData;
+}
+
+function recoverFromLocal() {
+  if (!window._recoveryLocalData) return;
+  state = { ...state, ...window._recoveryLocalData };
+  saveState();
+  updateHeader();
+  renderContent();
+  const banner = document.getElementById('recoveryBanner');
+  if (banner) banner.remove();
+  showToast('✅ Local data restored and synced to cloud', 4000);
 }
 
 
@@ -11308,6 +11356,11 @@ function triggerInactivityLock() {
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'hidden') {
     autoBackup();
+    // Force an immediate sync to Supabase before the page is backgrounded
+    if (SPENDLY_MODE === 'cloud') {
+      const { currentTab, viewingCycleOffset, mortgageCycleOffset, editingExpenseId, editingCatId, ...persistState } = state;
+      syncToSupabase(persistState);
+    }
   } else if (document.visibilityState === 'visible') {
     // Don't act if auth screen is showing
     const authVisible = document.getElementById('authScreen') && !document.getElementById('authScreen').classList.contains('hidden');
@@ -11316,15 +11369,21 @@ document.addEventListener('visibilitychange', () => {
     // Reset inactivity timer when coming back to the tab
     resetInactivityTimer();
 
-    // Always check recurring when returning to the app — date may have changed or
-    // a recurring may have been missed. loadState ensures we have fresh data first.
     const currentDate = todayStr();
-    _lastRecurringCheckDate = currentDate;
-    loadState().then(() => {
+    if (currentDate !== _lastRecurringCheckDate) {
+      // Day has changed — reload from cloud first to get fresh data, then apply recurring
+      _lastRecurringCheckDate = currentDate;
+      loadState().then(() => {
+        applyRecurringExpenses();
+        recordTodayOffsetSaving();
+        renderContent();
+      });
+    } else {
+      // Same day — just apply recurring on existing state (do NOT reload from cloud —
+      // that would overwrite any unsaved in-memory changes)
       applyRecurringExpenses();
-      recordTodayOffsetSaving();
       renderContent();
-    });
+    }
   }
 });
 </script>
