@@ -36,7 +36,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '2.0.7-202603292210';
+  const APP_VER = '2.0.8-202603292219';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -1734,9 +1734,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.0.7';
+const APP_VERSION = '2.0.8';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '29 Mar 2026 10:10 PM AEDT';
+const BUILD_TIME = '29 Mar 2026 10:19 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -7537,15 +7537,93 @@ function openAddOffsetTx() {
   setTimeout(() => document.getElementById('offsetTxAmt').focus(), 350);
 }
 function openEditOffsetTx(id) {
-  const tx = (state.offsetTransactions||[]).find(t=>t.id===id); if (!tx) return;
-  editingOffsetTxId = id;
-  document.getElementById('offsetTxTitle').textContent = 'Edit transaction';
-  document.getElementById('offsetTxAmt').value = tx.amount;
-  document.getElementById('offsetTxDate').value = tx.date;
-  document.getElementById('offsetTxNote').value = tx.note || '';
-  document.getElementById('offsetTxDeleteBtn').style.display = 'block';
-  setOffsetTxType(tx.type || 'deposit');
-  openModal('offsetTxModal');
+  const tx = (state.offsetTransactions||[]).find(t=>t.id===id);
+  if (!tx) return;
+
+  // Edit inline — replace the Add form with an Edit form inside the sheet
+  const addForm = document.getElementById('offsetAddForm');
+  if (!addForm) return;
+
+  const isW = tx.type === 'withdrawal';
+  addForm.innerHTML =
+    '<div style="font-size:11px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:10px">Edit transaction</div>' +
+    '<div style="display:flex;gap:6px;margin-bottom:8px">' +
+      '<button id="offsetEditDep" onclick="setOffsetEditType(\'deposit\')" style="flex:1;padding:8px;border-radius:8px;border:2px solid ' + (!isW?'var(--accent)':'var(--border)') + ';background:' + (!isW?'var(--accent-dim)':'var(--surface)') + ';color:' + (!isW?'var(--accent)':'var(--muted)') + ';font-weight:' + (!isW?'700':'600') + ';font-family:var(--font);cursor:pointer;font-size:12px">💰 Deposit</button>' +
+      '<button id="offsetEditWd" onclick="setOffsetEditType(\'withdrawal\')" style="flex:1;padding:8px;border-radius:8px;border:2px solid ' + (isW?'var(--red)':'var(--border)') + ';background:' + (isW?'rgba(255,59,48,0.1)':'var(--surface)') + ';color:' + (isW?'var(--red)':'var(--muted)') + ';font-weight:' + (isW?'700':'600') + ';font-family:var(--font);cursor:pointer;font-size:12px">💸 Withdraw</button>' +
+    '</div>' +
+    '<div style="display:flex;gap:6px;margin-bottom:6px">' +
+      '<input type="number" inputmode="decimal" id="offsetEditAmt" value="' + tx.amount + '" placeholder="Amount" style="flex:2;background:var(--surface);border:1.5px solid var(--accent);border-radius:8px;color:var(--text);font-size:14px;font-family:var(--font);padding:8px 10px;outline:none">' +
+      '<input type="text" id="offsetEditNote" value="' + (tx.note||'') + '" placeholder="Note (optional)" style="flex:3;background:var(--surface);border:1.5px solid var(--border);border-radius:8px;color:var(--text);font-size:14px;font-family:var(--font);padding:8px 10px;outline:none">' +
+    '</div>' +
+    '<div style="display:flex;gap:6px;margin-bottom:8px">' +
+      '<input type="date" id="offsetEditDate" value="' + tx.date + '" style="flex:1;background:var(--surface);border:1.5px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;font-family:var(--font);padding:8px 10px;outline:none">' +
+    '</div>' +
+    '<div style="display:flex;gap:6px">' +
+      '<button onclick="saveOffsetEditTx(\'' + id + '\')" style="flex:1;background:var(--accent);color:#fff;border:none;border-radius:8px;padding:10px;font-size:13px;font-weight:700;font-family:var(--font);cursor:pointer">Save</button>' +
+      '<button onclick="deleteOffsetEditTx(\'' + id + '\')" style="background:rgba(255,59,48,0.15);color:var(--red);border:none;border-radius:8px;padding:10px 14px;font-size:13px;font-weight:600;font-family:var(--font);cursor:pointer">Delete</button>' +
+      '<button onclick="cancelOffsetEdit()" style="background:var(--surface2);color:var(--muted);border:none;border-radius:8px;padding:10px 14px;font-size:13px;font-family:var(--font);cursor:pointer">Cancel</button>' +
+    '</div>';
+
+  window._editingOffsetTxId = id;
+  _offsetEditType = tx.type || 'deposit';
+  setTimeout(() => document.getElementById('offsetEditAmt') && document.getElementById('offsetEditAmt').focus(), 50);
+}
+
+let _offsetEditType = 'deposit';
+function setOffsetEditType(type) {
+  _offsetEditType = type;
+  const dep = document.getElementById('offsetEditDep');
+  const wd = document.getElementById('offsetEditWd');
+  if (dep) { dep.style.border = type==='deposit'?'2px solid var(--accent)':'2px solid var(--border)'; dep.style.background = type==='deposit'?'var(--accent-dim)':'var(--surface)'; dep.style.color = type==='deposit'?'var(--accent)':'var(--muted)'; dep.style.fontWeight = type==='deposit'?'700':'600'; }
+  if (wd)  { wd.style.border  = type==='withdrawal'?'2px solid var(--red)':'2px solid var(--border)'; wd.style.background  = type==='withdrawal'?'rgba(255,59,48,0.1)':'var(--surface)'; wd.style.color  = type==='withdrawal'?'var(--red)':'var(--muted)'; wd.style.fontWeight = type==='withdrawal'?'700':'600'; }
+}
+
+function saveOffsetEditTx(id) {
+  const amt = parseFloat(document.getElementById('offsetEditAmt').value);
+  const date = document.getElementById('offsetEditDate').value || todayStr();
+  const note = document.getElementById('offsetEditNote').value.trim();
+  const type = _offsetEditType || 'deposit';
+  if (!amt || amt <= 0) return;
+  const idx = (state.offsetTransactions||[]).findIndex(t=>t.id===id);
+  if (idx >= 0) state.offsetTransactions[idx] = { ...state.offsetTransactions[idx], amount: amt, date, note, type };
+  saveState();
+  restoreOffsetAddForm();
+  if (window._refreshOffsetSheet) window._refreshOffsetSheet();
+  updateHeader(); renderContent();
+}
+
+function deleteOffsetEditTx(id) {
+  if (!confirm('Delete this transaction?')) return;
+  state.offsetTransactions = (state.offsetTransactions||[]).filter(t=>t.id!==id);
+  saveState();
+  restoreOffsetAddForm();
+  if (window._refreshOffsetSheet) window._refreshOffsetSheet();
+  updateHeader(); renderContent();
+}
+
+function cancelOffsetEdit() {
+  restoreOffsetAddForm();
+}
+
+function restoreOffsetAddForm() {
+  const addForm = document.getElementById('offsetAddForm');
+  if (!addForm) return;
+  addForm.innerHTML =
+    '<div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:10px">Add transaction</div>' +
+    '<div style="display:flex;gap:6px;margin-bottom:8px">' +
+      '<button id="offsetSheetDep" onclick="setOffsetSheetType(\'deposit\')" style="flex:1;padding:8px;border-radius:8px;border:2px solid var(--accent);background:var(--accent-dim);color:var(--accent);font-weight:700;font-family:var(--font);cursor:pointer;font-size:12px">💰 Deposit</button>' +
+      '<button id="offsetSheetWd" onclick="setOffsetSheetType(\'withdrawal\')" style="flex:1;padding:8px;border-radius:8px;border:2px solid var(--border);background:var(--surface);color:var(--muted);font-weight:600;font-family:var(--font);cursor:pointer;font-size:12px">💸 Withdraw</button>' +
+    '</div>' +
+    '<div style="display:flex;gap:6px;margin-bottom:6px">' +
+      '<input type="number" inputmode="decimal" id="offsetSheetAmt" placeholder="Amount" style="flex:2;background:var(--surface);border:1.5px solid var(--border);border-radius:8px;color:var(--text);font-size:14px;font-family:var(--font);padding:8px 10px;outline:none">' +
+      '<input type="text" id="offsetSheetNote" placeholder="Note (optional)" style="flex:3;background:var(--surface);border:1.5px solid var(--border);border-radius:8px;color:var(--text);font-size:14px;font-family:var(--font);padding:8px 10px;outline:none">' +
+    '</div>' +
+    '<div style="display:flex;gap:6px">' +
+      '<input type="date" id="offsetSheetDate" value="' + todayStr() + '" style="flex:1;background:var(--surface);border:1.5px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;font-family:var(--font);padding:8px 10px;outline:none">' +
+      '<button onclick="saveOffsetSheetTx()" style="background:var(--accent);color:#fff;border:none;border-radius:8px;padding:8px 14px;font-size:13px;font-weight:700;font-family:var(--font);cursor:pointer;flex-shrink:0">Add</button>' +
+    '</div>';
+  // Re-init type state
+  setOffsetSheetType(_offsetSheetType || 'deposit');
 }
 function saveOffsetTx() {
   const amount = parseFloat(document.getElementById('offsetTxAmt').value);
@@ -9729,7 +9807,7 @@ function openOffsetTxSheet() {
       '</div>' +
     '</div>' +
     // Add form inline
-    '<div style="background:var(--surface2);border-radius:12px;padding:12px;margin-bottom:14px">' +
+    '<div id="offsetAddForm" style="background:var(--surface2);border-radius:12px;padding:12px;margin-bottom:14px">' +
       '<div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:10px">Add transaction</div>' +
       '<div style="display:flex;gap:6px;margin-bottom:8px">' +
         '<button id="offsetSheetDep" onclick="setOffsetSheetType(\'deposit\')" style="flex:1;padding:8px;border-radius:8px;border:2px solid var(--accent);background:var(--accent-dim);color:var(--accent);font-weight:700;font-family:var(--font);cursor:pointer;font-size:12px">💰 Deposit</button>' +
