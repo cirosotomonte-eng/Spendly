@@ -36,7 +36,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '2.0.5-202603292148';
+  const APP_VER = '2.0.6-202603292203';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -1734,9 +1734,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.0.5';
+const APP_VERSION = '2.0.6';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '29 Mar 2026 9:48 PM AEDT';
+const BUILD_TIME = '29 Mar 2026 10:03 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -9729,9 +9729,12 @@ function openOffsetTxSheet() {
         '<button id="offsetSheetDep" onclick="setOffsetSheetType(\'deposit\')" style="flex:1;padding:8px;border-radius:8px;border:2px solid var(--accent);background:var(--accent-dim);color:var(--accent);font-weight:700;font-family:var(--font);cursor:pointer;font-size:12px">💰 Deposit</button>' +
         '<button id="offsetSheetWd" onclick="setOffsetSheetType(\'withdrawal\')" style="flex:1;padding:8px;border-radius:8px;border:2px solid var(--border);background:var(--surface);color:var(--muted);font-weight:600;font-family:var(--font);cursor:pointer;font-size:12px">💸 Withdraw</button>' +
       '</div>' +
-      '<div style="display:flex;gap:6px">' +
+      '<div style="display:flex;gap:6px;margin-bottom:6px">' +
         '<input type="number" inputmode="decimal" id="offsetSheetAmt" placeholder="Amount" style="flex:2;background:var(--surface);border:1.5px solid var(--border);border-radius:8px;color:var(--text);font-size:14px;font-family:var(--font);padding:8px 10px;outline:none">' +
         '<input type="text" id="offsetSheetNote" placeholder="Note (optional)" style="flex:3;background:var(--surface);border:1.5px solid var(--border);border-radius:8px;color:var(--text);font-size:14px;font-family:var(--font);padding:8px 10px;outline:none">' +
+      '</div>' +
+      '<div style="display:flex;gap:6px">' +
+        '<input type="date" id="offsetSheetDate" style="flex:1;background:var(--surface);border:1.5px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;font-family:var(--font);padding:8px 10px;outline:none">' +
         '<button onclick="saveOffsetSheetTx()" style="background:var(--accent);color:#fff;border:none;border-radius:8px;padding:8px 14px;font-size:13px;font-weight:700;font-family:var(--font);cursor:pointer;flex-shrink:0">Add</button>' +
       '</div>' +
     '</div>' +
@@ -9742,7 +9745,13 @@ function openOffsetTxSheet() {
 
   sheet.addEventListener('click', e => { if (e.target===sheet) sheet.classList.remove('open'); });
   document.body.appendChild(sheet);
-  requestAnimationFrame(() => { sheet.classList.add('open'); refreshOffsetSheet(); });
+  requestAnimationFrame(() => {
+    sheet.classList.add('open');
+    // Set default date to today
+    const dateEl = document.getElementById('offsetSheetDate');
+    if (dateEl && !dateEl.value) dateEl.value = todayStr();
+    refreshOffsetSheet();
+  });
   setTimeout(() => initModalSwipeDown(), 100);
   // Store refresh function for use by helpers
   window._refreshOffsetSheet = refreshOffsetSheet;
@@ -9760,11 +9769,13 @@ function setOffsetSheetType(type) {
 function saveOffsetSheetTx() {
   const amt = parseFloat(document.getElementById('offsetSheetAmt').value);
   const note = document.getElementById('offsetSheetNote').value.trim();
+  const date = document.getElementById('offsetSheetDate').value || todayStr();
   if (!amt || amt <= 0) return;
   if (!state.offsetTransactions) state.offsetTransactions = [];
-  state.offsetTransactions.push({ id: uid(), type: _offsetSheetType, amount: amt, date: todayStr(), note });
+  state.offsetTransactions.push({ id: uid(), type: _offsetSheetType, amount: amt, date, note });
   document.getElementById('offsetSheetAmt').value = '';
   document.getElementById('offsetSheetNote').value = '';
+  document.getElementById('offsetSheetDate').value = todayStr();
   saveState();
   if (window._refreshOffsetSheet) window._refreshOffsetSheet();
   updateHeader();
