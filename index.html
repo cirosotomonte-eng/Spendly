@@ -36,7 +36,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '2.0.2-202603291857';
+  const APP_VER = '2.0.3-202603292122';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -1734,9 +1734,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.0.2';
+const APP_VERSION = '2.0.3';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '29 Mar 2026 6:57 PM AEDT';
+const BUILD_TIME = '29 Mar 2026 9:22 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -2101,10 +2101,20 @@ function saveState() {
   try { localStorage.setItem(BACKUP_KEY, data); } catch(e) {}
   try { sessionStorage.setItem(BACKUP_KEY2, data); } catch(e) {}
   try { localStorage.setItem(BACKUP_TS_KEY, new Date().toISOString()); } catch(e) {}
-  // Cloud sync — immediate, no debounce. Every change goes to Supabase right away.
-  if (SPENDLY_MODE === 'cloud') {
-    syncToSupabase(persistState);
+  // Cloud sync — 500ms debounce batches rapid saves while keeping sync fast
+  // Guard: only sync when we have an active session
+  if (SPENDLY_MODE === 'cloud' && getCurrentUserId()) {
+    clearTimeout(syncTimer);
+    syncTimer = setTimeout(() => syncToSupabase(persistState), 500);
   }
+}
+
+async function flushSyncNow() {
+  // Force immediate sync — called when app is backgrounded so data isn't lost
+  if (SPENDLY_MODE !== 'cloud' || !getCurrentUserId()) return;
+  clearTimeout(syncTimer);
+  const { currentTab, viewingCycleOffset, mortgageCycleOffset, editingExpenseId, editingCatId, ...persistState } = state;
+  syncToSupabase(persistState);
 }
 
 async function loadState() {
@@ -11356,11 +11366,8 @@ function triggerInactivityLock() {
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'hidden') {
     autoBackup();
-    // Force an immediate sync to Supabase before the page is backgrounded
-    if (SPENDLY_MODE === 'cloud') {
-      const { currentTab, viewingCycleOffset, mortgageCycleOffset, editingExpenseId, editingCatId, ...persistState } = state;
-      syncToSupabase(persistState);
-    }
+    // Flush any pending sync immediately before the app is backgrounded
+    flushSyncNow();
   } else if (document.visibilityState === 'visible') {
     // Don't act if auth screen is showing
     const authVisible = document.getElementById('authScreen') && !document.getElementById('authScreen').classList.contains('hidden');
