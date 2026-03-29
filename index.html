@@ -36,7 +36,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '2.0.9-202603292235';
+  const APP_VER = '2.1.0-202603292242';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -1079,17 +1079,14 @@ async function applyUpdate() {
     <label>Date</label>
     <input type="date" id="expDate">
     <!-- Tax deductible toggle -->
-    <div id="expTaxRow" style="display:flex;align-items:center;justify-content:space-between;background:var(--surface2);border-radius:10px;padding:12px 14px;margin-bottom:14px">
+    <div id="expTaxRow" onclick="toggleTaxDeductible()" style="display:flex;align-items:center;justify-content:space-between;background:var(--surface2);border-radius:10px;padding:12px 14px;margin-bottom:14px;cursor:pointer;-webkit-tap-highlight-color:transparent;user-select:none">
       <div>
         <div style="font-size:14px;font-weight:500">🧾 Tax deductible</div>
         <div style="font-size:11px;color:var(--muted);margin-top:2px">Adds this expense to your Tax tab</div>
       </div>
-      <label style="position:relative;display:inline-block;width:44px;height:26px;margin:0;flex-shrink:0">
-        <input type="checkbox" id="expTaxDeductible" style="opacity:0;width:0;height:0;position:absolute" onchange="onTaxToggleChange()">
-        <span id="expTaxToggleTrack" style="position:absolute;inset:0;border-radius:13px;background:var(--border);transition:background 0.2s;cursor:pointer" onclick="document.getElementById('expTaxDeductible').click()">
-          <span id="expTaxToggleThumb" style="position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:#fff;transition:transform 0.2s;box-shadow:0 1px 3px rgba(0,0,0,0.3)"></span>
-        </span>
-      </label>
+      <div id="expTaxToggleTrack" style="position:relative;width:44px;height:26px;border-radius:13px;background:var(--border);transition:background 0.2s;flex-shrink:0">
+        <div id="expTaxToggleThumb" style="position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:#fff;transition:transform 0.2s;box-shadow:0 1px 3px rgba(0,0,0,0.3)"></div>
+      </div>
     </div>
     <!-- Tax category selector (shown when tax deductible is on) -->
     <div id="expTaxCatRow" style="display:none;margin-bottom:14px">
@@ -1752,9 +1749,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.0.9';
+const APP_VERSION = '2.1.0';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '29 Mar 2026 10:35 PM AEDT';
+const BUILD_TIME = '29 Mar 2026 10:42 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -5282,15 +5279,27 @@ function _updateTxGoalInfo() {
   infoEl.style.display = '';
 }
 
-function onTaxToggleChange() {
-  const on = document.getElementById('expTaxDeductible').checked;
+let _taxDeductible = false;
+
+function toggleTaxDeductible() {
+  _taxDeductible = !_taxDeductible;
+  applyTaxToggleUI(_taxDeductible);
+  if (_taxDeductible) populateTaxCatSelect();
+}
+
+function applyTaxToggleUI(on) {
   const track = document.getElementById('expTaxToggleTrack');
   const thumb = document.getElementById('expTaxToggleThumb');
+  const catRow = document.getElementById('expTaxCatRow');
   if (track) track.style.background = on ? 'var(--accent)' : 'var(--border)';
   if (thumb) thumb.style.transform = on ? 'translateX(18px)' : 'translateX(0)';
-  const catRow = document.getElementById('expTaxCatRow');
   if (catRow) catRow.style.display = on ? '' : 'none';
-  if (on) populateTaxCatSelect();
+}
+
+function onTaxToggleChange() {
+  // Legacy — kept for safety, delegates to new system
+  applyTaxToggleUI(_taxDeductible);
+  if (_taxDeductible) populateTaxCatSelect();
 }
 
 function populateTaxCatSelect() {
@@ -5305,14 +5314,8 @@ function populateTaxCatSelect() {
 }
 
 function setExpTaxToggle(on, taxCatId) {
-  const cb = document.getElementById('expTaxDeductible');
-  if (cb) cb.checked = on;
-  const track = document.getElementById('expTaxToggleTrack');
-  const thumb = document.getElementById('expTaxToggleThumb');
-  if (track) track.style.background = on ? 'var(--accent)' : 'var(--border)';
-  if (thumb) thumb.style.transform = on ? 'translateX(18px)' : 'translateX(0)';
-  const catRow = document.getElementById('expTaxCatRow');
-  if (catRow) catRow.style.display = on ? '' : 'none';
+  _taxDeductible = !!on;
+  applyTaxToggleUI(_taxDeductible);
   if (on) {
     populateTaxCatSelect();
     const sel = document.getElementById('expTaxCat');
@@ -5448,7 +5451,7 @@ function saveExpense() {
   if (!state.taxTransactions) state.taxTransactions = [];
   // Always remove any existing linked tax entry for this expense first
   state.taxTransactions = state.taxTransactions.filter(t => t.linkedExpenseId !== expId);
-  const taxOn = document.getElementById('expTaxDeductible') && document.getElementById('expTaxDeductible').checked;
+  const taxOn = _taxDeductible;
   if (taxOn) {
     const taxCatId = document.getElementById('expTaxCat') ? document.getElementById('expTaxCat').value : null;
     state.taxTransactions.push({
