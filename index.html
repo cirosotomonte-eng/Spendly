@@ -36,7 +36,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '2.0.4-202603292130';
+  const APP_VER = '2.0.5-202603292148';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -1734,9 +1734,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.0.4';
+const APP_VERSION = '2.0.5';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '29 Mar 2026 9:30 PM AEDT';
+const BUILD_TIME = '29 Mar 2026 9:48 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -2022,7 +2022,12 @@ function setSyncStatus(s) {
   const SVG_UP    = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 16 12 12 8 16"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"/></svg>';
   const SVG_CHECK = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
   const SVG_WARN  = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>';
-  if (s === 'saving') {
+  const SVG_DOWN  = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="8 17 12 21 16 17"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"/></svg>';
+  if (s === 'loading') {
+    el.innerHTML = SVG_DOWN; el.style.color = 'var(--muted)';
+    el.title = 'Loading from cloud…'; el.style.cursor = 'default'; el.onclick = null;
+    el.style.background = ''; el.style.borderRadius = ''; el.style.padding = ''; el.style.border = '';
+  } else if (s === 'saving') {
     el.innerHTML = SVG_UP; el.style.color = 'var(--muted)';
     el.title = 'Saving to cloud…'; el.style.cursor = 'default'; el.onclick = null;
     el.style.background = ''; el.style.borderRadius = ''; el.style.padding = '';
@@ -2081,15 +2086,16 @@ async function syncToSupabase(data) {
 async function loadFromSupabase() {
   const userId = getCurrentUserId();
   if (!userId) return null;
+  setSyncStatus('loading');
   try {
     const res = await fetch(SB_URL + '/rest/v1/spendly_data?user_id=eq.' + userId + '&select=data,updated_at', {
       headers: getAuthHeaders()
     });
-    if (!res.ok) return null;
+    if (!res.ok) { setSyncStatus('idle'); return null; }
     const rows = await res.json();
-    if (!rows || !rows.length || !rows[0].data) return null;
+    if (!rows || !rows.length || !rows[0].data) { setSyncStatus('idle'); return null; }
     return rows[0].data;
-  } catch(e) { return null; }
+  } catch(e) { setSyncStatus('idle'); return null; }
 }
 
 function saveState() {
@@ -2150,7 +2156,9 @@ async function loadState() {
         state = { ...state, ...cloudData };
         if (!state.setupDone) { state.setupDone = true; }
         localStorage.setItem(ONBOARDED_KEY, '1');
-        saveState();
+        // Save to localStorage only (not back to Supabase — we just loaded from there)
+        try { localStorage.setItem(STORAGE_KEY, JSON.stringify(cloudData)); } catch(e) {}
+        try { localStorage.setItem(BACKUP_KEY, JSON.stringify(cloudData)); } catch(e) {}
         setSyncStatus('saved');
         setTimeout(() => setSyncStatus('idle'), 2000);
         return;
@@ -2170,7 +2178,7 @@ async function loadState() {
         const parsed = JSON.parse(saved);
         if (parsed && (parsed.budget > 0 || (parsed.categories && parsed.categories.length > 0) || (parsed.expenses && parsed.expenses.length > 0))) {
           state = { ...state, ...parsed };
-          if (SPENDLY_MODE === 'cloud') saveState();
+          // Don't call saveState() here — no changes were made, nothing to upload
           return;
         }
       }
