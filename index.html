@@ -36,7 +36,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '2.2.9-202603302336';
+  const APP_VER = '2.2.10-202603302343';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -1862,9 +1862,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.2.9';
+const APP_VERSION = '2.2.10';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '30 Mar 2026 11:36 PM AEDT';
+const BUILD_TIME = '30 Mar 2026 11:43 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -10245,15 +10245,39 @@ function applyRecurringSavings() {
 function getUpcomingRecurringSavings() {
   const recs = (state.recurringSavings||[]).filter(r=>r.active!==false);
   const { cycleStart, cycleEnd } = getCycleRange(0);
+  const today = new Date(); today.setHours(0,0,0,0);
   const todayDateStr = todayStr();
   const upcoming = [];
+
   recs.forEach(r => {
-    const next = getRecNextDate(r);
-    if (!next) return;
-    const key = dateToStr(next);
-    if (next >= cycleStart && next <= cycleEnd) {
-      const goal = savingsCatById(r.savingsGoalId);
-      upcoming.push({ r, goal, date: key, dateObj: next });
+    let d = getRecNextDate(r);
+    if (!d) return;
+    d.setHours(0,0,0,0);
+    const visited = new Set();
+    while (d <= cycleEnd) {
+      const key = dateToStr(d);
+      if (visited.has(key)) break;
+      visited.add(key);
+      // Include today only if not already deposited
+      const isDueToday = key === todayDateStr;
+      const alreadyFired = isDueToday && (state.savingsDeposits||[]).some(dep =>
+        dep.recurringId === r.id && dep.date === todayDateStr
+      );
+      if (d >= cycleStart && (d > today || (isDueToday && !alreadyFired))) {
+        const goal = savingsCatById(r.savingsGoalId);
+        upcoming.push({ r, goal, date: key, dateObj: new Date(d) });
+      }
+      // Advance to next occurrence
+      const next = new Date(d);
+      if (r.frequency === 'weekly') next.setDate(next.getDate() + 7);
+      else if (r.frequency === 'xweeks') next.setDate(next.getDate() + (r.xweeksNum||2)*7);
+      else if (r.frequency === 'monthly') next.setMonth(next.getMonth() + 1);
+      else if (r.frequency === 'quarterly') next.setMonth(next.getMonth() + 3);
+      else if (r.frequency === 'yearly') next.setFullYear(next.getFullYear() + 1);
+      else break;
+      next.setHours(0,0,0,0);
+      if (next.getTime() === d.getTime()) break;
+      d = next;
     }
   });
   return upcoming.sort((a,b) => a.date.localeCompare(b.date));
