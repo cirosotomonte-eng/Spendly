@@ -36,7 +36,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '2.2.7-202603302316';
+  const APP_VER = '2.2.9-202603302336';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -826,7 +826,7 @@ async function applyUpdate() {
     </div>
     <div class="totals-row">
       <div>
-        <div class="num-label" style="display:flex;align-items:center;gap:4px">Left to spend<span class="spendly-tip"><i class="spendly-tip-icon" data-tip="tip-leftspend" onclick="event.stopPropagation();showTip(this.dataset.tip)">i</i><div class="spendly-tip-box" id="tip-leftspend" style="left:0;transform:none;width:220px">Your remaining budget after subtracting what you've spent and including any upcoming recurring expenses not yet committed.</div></span></div>
+        <div class="num-label" style="display:flex;align-items:center;gap:4px">Left to spend<span class="spendly-tip"><i class="spendly-tip-icon" data-tip="tip-leftspend" onclick="event.stopPropagation();showTip(this.dataset.tip)">i</i><div class="spendly-tip-box" id="tip-leftspend" style="left:0;transform:none;width:220px">Your remaining budget after subtracting what you've spent plus all upcoming recurring expenses and savings not yet committed this cycle.</div></span></div>
         <div class="big-num" id="totalRemain">—</div>
       </div>
       <div style="text-align:right">
@@ -1862,9 +1862,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.2.7';
+const APP_VERSION = '2.2.9';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '30 Mar 2026 11:16 PM AEDT';
+const BUILD_TIME = '30 Mar 2026 11:36 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -4931,7 +4931,7 @@ function renderGoals() {
     budgetTooltipHtml +
     '</div>' +
     '<div style="background:var(--surface);border-radius:var(--r);padding:11px 12px"><div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:4px">Spent</div><div style="font-size:16px;font-weight:700;letter-spacing:-0.3px;color:' + tSpentColor + '">' + fmt(totalSpent) + '</div></div>' +
-    '<div style="background:var(--surface);border-radius:var(--r);padding:11px 12px"><div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:4px">Left</div><div style="font-size:16px;font-weight:700;letter-spacing:-0.3px;color:' + tLeftColor + '">' + (totalLeft<0?'-':'') + fmt(Math.abs(totalLeft)) + '</div></div>' +
+    '<div style="background:var(--surface);border-radius:var(--r);padding:11px 12px"><div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:4px;display:flex;align-items:center;gap:2px">Left<span style="position:relative;display:inline-flex;align-items:center;vertical-align:middle;margin-left:3px"><i class="spendly-tip-icon" onclick="event.stopPropagation();showTip(\'tip-budget-left\')" style="cursor:pointer">i</i><div class="spendly-tip-box" id="tip-budget-left" style="right:0;left:auto;transform:none;width:240px">The sum of what\'s left in each category budget. Your actual free cash (Left to spend) may be lower due to upcoming savings commitments.</div></span></div><div style="font-size:16px;font-weight:700;letter-spacing:-0.3px;color:' + tLeftColor + '">' + (totalLeft<0?'-':'') + fmt(Math.abs(totalLeft)) + '</div></div>' +
   '</div>';
 
   // ── Upcoming savings gap notice ────────────────────────────────────────────
@@ -4947,6 +4947,20 @@ function renderGoals() {
       'Your real spending headroom is <strong style="color:' + (reallyLeft < 0 ? 'var(--red)' : reallyLeft < totalLeft * 0.2 ? 'var(--orange)' : '#34C759') + '">' +
       (reallyLeft < 0 ? '-' : '') + fmt(Math.abs(reallyLeft)) + '</strong>.' +
     '</div>';
+  }
+
+  // ── Per-category recurring savings map ────────────────────────────────────
+  // Map categoryId → total upcoming recurring savings amount for goals linked to that category
+  const catRecSavings = {};
+  if (isCurrentCycle()) {
+    getUpcomingRecurringSavings().forEach(u => {
+      state.categories.forEach(c => {
+        const linkedIds = getLinkedGoalIds(c);
+        if (linkedIds.includes(u.r.savingsGoalId)) {
+          catRecSavings[c.id] = (catRecSavings[c.id] || 0) + u.r.amount;
+        }
+      });
+    });
   }
 
   ['fixed','variable'].forEach(type => {
@@ -4989,7 +5003,9 @@ function renderGoals() {
       const pct = budget > 0 ? Math.min((spent/budget)*100,100) : 0;
       const barColor = over ? 'var(--red)' : pct>80 ? 'var(--orange)' : cat.color;
       html += '<div class="goal-row" onclick="openEditCategory(\'' + cat.id + '\')">' +
-        '<div class="goal-cat">' + cat.icon + ' ' + cat.name + '</div>' +
+        '<div class="goal-cat">' + cat.icon + ' ' + cat.name +
+          (catRecSavings[cat.id] ? '<div style="font-size:10px;color:#34C759;font-weight:400;margin-top:2px">💚 ' + fmt(catRecSavings[cat.id]) + ' saving this cycle</div>' : '') +
+        '</div>' +
         '<div class="goal-num" style="color:var(--muted)">' + (budget>0?fmt(budget):'—') + '</div>' +
         '<div class="goal-num" style="' + spentStyle + '">' + fmt(spent) + '</div>' +
         '<div class="goal-num" style="' + leftStyle + '">' + (budget>0?(left<0?'-':'')+fmt(Math.abs(left)):'—') + '</div></div>' +
