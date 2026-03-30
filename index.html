@@ -36,7 +36,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '2.2.3-202603302228';
+  const APP_VER = '2.2.4-202603302234';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -1862,9 +1862,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.2.3';
+const APP_VERSION = '2.2.4';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '30 Mar 2026 10:28 PM AEDT';
+const BUILD_TIME = '30 Mar 2026 10:34 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -5480,7 +5480,6 @@ function getLinkedGoalIds(cat) {
 }
 
 function _populateLinkedGoalDropdown(selectedIds) {
-  // selectedIds: array of goal IDs (or single string for compat)
   const selected = Array.isArray(selectedIds) ? selectedIds : (selectedIds ? [selectedIds] : []);
   const wrap = document.getElementById('catLinkedGoalsWrap');
   if (!wrap) return;
@@ -5490,19 +5489,29 @@ function _populateLinkedGoalDropdown(selectedIds) {
     return;
   }
   wrap.innerHTML = goals.map(g =>
-    '<label style="display:flex;align-items:center;gap:10px;padding:6px 4px;cursor:pointer">' +
-      '<input type="checkbox" value="' + g.id + '"' + (selected.includes(g.id) ? ' checked' : '') +
-        ' style="width:16px;height:16px;accent-color:var(--accent);flex-shrink:0">' +
-      '<span style="font-size:14px">' + (g.icon||'💰') + '</span>' +
+    '<div onclick="_toggleLinkedGoal(\'' + g.id + '\')" style="display:flex;align-items:center;gap:10px;padding:8px 4px;cursor:pointer;-webkit-tap-highlight-color:transparent;user-select:none">' +
+      '<div id="catGoalChk_' + g.id + '" style="width:20px;height:20px;border-radius:5px;border:2px solid ' + (selected.includes(g.id)?'var(--accent)':'var(--border)') + ';background:' + (selected.includes(g.id)?'var(--accent)':'var(--surface)') + ';display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:12px;color:#fff">' + (selected.includes(g.id)?'✓':'') + '</div>' +
+      '<span style="font-size:16px">' + (g.icon||'💰') + '</span>' +
       '<span style="font-size:13px;font-weight:500">' + g.name + '</span>' +
-    '</label>'
+    '</div>'
   ).join('');
+}
+
+function _toggleLinkedGoal(goalId) {
+  const chk = document.getElementById('catGoalChk_' + goalId);
+  if (!chk) return;
+  const isChecked = chk.textContent === '✓';
+  chk.textContent = isChecked ? '' : '✓';
+  chk.style.background = isChecked ? 'var(--surface)' : 'var(--accent)';
+  chk.style.borderColor = isChecked ? 'var(--border)' : 'var(--accent)';
 }
 
 function _getLinkedGoalIdsFromModal() {
   const wrap = document.getElementById('catLinkedGoalsWrap');
   if (!wrap) return [];
-  return Array.from(wrap.querySelectorAll('input[type=checkbox]:checked')).map(cb => cb.value);
+  return Array.from(wrap.querySelectorAll('[id^="catGoalChk_"]'))
+    .filter(el => el.textContent === '✓')
+    .map(el => el.id.replace('catGoalChk_', ''));
 }
 
 function saveCategory() {
