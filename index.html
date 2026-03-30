@@ -36,7 +36,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '2.1.9-202603301728';
+  const APP_VER = '2.2.0-202603302044';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -1792,9 +1792,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.1.9';
+const APP_VERSION = '2.2.0';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '30 Mar 2026 5:28 PM AEDT';
+const BUILD_TIME = '30 Mar 2026 8:44 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -2128,17 +2128,115 @@ async function syncToSupabase(data) {
   if (!userId) { setSyncStatus('error'); return; }
   try {
     setSyncStatus('saving');
+    const now = new Date().toISOString();
+
+    // ── Optimistic concurrency check ─────────────────────────────────────────
+    // Before writing, fetch the current server timestamp.
+    // If the server is newer than what we last loaded, another device saved
+    // more recently — show a conflict banner instead of overwriting.
+    if (_lastKnownServerTimestamp) {
+      const checkRes = await fetch(
+        SB_URL + '/rest/v1/spendly_data?user_id=eq.' + userId + '&select=updated_at',
+        { headers: getAuthHeaders() }
+      );
+      if (checkRes.ok) {
+        const rows = await checkRes.json();
+        const serverTs = rows && rows[0] && rows[0].updated_at;
+        if (serverTs && serverTs > _lastKnownServerTimestamp) {
+          // Server has newer data — don't overwrite, offer conflict resolution
+          setSyncStatus('idle');
+          showSyncConflictBanner(serverTs, data);
+          return;
+        }
+      }
+    }
+
     const res = await fetch(SB_URL + '/rest/v1/spendly_data', {
       method: 'POST',
       headers: { ...getAuthHeaders(), 'Prefer': 'resolution=merge-duplicates,return=minimal' },
-      body: JSON.stringify({ id: 'main', user_id: userId, data, updated_at: new Date().toISOString() })
+      body: JSON.stringify({ id: 'main', user_id: userId, data, updated_at: now })
     });
     if (!res.ok) throw new Error('upsert failed ' + res.status);
+    _lastKnownServerTimestamp = now; // update our anchor to what we just wrote
     setSyncStatus('saved');
     setTimeout(() => setSyncStatus('idle'), 3000);
   } catch(e) {
     setSyncStatus('error');
   }
+}
+
+// Timestamp of the last Supabase state we loaded or wrote — used for conflict detection
+let _lastKnownServerTimestamp = null;
+
+function showSyncConflictBanner(serverTs, localData) {
+  // Don't show multiple banners
+  if (document.getElementById('syncConflictBanner')) return;
+
+  const serverDate = new Date(serverTs).toLocaleString('en-AU', {
+    day:'numeric', month:'short', hour:'numeric', minute:'2-digit', hour12:true
+  });
+
+  const banner = document.createElement('div');
+  banner.id = 'syncConflictBanner';
+  banner.style.cssText = 'position:fixed;bottom:90px;left:16px;right:16px;z-index:9000;background:var(--surface);border:2px solid var(--orange);border-radius:16px;padding:14px 16px;box-shadow:0 4px 24px rgba(0,0,0,0.3)';
+  banner.innerHTML =
+    '<div style="font-size:14px;font-weight:700;margin-bottom:4px">⚠️ Sync conflict detected</div>' +
+    '<div style="font-size:12px;color:var(--muted);margin-bottom:12px;line-height:1.5">' +
+      'Another device saved changes at <strong style="color:var(--text)">' + serverDate + '</strong>.<br>' +
+      'Which version do you want to keep?' +
+    '</div>' +
+    '<div style="display:flex;gap:8px">' +
+      '<button onclick="resolveConflict(\'local\')" style="flex:1;background:var(--accent);border:none;border-radius:10px;padding:10px;font-size:13px;font-weight:700;color:#fff;font-family:var(--font);cursor:pointer">Keep this device</button>' +
+      '<button onclick="resolveConflict(\'server\')" style="flex:1;background:var(--surface2);border:none;border-radius:10px;padding:10px;font-size:13px;font-weight:600;color:var(--text);font-family:var(--font);cursor:pointer">Load server version</button>' +
+    '</div>';
+  document.body.appendChild(banner);
+
+  // Store local data snapshot for resolution
+  window._conflictLocalData = localData;
+  window._conflictServerTs = serverTs;
+}
+
+async function resolveConflict(choice) {
+  const banner = document.getElementById('syncConflictBanner');
+  if (banner) banner.remove();
+
+  if (choice === 'local') {
+    // Force-write our local data to Supabase, bypassing the timestamp check
+    const userId = getCurrentUserId();
+    if (!userId) return;
+    const now = new Date().toISOString();
+    try {
+      setSyncStatus('saving');
+      const res = await fetch(SB_URL + '/rest/v1/spendly_data', {
+        method: 'POST',
+        headers: { ...getAuthHeaders(), 'Prefer': 'resolution=merge-duplicates,return=minimal' },
+        body: JSON.stringify({ id: 'main', user_id: userId, data: window._conflictLocalData, updated_at: now })
+      });
+      if (!res.ok) throw new Error('force write failed');
+      _lastKnownServerTimestamp = now;
+      setSyncStatus('saved');
+      setTimeout(() => setSyncStatus('idle'), 2000);
+      showToast('✅ Your version saved to cloud', 3000);
+    } catch(e) {
+      setSyncStatus('error');
+    }
+  } else {
+    // Load server version — discard local changes
+    setSyncStatus('loading');
+    const cloudData = await loadFromSupabase();
+    if (cloudData) {
+      state = { ...state, ...cloudData };
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(cloudData)); } catch(e) {}
+      try { localStorage.setItem(BACKUP_KEY, JSON.stringify(cloudData)); } catch(e) {}
+      updateHeader();
+      renderContent();
+      setSyncStatus('saved');
+      setTimeout(() => setSyncStatus('idle'), 2000);
+      showToast('✅ Server version loaded', 3000);
+    }
+  }
+  window._conflictLocalData = null;
+  window._conflictServerTs = null;
 }
 
 async function loadFromSupabase() {
@@ -2152,6 +2250,8 @@ async function loadFromSupabase() {
     if (!res.ok) { setSyncStatus('idle'); return null; }
     const rows = await res.json();
     if (!rows || !rows.length || !rows[0].data) { setSyncStatus('idle'); return null; }
+    // Store the server timestamp — this is our anchor for conflict detection
+    if (rows[0].updated_at) _lastKnownServerTimestamp = rows[0].updated_at;
     return rows[0].data;
   } catch(e) { setSyncStatus('idle'); return null; }
 }
@@ -2174,11 +2274,21 @@ function saveState() {
 }
 
 async function flushSyncNow() {
-  // Force immediate sync — called when app is backgrounded so data isn't lost
+  // Force immediate sync when app is backgrounded — bypass conflict check
+  // (the user is leaving the app, no time to show a banner)
   if (SPENDLY_MODE !== 'cloud' || !getCurrentUserId()) return;
   clearTimeout(syncTimer);
   const { currentTab, viewingCycleOffset, mortgageCycleOffset, editingExpenseId, editingCatId, ...persistState } = state;
-  syncToSupabase(persistState);
+  const userId = getCurrentUserId();
+  const now = new Date().toISOString();
+  try {
+    const res = await fetch(SB_URL + '/rest/v1/spendly_data', {
+      method: 'POST',
+      headers: { ...getAuthHeaders(), 'Prefer': 'resolution=merge-duplicates,return=minimal' },
+      body: JSON.stringify({ id: 'main', user_id: userId, data: persistState, updated_at: now })
+    });
+    if (res.ok) _lastKnownServerTimestamp = now;
+  } catch(e) { /* silent fail on background flush */ }
 }
 
 async function loadState() {
