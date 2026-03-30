@@ -36,7 +36,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '2.1.7-202603301702';
+  const APP_VER = '2.1.8-202603301722';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -1150,19 +1150,10 @@ async function applyUpdate() {
     <div class="color-grid" id="colorGrid"></div>
     <label>Monthly budget for this category ($)</label>
     <input type="number" inputmode="decimal" id="catBudget" placeholder="0 (optional)">
-    <label>Link to savings goal <span style="font-size:11px;color:var(--muted);font-weight:400">(optional — auto-deposits when you log an expense)</span></label>
+    <label>Link to savings goal (optional)</label>
     <select id="catLinkedGoal">
       <option value="">None</option>
     </select>
-    <div style="background:var(--surface2);border-radius:12px;padding:12px 14px;margin-bottom:14px">
-      <div style="display:flex;align-items:center;gap:12px">
-        <div id="catOffsetCheck" onclick="toggleCatOffset()" style="width:22px;height:22px;border-radius:6px;background:var(--surface3);border:2px solid var(--border);display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:13px;color:#fff;flex-shrink:0"></div>
-        <div>
-          <div style="font-size:13px;font-weight:600">Auto-deduct from offset account</div>
-          <div style="font-size:11px;color:var(--muted);margin-top:2px">Every transaction in this category automatically logs a withdrawal from your offset account</div>
-        </div>
-      </div>
-    </div>
     <button class="btn-primary" id="catSaveBtn" onclick="saveCategory()">Save category</button>
     <button class="btn-danger" id="catDeleteBtn" onclick="deleteCategory()" style="display:none">Delete category</button>
     <button class="btn-ghost" onclick="closeModal('catModal')">Cancel</button>
@@ -1499,21 +1490,14 @@ async function applyUpdate() {
 <div class="modal-overlay" id="recurringModal">
   <div class="modal">
     <div class="modal-handle"></div>
-    <div class="modal-title" id="recurringModalTitle">New recurring expense</div>
+    <div class="modal-title" id="recurringModalTitle">New recurring transaction</div>
     <label>Description</label>
     <input type="text" id="recName" placeholder="e.g. Netflix, Mortgage, Strata" oninput="checkRecChanged()">
     <label>Amount ($)</label>
     <input type="number" inputmode="decimal" id="recAmount" placeholder="0.00" step="0.01" min="0" oninput="checkRecChanged()">
     <label>Category</label>
     <select id="recCat" onchange="updateRecOffsetVisibility();updateRecTxGoalInfo();checkRecChanged()"></select>
-    <!-- Transaction type toggle — only shown for linked categories -->
-    <div id="recTxTypeRow" style="display:none;margin-bottom:14px">
-      <div style="display:flex;gap:8px">
-        <button type="button" id="recTxTypeExpense" onclick="setRecTxType('expense')" style="flex:1;padding:10px;border-radius:10px;border:2px solid var(--accent);background:var(--accent-dim);color:var(--accent);font-weight:700;font-family:var(--font);cursor:pointer;font-size:13px">💳 Expense</button>
-        <button type="button" id="recTxTypeSaving" onclick="setRecTxType('saving')" style="flex:1;padding:10px;border-radius:10px;border:2px solid var(--border);background:var(--surface2);color:var(--muted);font-weight:600;font-family:var(--font);cursor:pointer;font-size:13px">💚 Saving</button>
-      </div>
-    </div>
-    <!-- Goal info line -->
+    <!-- Goal info line — shown when category has a linked savings goal -->
     <div id="recTxGoalInfo" style="display:none;background:var(--surface2);border-radius:10px;padding:10px 12px;margin-bottom:14px;font-size:12px;color:var(--muted);line-height:1.6"></div>
     <label>Frequency</label>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px" id="recFreqBtns">
@@ -1801,9 +1785,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.1.7';
+const APP_VERSION = '2.1.8';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '30 Mar 2026 5:02 PM AEDT';
+const BUILD_TIME = '30 Mar 2026 5:22 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -3046,12 +3030,12 @@ const MAIN_TABS = {
   insights: { label:'Insights', icon:'📊', sections:['analytics','notes','investor'] },
 };
 const SECTION_LABELS = {
-  expenses:'Transactions', goals:'Budget', savings:'Savings', giftcards:'Wallet',
+  expenses:'Expenses', goals:'Budget', savings:'Savings', giftcards:'Wallet',
   recycling:'Recycling', portfolio:'Portfolio', networth:'Net Worth',
   mortgage:'Mortgage', tax:'Tax', analytics:'Analytics', notes:'Notes', investor:'Playbook',
 };
 const ALL_TABS = [
-  { id:'expenses',  icon:'💸', label:'Transactions',  locked:true  },
+  { id:'expenses',  icon:'💸', label:'Expenses',  locked:true  },
   { id:'goals',     icon:'🎯', label:'Budget'              },
   { id:'savings',   icon:'💰', label:'Savings'             },
   { id:'recycling', icon:'♻️', label:'Recycling'           },
@@ -3780,7 +3764,7 @@ function renderExpenses() {
   const subTabBar =
     '<div style="margin-bottom:4px">' +
       '<div style="display:flex;align-items:center;justify-content:space-between;padding-bottom:12px;border-bottom:1px solid var(--border);margin-bottom:14px">' +
-        '<div style="font-size:26px;font-weight:700;letter-spacing:-0.5px;color:var(--text)">Transactions</div>' +
+        '<div style="font-size:26px;font-weight:700;letter-spacing:-0.5px;color:var(--text)">Expenses</div>' +
         '<div style="display:flex;gap:8px;align-items:center">' + addExpBtn + '</div>' +
       '</div>' +
       '<div style="display:flex;border-bottom:1px solid var(--surface2);margin-bottom:14px">' +
@@ -5303,13 +5287,13 @@ function saveCategory() {
   const color = getSelectedColor();
   const budgetLimit = parseFloat(document.getElementById('catBudget').value) || 0;
   const linkedSavingsGoalId = document.getElementById('catLinkedGoal').value || null;
-  const autoOffset = _catOffsetState;
   if (!name) return;
   if (state.editingCatId) {
     const idx = state.categories.findIndex(c=>c.id===state.editingCatId);
-    if (idx>=0) state.categories[idx] = { ...state.categories[idx], name, icon, type, color, budgetLimit, linkedSavingsGoalId, autoOffset };
+    const existing = state.categories[idx] || {};
+    if (idx>=0) state.categories[idx] = { ...existing, name, icon, type, color, budgetLimit, linkedSavingsGoalId };
   } else {
-    state.categories.push({ id: uid(), name, icon, type, color, budgetLimit, linkedSavingsGoalId, autoOffset });
+    state.categories.push({ id: uid(), name, icon, type, color, budgetLimit, linkedSavingsGoalId, autoOffset: false });
   }
   saveState();
   closeModal('catModal');
@@ -9331,24 +9315,12 @@ function checkRecChanged() {
   }
 }
 
-let recTxType = 'expense'; // 'expense' | 'saving'
+let recTxType = 'expense'; // set automatically by updateRecTxGoalInfo based on category
 
 function setRecTxType(type) {
+  // No-op: type is now derived from the category's linked savings goal
+  // Kept for backward compat with any remaining callers
   recTxType = type;
-  const expBtn = document.getElementById('recTxTypeExpense');
-  const savBtn = document.getElementById('recTxTypeSaving');
-  if (expBtn) {
-    expBtn.style.border = type==='expense' ? '2px solid var(--accent)' : '2px solid var(--border)';
-    expBtn.style.background = type==='expense' ? 'var(--accent-dim)' : 'var(--surface2)';
-    expBtn.style.color = type==='expense' ? 'var(--accent)' : 'var(--muted)';
-    expBtn.style.fontWeight = type==='expense' ? '700' : '600';
-  }
-  if (savBtn) {
-    savBtn.style.border = type==='saving' ? '2px solid #34C759' : '2px solid var(--border)';
-    savBtn.style.background = type==='saving' ? 'rgba(52,199,89,0.1)' : 'var(--surface2)';
-    savBtn.style.color = type==='saving' ? '#34C759' : 'var(--muted)';
-    savBtn.style.fontWeight = type==='saving' ? '700' : '600';
-  }
   updateRecTxGoalInfo();
   checkRecChanged();
 }
@@ -9357,30 +9329,27 @@ function updateRecTxGoalInfo() {
   const catId = document.getElementById('recCat').value;
   const cat = catById(catId);
   const linkedGoalId = cat ? cat.linkedSavingsGoalId : null;
-  const typeRow = document.getElementById('recTxTypeRow');
   const infoEl = document.getElementById('recTxGoalInfo');
   if (!linkedGoalId) {
-    if (typeRow) typeRow.style.display = 'none';
     if (infoEl) infoEl.style.display = 'none';
+    // No linked goal → always expense
+    recTxType = 'expense';
     return;
   }
-  if (typeRow) typeRow.style.display = '';
   const goal = savingsCatById(linkedGoalId);
   if (!goal || !infoEl) return;
+  // Category is linked to a goal → always saving type
+  recTxType = 'saving';
   const balance = totalSavedForCat(linkedGoalId);
   const fmtB = n => '$' + Math.abs(n).toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2});
-  if (recTxType === 'saving') {
-    infoEl.innerHTML = '💚 Each fire will deposit into <strong style="color:var(--text)">' + goal.icon + ' ' + goal.name + '</strong> and deduct from budget.<br>Current balance: ' + fmtB(balance);
-  } else {
-    infoEl.innerHTML = '💳 Each fire will withdraw from <strong style="color:var(--text)">' + goal.icon + ' ' + goal.name + '</strong> first (current balance: ' + fmtB(balance) + ').<br>Any shortfall will deduct from budget instead.';
-  }
+  infoEl.innerHTML = '💚 Each fire will deposit into <strong style="color:var(--text)">' + goal.icon + ' ' + goal.name + '</strong> and deduct from budget.<br>Current balance: ' + fmtB(balance);
   infoEl.style.display = '';
 }
 
 function openAddRecurring() {
   editingRecurringId = null; recActiveState = true; recOffsetState = false;
   recOriginalSnapshot = null;
-  document.getElementById('recurringModalTitle').textContent = 'New recurring expense';
+  document.getElementById('recurringModalTitle').textContent = 'New recurring transaction';
   document.getElementById('recName').value = '';
   document.getElementById('recAmount').value = '';
   document.getElementById('recDeleteBtn').style.display = 'none';
@@ -9393,8 +9362,7 @@ function openAddRecurring() {
   if (ocheck) { ocheck.textContent=''; ocheck.style.background='var(--surface3)'; ocheck.style.border='2px solid var(--border)'; }
   populateRecCatSelect();
   updateRecOffsetVisibility();
-  recTxType = 'expense';
-  setRecTxType('expense');
+  recTxType = 'expense'; // will be overridden by updateRecTxGoalInfo based on selected category
   updateRecTxGoalInfo();
   // Default: weekly, Monday
   setRecFreq('weekly');
@@ -9413,7 +9381,7 @@ function openEditRecurring(id) {
   const rec = (state.recurringExpenses||[]).find(r=>r.id===id); if (!rec) return;
   editingRecurringId = id; recActiveState = rec.active !== false;
   recOffsetState = rec.autoOffset === true;
-  document.getElementById('recurringModalTitle').textContent = 'Edit recurring expense';
+  document.getElementById('recurringModalTitle').textContent = 'Edit recurring transaction';
   document.getElementById('recName').value = rec.name||'';
   document.getElementById('recAmount').value = rec.amount||'';
   document.getElementById('recDeleteBtn').style.display = 'block';
@@ -9431,9 +9399,7 @@ function openEditRecurring(id) {
   populateRecCatSelect();
   if (rec.categoryId) document.getElementById('recCat').value = rec.categoryId;
   updateRecOffsetVisibility();
-  recTxType = rec.transactionType || 'expense';
-  setRecTxType(recTxType);
-  updateRecTxGoalInfo();
+  updateRecTxGoalInfo(); // derives recTxType automatically from category's linked goal
   // Restore frequency settings
   const freq = rec.frequency || 'weekly';
   setRecFreq(freq);
