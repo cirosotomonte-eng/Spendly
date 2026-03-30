@@ -36,7 +36,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '2.2.10-202603302343';
+  const APP_VER = '2.2.11-202603302350';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -1862,9 +1862,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.2.10';
+const APP_VERSION = '2.2.11';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '30 Mar 2026 11:43 PM AEDT';
+const BUILD_TIME = '30 Mar 2026 11:50 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -3741,13 +3741,26 @@ function renderFutureCycle(el) {
   const projected = [];
 
   recurring.forEach(r => {
-    // Find all due dates for this recurring within the future cycle
     let checkDate = new Date(cycleStart);
     while (checkDate <= cycleEnd) {
       const dateStr = dateToStr(checkDate);
       if (isRecurringDueOn(r, dateStr)) {
         const cat = catById(r.categoryId) || { name:'Unknown', icon:'❓', color:'#888' };
-        projected.push({ r, cat, date: dateStr, dateObj: new Date(checkDate) });
+        projected.push({ r, cat, date: dateStr, dateObj: new Date(checkDate), kind: 'expense' });
+      }
+      checkDate.setDate(checkDate.getDate() + 1);
+    }
+  });
+
+  // Project recurring savings into this future cycle
+  const recurringSavings = (state.recurringSavings || []).filter(r => r.active !== false);
+  recurringSavings.forEach(r => {
+    let checkDate = new Date(cycleStart);
+    while (checkDate <= cycleEnd) {
+      const dateStr = dateToStr(checkDate);
+      if (isRecurringDueOn(r, dateStr)) {
+        const goal = savingsCatById(r.savingsGoalId);
+        projected.push({ r, cat: goal ? { name: goal.name, icon: goal.icon, color: goal.color || '#34C759' } : { name: 'Savings', icon: '💰', color: '#34C759' }, date: dateStr, dateObj: new Date(checkDate), kind: 'saving' });
       }
       checkDate.setDate(checkDate.getDate() + 1);
     }
@@ -3755,7 +3768,9 @@ function renderFutureCycle(el) {
 
   projected.sort((a,b) => a.date.localeCompare(b.date));
 
-  const totalProjected = projected.reduce((s,p) => s + p.r.amount, 0);
+  const totalExpenses = projected.filter(p=>p.kind==='expense').reduce((s,p) => s + p.r.amount, 0);
+  const totalSavings = projected.filter(p=>p.kind==='saving').reduce((s,p) => s + p.r.amount, 0);
+  const totalProjected = totalExpenses + totalSavings;
   const budget = state.budget || 0;
   const pct = budget > 0 ? Math.min((totalProjected / budget) * 100, 100) : 0;
 
@@ -3767,12 +3782,12 @@ function renderFutureCycle(el) {
       '<span style="font-size:16px">🔮</span>' +
       '<span style="font-size:13px;font-weight:700;color:var(--accent)">Upcoming cycle ' + (offset === 1 ? '(next)' : '+' + offset) + '</span>' +
     '</div>' +
-    '<div style="font-size:11px;color:var(--muted)">' + cycleLabel + ' · projected from your recurring expenses</div>' +
+    '<div style="font-size:11px;color:var(--muted)">' + cycleLabel + ' · projected from your recurring transactions</div>' +
   '</div>';
 
   if (projected.length === 0) {
     html += '<div class="empty"><div class="empty-icon">✅</div>' +
-      '<div class="empty-text">No recurring expenses</div>' +
+      '<div class="empty-text">No recurring transactions</div>' +
       '<div class="empty-sub">No recurring transactions are scheduled for this cycle</div></div>';
     el.innerHTML = html; return;
   }
@@ -3783,7 +3798,9 @@ function renderFutureCycle(el) {
       '<div>' +
         '<div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:3px">Committed</div>' +
         '<div style="font-size:22px;font-weight:800;color:var(--red)">-' + fmt(totalProjected) + '</div>' +
-        '<div style="font-size:11px;color:var(--muted)">' + projected.length + ' transaction' + (projected.length!==1?'s':'') + '</div>' +
+        '<div style="font-size:11px;color:var(--muted)">' + projected.length + ' transaction' + (projected.length!==1?'s':'') +
+          (totalSavings > 0 ? ' <span style="color:#34C759">(' + fmt(totalSavings) + ' savings)</span>' : '') +
+        '</div>' +
       '</div>' +
       '<div>' +
         '<div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:3px">Budget left after</div>' +
@@ -3794,30 +3811,24 @@ function renderFutureCycle(el) {
     '<div style="background:var(--surface2);border-radius:100px;height:6px;overflow:hidden">' +
       '<div style="width:' + pct.toFixed(1) + '%;height:100%;background:' + (pct >= 100 ? 'var(--red)' : pct >= 75 ? 'var(--orange)' : 'var(--accent)') + ';border-radius:100px"></div>' +
     '</div>' +
-    '<div style="font-size:10px;color:var(--muted);margin-top:4px">Recurring expenses use ' + pct.toFixed(0) + '% of your budget before the cycle even starts</div>' +
+    '<div style="font-size:10px;color:var(--muted);margin-top:4px">Recurring transactions use ' + pct.toFixed(0) + '% of your budget before the cycle even starts</div>' +
   '</div>';
-
-  // Group by category
-  const byCat = {};
-  projected.forEach(p => {
-    const key = p.cat.name;
-    if (!byCat[key]) byCat[key] = { cat: p.cat, items: [], total: 0 };
-    byCat[key].items.push(p);
-    byCat[key].total += p.r.amount;
-  });
 
   html += '<div class="section-label">Projected transactions</div>';
   html += '<div style="background:var(--surface);border-radius:var(--r);overflow:hidden;margin-bottom:8px">';
 
   projected.forEach((p, i) => {
     const dueDate = p.dateObj.toLocaleDateString('en-AU',{weekday:'short',day:'numeric',month:'short'});
+    const isSaving = p.kind === 'saving';
     html += '<div style="display:flex;align-items:center;gap:12px;padding:11px 14px;' + (i>0?'border-top:1px solid var(--surface2)':'') + '">' +
       '<div style="width:36px;height:36px;border-radius:10px;background:' + p.cat.color + '22;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">' + p.cat.icon + '</div>' +
       '<div style="flex:1;min-width:0">' +
-        '<div style="font-size:13px;font-weight:600">' + p.r.name + '</div>' +
+        '<div style="font-size:13px;font-weight:600">' + p.r.name +
+          (isSaving ? '<span style="font-size:9px;background:rgba(52,199,89,0.15);color:#34C759;border-radius:4px;padding:1px 5px;font-weight:700;margin-left:5px">SAVING</span>' : '') +
+        '</div>' +
         '<div style="font-size:11px;color:var(--muted)">' + p.cat.name + ' · ' + dueDate + '</div>' +
       '</div>' +
-      '<div style="font-size:13px;font-weight:700;color:var(--red)">-' + fmt(p.r.amount) + '</div>' +
+      '<div style="font-size:13px;font-weight:700;color:' + (isSaving ? '#34C759' : 'var(--red)') + '">' + (isSaving ? '+' : '-') + fmt(p.r.amount) + '</div>' +
     '</div>';
   });
 
