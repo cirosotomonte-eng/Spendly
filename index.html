@@ -36,7 +36,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '2.2.12-202603310741';
+  const APP_VER = '2.2.13-202603310758';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -1862,9 +1862,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.2.12';
+const APP_VERSION = '2.2.13';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '31 Mar 2026 7:41 AM AEDT';
+const BUILD_TIME = '31 Mar 2026 7:58 AM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -3170,9 +3170,15 @@ function updateHeader() {
   if (budgetCycleLabelEl) budgetCycleLabelEl.textContent = cycleTypeLabelMap[state.cycleType || 'monthly'] || 'Monthly budget';
 
   const remainEl = document.getElementById('totalRemain');
-  if (budget > 0) {
+  const remainLabelEl = remainEl ? remainEl.previousElementSibling : null;
+  if (isFutureCycle()) {
+    // Don't show current-cycle left-to-spend for a future cycle — it's misleading
+    if (remainEl) { remainEl.textContent = '—'; remainEl.style.color = 'var(--muted)'; }
+    if (remainLabelEl) remainLabelEl.innerHTML = '<span style="font-size:10px;color:var(--muted)">Viewing future cycle</span>';
+  } else if (budget > 0) {
     remainEl.textContent = (remain < 0 ? '-' : '') + fmt(Math.abs(remain));
     remainEl.style.color = remain < 0 ? 'var(--red)' : remain < budget * 0.15 ? 'var(--orange)' : 'var(--text)';
+    if (remainLabelEl) remainLabelEl.innerHTML = 'Left to spend<span class="spendly-tip"><i class="spendly-tip-icon" data-tip="tip-leftspend" onclick="event.stopPropagation();showTip(this.dataset.tip)">i</i><div class="spendly-tip-box" id="tip-leftspend" style="left:0;transform:none;width:220px">Your remaining budget after subtracting what you\'ve spent plus all upcoming recurring expenses and savings not yet committed this cycle.</div></span>';
   } else {
     remainEl.textContent = '—';
     remainEl.style.color = 'var(--muted)';
@@ -3837,9 +3843,10 @@ function renderFutureCycle(el) {
     const isFullyCovered = p.kind === 'expense' && p.goalCoveredAmount >= p.r.amount && p.r.amount > 0;
     const isSplit = p.kind === 'expense' && p.goalCoveredAmount > 0 && p.goalCoveredAmount < p.r.amount;
     const linkedGoal = p.linkedGoalId ? savingsCatById(p.linkedGoalId) : null;
-    const displayAmount = isSaving ? p.r.amount : p.budgetImpact;
-    const amtColor = isSaving ? '#34C759' : isFullyCovered ? '#34C759' : 'var(--red)';
-    const amtPrefix = isSaving ? '+' : isFullyCovered ? '' : '-';
+    // Show full transaction amount always — colour indicates budget impact
+    const displayAmount = p.r.amount;
+    const amtColor = isSaving ? '#34C759' : isFullyCovered ? 'var(--muted)' : 'var(--red)';
+    const amtPrefix = isSaving ? '+' : '-';
 
     let subLine = '';
     if (isFullyCovered && linkedGoal) {
@@ -3853,7 +3860,6 @@ function renderFutureCycle(el) {
       '<div style="flex:1;min-width:0">' +
         '<div style="font-size:13px;font-weight:600">' + p.r.name +
           (isSaving ? '<span style="font-size:9px;background:rgba(52,199,89,0.15);color:#34C759;border-radius:4px;padding:1px 5px;font-weight:700;margin-left:5px">SAVING</span>' : '') +
-          (isFullyCovered ? '<span style="font-size:9px;background:rgba(52,199,89,0.15);color:#34C759;border-radius:4px;padding:1px 5px;font-weight:700;margin-left:5px">COVERED</span>' : '') +
           (isSplit ? '<span style="font-size:9px;background:rgba(240,168,96,0.15);color:var(--orange);border-radius:4px;padding:1px 5px;font-weight:700;margin-left:5px">SPLIT</span>' : '') +
         '</div>' +
         '<div style="font-size:11px;color:var(--muted)">' + p.cat.name + ' · ' + dueDate + '</div>' +
