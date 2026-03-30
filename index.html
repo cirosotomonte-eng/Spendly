@@ -36,7 +36,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '2.2.11-202603302350';
+  const APP_VER = '2.2.12-202603310741';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -816,7 +816,7 @@ async function applyUpdate() {
       <div style="display:flex;align-items:center;justify-content:space-between">
         <span style="font-size:15px;font-weight:700;letter-spacing:-0.2px;color:var(--text)" id="headerGreeting">Good morning</span>
         <div class="header-actions">
-          <span id="syncIndicator" title="Cloud sync" style="display:flex;align-items:center;justify-content:center;min-width:28px;height:28px;color:var(--muted);cursor:default;border-radius:8px;transition:all 0.2s"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/></svg></span>
+          <span id="syncIndicator" title="Cloud sync" style="display:flex;align-items:center;justify-content:center;min-width:28px;height:28px;color:var(--muted);cursor:default;border-radius:8px;transition:all 0.2s;outline:none;-webkit-tap-highlight-color:transparent"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/></svg></span>
           <button class="icon-btn" onclick="openSettings()" title="Settings">
             <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
           </button>
@@ -1862,9 +1862,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.2.11';
+const APP_VERSION = '2.2.12';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '30 Mar 2026 11:50 PM AEDT';
+const BUILD_TIME = '31 Mar 2026 7:41 AM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -3746,7 +3746,19 @@ function renderFutureCycle(el) {
       const dateStr = dateToStr(checkDate);
       if (isRecurringDueOn(r, dateStr)) {
         const cat = catById(r.categoryId) || { name:'Unknown', icon:'❓', color:'#888' };
-        projected.push({ r, cat, date: dateStr, dateObj: new Date(checkDate), kind: 'expense' });
+        // Calculate real budget impact — goal-covered portion doesn't hit budget
+        const linkedGoalId = r.linkedGoalId || getLinkedGoalIds(catById(r.categoryId))[0] || null;
+        const txType = r.transactionType || 'expense';
+        let budgetImpact = r.amount;
+        let goalCoveredAmount = 0;
+        if (txType === 'expense' && linkedGoalId) {
+          const goalBalance = totalSavedForCat(linkedGoalId);
+          goalCoveredAmount = Math.min(goalBalance, r.amount);
+          budgetImpact = r.amount - goalCoveredAmount;
+        } else if (txType === 'saving') {
+          budgetImpact = r.amount; // saving always hits budget
+        }
+        projected.push({ r, cat, date: dateStr, dateObj: new Date(checkDate), kind: 'expense', budgetImpact, goalCoveredAmount, linkedGoalId, txType });
       }
       checkDate.setDate(checkDate.getDate() + 1);
     }
@@ -3760,7 +3772,7 @@ function renderFutureCycle(el) {
       const dateStr = dateToStr(checkDate);
       if (isRecurringDueOn(r, dateStr)) {
         const goal = savingsCatById(r.savingsGoalId);
-        projected.push({ r, cat: goal ? { name: goal.name, icon: goal.icon, color: goal.color || '#34C759' } : { name: 'Savings', icon: '💰', color: '#34C759' }, date: dateStr, dateObj: new Date(checkDate), kind: 'saving' });
+        projected.push({ r, cat: goal ? { name: goal.name, icon: goal.icon, color: goal.color || '#34C759' } : { name: 'Savings', icon: '💰', color: '#34C759' }, date: dateStr, dateObj: new Date(checkDate), kind: 'saving', budgetImpact: r.amount, goalCoveredAmount: 0 });
       }
       checkDate.setDate(checkDate.getDate() + 1);
     }
@@ -3768,9 +3780,10 @@ function renderFutureCycle(el) {
 
   projected.sort((a,b) => a.date.localeCompare(b.date));
 
-  const totalExpenses = projected.filter(p=>p.kind==='expense').reduce((s,p) => s + p.r.amount, 0);
-  const totalSavings = projected.filter(p=>p.kind==='saving').reduce((s,p) => s + p.r.amount, 0);
+  const totalExpenses = projected.filter(p=>p.kind==='expense').reduce((s,p) => s + p.budgetImpact, 0);
+  const totalSavings = projected.filter(p=>p.kind==='saving').reduce((s,p) => s + p.budgetImpact, 0);
   const totalProjected = totalExpenses + totalSavings;
+  const totalGrossCovered = projected.filter(p=>p.kind==='expense').reduce((s,p) => s + (p.goalCoveredAmount||0), 0);
   const budget = state.budget || 0;
   const pct = budget > 0 ? Math.min((totalProjected / budget) * 100, 100) : 0;
 
@@ -3799,7 +3812,8 @@ function renderFutureCycle(el) {
         '<div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:3px">Committed</div>' +
         '<div style="font-size:22px;font-weight:800;color:var(--red)">-' + fmt(totalProjected) + '</div>' +
         '<div style="font-size:11px;color:var(--muted)">' + projected.length + ' transaction' + (projected.length!==1?'s':'') +
-          (totalSavings > 0 ? ' <span style="color:#34C759">(' + fmt(totalSavings) + ' savings)</span>' : '') +
+          (totalSavings > 0 ? ' · <span style="color:#34C759">💚 ' + fmt(totalSavings) + ' to savings</span>' : '') +
+          (totalGrossCovered > 0 ? ' · <span style="color:#34C759">✓ ' + fmt(totalGrossCovered) + ' goal-covered</span>' : '') +
         '</div>' +
       '</div>' +
       '<div>' +
@@ -3820,15 +3834,32 @@ function renderFutureCycle(el) {
   projected.forEach((p, i) => {
     const dueDate = p.dateObj.toLocaleDateString('en-AU',{weekday:'short',day:'numeric',month:'short'});
     const isSaving = p.kind === 'saving';
+    const isFullyCovered = p.kind === 'expense' && p.goalCoveredAmount >= p.r.amount && p.r.amount > 0;
+    const isSplit = p.kind === 'expense' && p.goalCoveredAmount > 0 && p.goalCoveredAmount < p.r.amount;
+    const linkedGoal = p.linkedGoalId ? savingsCatById(p.linkedGoalId) : null;
+    const displayAmount = isSaving ? p.r.amount : p.budgetImpact;
+    const amtColor = isSaving ? '#34C759' : isFullyCovered ? '#34C759' : 'var(--red)';
+    const amtPrefix = isSaving ? '+' : isFullyCovered ? '' : '-';
+
+    let subLine = '';
+    if (isFullyCovered && linkedGoal) {
+      subLine = '<div style="font-size:10px;color:#34C759;margin-top:2px">💚 Covered by ' + linkedGoal.name + '</div>';
+    } else if (isSplit && linkedGoal) {
+      subLine = '<div style="font-size:10px;color:var(--muted);margin-top:2px">💚 ' + fmt(p.goalCoveredAmount) + ' from ' + linkedGoal.name + ' · 💳 ' + fmt(p.budgetImpact) + ' from budget</div>';
+    }
+
     html += '<div style="display:flex;align-items:center;gap:12px;padding:11px 14px;' + (i>0?'border-top:1px solid var(--surface2)':'') + '">' +
       '<div style="width:36px;height:36px;border-radius:10px;background:' + p.cat.color + '22;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">' + p.cat.icon + '</div>' +
       '<div style="flex:1;min-width:0">' +
         '<div style="font-size:13px;font-weight:600">' + p.r.name +
           (isSaving ? '<span style="font-size:9px;background:rgba(52,199,89,0.15);color:#34C759;border-radius:4px;padding:1px 5px;font-weight:700;margin-left:5px">SAVING</span>' : '') +
+          (isFullyCovered ? '<span style="font-size:9px;background:rgba(52,199,89,0.15);color:#34C759;border-radius:4px;padding:1px 5px;font-weight:700;margin-left:5px">COVERED</span>' : '') +
+          (isSplit ? '<span style="font-size:9px;background:rgba(240,168,96,0.15);color:var(--orange);border-radius:4px;padding:1px 5px;font-weight:700;margin-left:5px">SPLIT</span>' : '') +
         '</div>' +
         '<div style="font-size:11px;color:var(--muted)">' + p.cat.name + ' · ' + dueDate + '</div>' +
+        subLine +
       '</div>' +
-      '<div style="font-size:13px;font-weight:700;color:' + (isSaving ? '#34C759' : 'var(--red)') + '">' + (isSaving ? '+' : '-') + fmt(p.r.amount) + '</div>' +
+      '<div style="font-size:13px;font-weight:700;color:' + amtColor + '">' + amtPrefix + fmt(displayAmount) + '</div>' +
     '</div>';
   });
 
@@ -7759,7 +7790,7 @@ function renderSavings() {
       }
 
       html += '<div style="border-top:1px solid var(--surface2);padding:10px 14px;display:flex;gap:8px">' +
-        '<button onclick="openAddDeposit(null,\''+cat.id+'\')" style="flex:1;background:var(--accent-dim);color:var(--accent);border:none;border-radius:8px;padding:10px;font-size:13px;font-weight:700;font-family:var(--font);cursor:pointer">+ Add / Withdraw</button>' +
+        '<button onclick="openAddDeposit(null,\''+cat.id+'\')" style="flex:1;background:var(--accent-dim);color:var(--accent);border:none;border-radius:8px;padding:10px;font-size:13px;font-weight:700;font-family:var(--font);cursor:pointer">+ Deposit / Withdraw</button>' +
       '</div>';
       if (allDeps.length > 0) {
         html += '<div style="border-top:1px solid var(--surface2)">';
