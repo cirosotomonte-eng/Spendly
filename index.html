@@ -36,7 +36,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '2.1.5-202603301644';
+  const APP_VER = '2.1.7-202603301702';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -1128,11 +1128,19 @@ async function applyUpdate() {
     <label>Category name</label>
     <input type="text" id="catName" placeholder="e.g. Groceries">
     <label>Icon (emoji)</label>
-    <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
-      <div id="catIconPreview" style="width:48px;height:48px;border-radius:12px;background:var(--surface2);display:flex;align-items:center;justify-content:center;font-size:26px;flex-shrink:0;border:2px solid var(--border)">📌</div>
-      <input type="text" id="catIcon" placeholder="or type your own…" maxlength="4" style="flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:10px;color:var(--text);font-size:22px;font-family:var(--font);padding:10px 13px;outline:none;text-align:center;" oninput="document.getElementById('catIconPreview').textContent=this.value||'📌'">
+    <div id="catEmojiPicker" style="margin-bottom:14px">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px">
+        <button type="button" onclick="toggleEmojiPicker('cat')" style="width:56px;height:56px;border-radius:14px;background:var(--surface2);border:2px solid var(--border);font-size:30px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:border-color 0.15s;-webkit-tap-highlight-color:transparent" id="catIconPreview">📌</button>
+        <div style="flex:1">
+          <div style="font-size:13px;font-weight:500;margin-bottom:3px">Tap to change icon</div>
+          <div style="font-size:11px;color:var(--muted)">Pick from suggestions or type any emoji</div>
+        </div>
+      </div>
+      <div id="catEmojiPanel" style="display:none;background:var(--surface2);border-radius:12px;padding:12px">
+        <input type="text" id="catIcon" placeholder="Type or paste an emoji…" maxlength="4" autocomplete="off" autocorrect="off" style="width:100%;background:var(--surface);border:1.5px solid var(--accent);border-radius:8px;color:var(--text);font-size:20px;font-family:var(--font);padding:10px 13px;outline:none;text-align:center;margin-bottom:10px;box-sizing:border-box" oninput="onEmojiInput('cat',this.value)">
+        <div id="emojiGrid" style="display:flex;flex-wrap:wrap;gap:6px"></div>
+      </div>
     </div>
-    <div id="emojiGrid" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px;background:var(--surface2);border-radius:10px;padding:10px;"></div>
     <label>Type</label>
     <select id="catType">
       <option value="variable">Variable (changes each month)</option>
@@ -1200,19 +1208,27 @@ async function applyUpdate() {
     <label>Category name</label>
     <input type="text" id="scName" placeholder="e.g. Holidays">
     <label>Icon (emoji)</label>
-    <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
-      <div id="scIconPreview" style="width:48px;height:48px;border-radius:12px;background:var(--surface2);display:flex;align-items:center;justify-content:center;font-size:26px;flex-shrink:0;border:2px solid var(--border)">🎯</div>
-      <input type="text" id="scIcon" placeholder="or type your own…" maxlength="4" style="flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:10px;color:var(--text);font-size:22px;font-family:var(--font);padding:10px 13px;outline:none;text-align:center;" oninput="document.getElementById('scIconPreview').textContent=this.value||'🎯'">
+    <div id="scEmojiPicker" style="margin-bottom:14px">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px">
+        <button type="button" onclick="toggleEmojiPicker('sc')" style="width:56px;height:56px;border-radius:14px;background:var(--surface2);border:2px solid var(--border);font-size:30px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:border-color 0.15s;-webkit-tap-highlight-color:transparent" id="scIconPreview">🎯</button>
+        <div style="flex:1">
+          <div style="font-size:13px;font-weight:500;margin-bottom:3px">Tap to change icon</div>
+          <div style="font-size:11px;color:var(--muted)">Pick from suggestions or type any emoji</div>
+        </div>
+      </div>
+      <div id="scEmojiPanel" style="display:none;background:var(--surface2);border-radius:12px;padding:12px">
+        <input type="text" id="scIcon" placeholder="Type or paste an emoji…" maxlength="4" autocomplete="off" autocorrect="off" style="width:100%;background:var(--surface);border:1.5px solid var(--accent);border-radius:8px;color:var(--text);font-size:20px;font-family:var(--font);padding:10px 13px;outline:none;text-align:center;margin-bottom:10px;box-sizing:border-box" oninput="onEmojiInput('sc',this.value)">
+        <div id="scEmojiGrid" style="display:flex;flex-wrap:wrap;gap:6px"></div>
+      </div>
     </div>
-    <div id="scEmojiGrid" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px;background:var(--surface2);border-radius:10px;padding:10px;"></div>
     <label>Color</label>
     <div class="color-grid" id="scColorGrid"></div>
-    <div id="scGoalDateWrap">
-      <label>Goal date (optional — only if no subcategories)</label>
-      <input type="date" id="scGoalDate">
-    </div>
-    <button class="btn-primary" id="scSaveBtn" onclick="saveSavingsCat()">Save category</button>
-    <button class="btn-danger" id="scDeleteBtn" onclick="deleteSavingsCat()" style="display:none">Delete category</button>
+    <label>Target amount (optional)</label>
+    <input type="number" inputmode="decimal" id="scTarget" placeholder="e.g. 5000">
+    <label>Goal date (optional)</label>
+    <input type="date" id="scGoalDate">
+    <button class="btn-primary" id="scSaveBtn" onclick="saveSavingsCat()">Save goal</button>
+    <button class="btn-danger" id="scDeleteBtn" onclick="deleteSavingsCat()" style="display:none">Delete goal</button>
     <button class="btn-ghost" onclick="closeModal('savingsCatModal')">Cancel</button>
   </div>
 </div>
@@ -1226,11 +1242,19 @@ async function applyUpdate() {
     <label>Goal name</label>
     <input type="text" id="ssName" placeholder="e.g. Bora Bora">
     <label>Icon (emoji)</label>
-    <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
-      <div id="ssIconPreview" style="width:48px;height:48px;border-radius:12px;background:var(--surface2);display:flex;align-items:center;justify-content:center;font-size:26px;flex-shrink:0;border:2px solid var(--border)">✨</div>
-      <input type="text" id="ssIcon" placeholder="or type your own…" maxlength="4" style="flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:10px;color:var(--text);font-size:22px;font-family:var(--font);padding:10px 13px;outline:none;text-align:center;" oninput="document.getElementById('ssIconPreview').textContent=this.value||'✨'">
+    <div id="ssEmojiPicker" style="margin-bottom:14px">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px">
+        <button type="button" onclick="toggleEmojiPicker('ss')" style="width:56px;height:56px;border-radius:14px;background:var(--surface2);border:2px solid var(--border);font-size:30px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:border-color 0.15s;-webkit-tap-highlight-color:transparent" id="ssIconPreview">✨</button>
+        <div style="flex:1">
+          <div style="font-size:13px;font-weight:500;margin-bottom:3px">Tap to change icon</div>
+          <div style="font-size:11px;color:var(--muted)">Pick from suggestions or type any emoji</div>
+        </div>
+      </div>
+      <div id="ssEmojiPanel" style="display:none;background:var(--surface2);border-radius:12px;padding:12px">
+        <input type="text" id="ssIcon" placeholder="Type or paste an emoji…" maxlength="4" autocomplete="off" autocorrect="off" style="width:100%;background:var(--surface);border:1.5px solid var(--accent);border-radius:8px;color:var(--text);font-size:20px;font-family:var(--font);padding:10px 13px;outline:none;text-align:center;margin-bottom:10px;box-sizing:border-box" oninput="onEmojiInput('ss',this.value)">
+        <div id="ssEmojiGrid" style="display:flex;flex-wrap:wrap;gap:6px"></div>
+      </div>
     </div>
-    <div id="ssEmojiGrid" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px;background:var(--surface2);border-radius:10px;padding:10px;"></div>
     <label>Target amount ($)</label>
     <input type="number" inputmode="decimal" id="ssTarget" placeholder="e.g. 5000">
     <label>Goal date (optional)</label>
@@ -1409,11 +1433,19 @@ async function applyUpdate() {
     <label>Category name</label>
     <input type="text" id="txCatName" placeholder="e.g. Work from home, Vehicle, Equipment">
     <label>Icon (emoji)</label>
-    <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
-      <div id="txCatIconPreview" style="width:48px;height:48px;border-radius:12px;background:var(--surface2);display:flex;align-items:center;justify-content:center;font-size:26px;flex-shrink:0;border:2px solid var(--border)">📋</div>
-      <input type="text" id="txCatIcon" placeholder="or type your own…" maxlength="4" style="flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:10px;color:var(--text);font-size:22px;font-family:var(--font);padding:10px 13px;outline:none;text-align:center;" oninput="document.getElementById('txCatIconPreview').textContent=this.value||'📋'">
+    <div id="txCatEmojiPicker" style="margin-bottom:14px">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px">
+        <button type="button" onclick="toggleEmojiPicker('txCat')" style="width:56px;height:56px;border-radius:14px;background:var(--surface2);border:2px solid var(--border);font-size:30px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:border-color 0.15s;-webkit-tap-highlight-color:transparent" id="txCatIconPreview">📋</button>
+        <div style="flex:1">
+          <div style="font-size:13px;font-weight:500;margin-bottom:3px">Tap to change icon</div>
+          <div style="font-size:11px;color:var(--muted)">Pick from suggestions or type any emoji</div>
+        </div>
+      </div>
+      <div id="txCatEmojiPanel" style="display:none;background:var(--surface2);border-radius:12px;padding:12px">
+        <input type="text" id="txCatIcon" placeholder="Type or paste an emoji…" maxlength="4" autocomplete="off" autocorrect="off" style="width:100%;background:var(--surface);border:1.5px solid var(--accent);border-radius:8px;color:var(--text);font-size:20px;font-family:var(--font);padding:10px 13px;outline:none;text-align:center;margin-bottom:10px;box-sizing:border-box" oninput="onEmojiInput('txCat',this.value)">
+        <div id="txCatEmojiGrid" style="display:flex;flex-wrap:wrap;gap:6px"></div>
+      </div>
     </div>
-    <div id="txCatEmojiGrid" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px;background:var(--surface2);border-radius:10px;padding:10px;"></div>
     <label>Colour</label>
     <div class="color-grid" id="txCatColorGrid"></div>
     <button class="btn-primary" id="txCatSaveBtn" onclick="saveTaxCat()">Save category</button>
@@ -1769,9 +1801,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.1.5';
+const APP_VERSION = '2.1.7';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '30 Mar 2026 4:44 PM AEDT';
+const BUILD_TIME = '30 Mar 2026 5:02 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -5109,18 +5141,95 @@ const EMOJI_SUGGESTIONS = [
   '📷','🎸','🏀','⚽','🎾','🏊','🧹','🛁','🪴','🐱',
 ];
 
-function buildEmojiGrid(selectedIcon) {
-  const grid = document.getElementById('emojiGrid');
+// ── Unified emoji picker ──────────────────────────────────────────────────────
+// Config map: picker key → { previewId, inputId, gridId, panelId, defaultEmoji }
+const EMOJI_PICKER_CONFIG = {
+  cat:   { previewId:'catIconPreview',   inputId:'catIcon',   gridId:'emojiGrid',      panelId:'catEmojiPanel',   defaultEmoji:'📌' },
+  sc:    { previewId:'scIconPreview',    inputId:'scIcon',    gridId:'scEmojiGrid',    panelId:'scEmojiPanel',    defaultEmoji:'🎯' },
+  ss:    { previewId:'ssIconPreview',    inputId:'ssIcon',    gridId:'ssEmojiGrid',    panelId:'ssEmojiPanel',    defaultEmoji:'✨' },
+  txCat: { previewId:'txCatIconPreview', inputId:'txCatIcon', gridId:'txCatEmojiGrid', panelId:'txCatEmojiPanel', defaultEmoji:'📋' },
+};
+
+function toggleEmojiPicker(key) {
+  const cfg = EMOJI_PICKER_CONFIG[key];
+  if (!cfg) return;
+  const panel = document.getElementById(cfg.panelId);
+  const preview = document.getElementById(cfg.previewId);
+  if (!panel) return;
+  const isOpen = panel.style.display !== 'none';
+  if (isOpen) {
+    panel.style.display = 'none';
+    if (preview) preview.style.borderColor = 'var(--border)';
+  } else {
+    panel.style.display = '';
+    if (preview) preview.style.borderColor = 'var(--accent)';
+    // Build the grid with current emoji highlighted
+    const input = document.getElementById(cfg.inputId);
+    const current = (input ? input.value : '') || cfg.defaultEmoji;
+    _buildEmojiGrid(key, current);
+    // Focus the input to trigger emoji keyboard on mobile
+    setTimeout(() => {
+      const inp = document.getElementById(cfg.inputId);
+      if (inp) inp.focus();
+    }, 50);
+  }
+}
+
+function _buildEmojiGrid(key, selected) {
+  const cfg = EMOJI_PICKER_CONFIG[key];
+  if (!cfg) return;
+  const grid = document.getElementById(cfg.gridId);
   if (!grid) return;
   grid.innerHTML = EMOJI_SUGGESTIONS.map(e =>
-    '<div onclick="pickEmoji(\'' + e + '\')" style="width:36px;height:36px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:20px;cursor:pointer;background:' + (e===selectedIcon?'var(--accent-dim)':'transparent') + ';border:2px solid ' + (e===selectedIcon?'var(--accent)':'transparent') + ';transition:all 0.1s" data-emoji="' + e + '">' + e + '</div>'
+    '<button type="button" onclick="pickEmojiFor(\'' + key + '\',\'' + e + '\')" style="width:40px;height:40px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:22px;cursor:pointer;background:' + (e===selected?'var(--accent-dim)':'transparent') + ';border:2px solid ' + (e===selected?'var(--accent)':'transparent') + ';transition:all 0.1s;flex-shrink:0">' + e + '</button>'
   ).join('');
 }
-function pickEmoji(e) {
-  document.getElementById('catIcon').value = e;
-  document.getElementById('catIconPreview').textContent = e;
-  buildEmojiGrid(e);
+
+function pickEmojiFor(key, emoji) {
+  const cfg = EMOJI_PICKER_CONFIG[key];
+  if (!cfg) return;
+  const preview = document.getElementById(cfg.previewId);
+  const input = document.getElementById(cfg.inputId);
+  const panel = document.getElementById(cfg.panelId);
+  if (preview) preview.textContent = emoji;
+  if (input) input.value = emoji;
+  if (panel) panel.style.display = 'none';
+  if (preview) preview.style.borderColor = 'var(--border)';
 }
+
+function onEmojiInput(key, val) {
+  const cfg = EMOJI_PICKER_CONFIG[key];
+  if (!cfg) return;
+  const preview = document.getElementById(cfg.previewId);
+  const emoji = val.trim() || cfg.defaultEmoji;
+  if (preview) preview.textContent = emoji;
+  _buildEmojiGrid(key, val.trim());
+}
+
+function setEmojiPicker(key, emoji) {
+  const cfg = EMOJI_PICKER_CONFIG[key];
+  if (!cfg) return;
+  const preview = document.getElementById(cfg.previewId);
+  const input = document.getElementById(cfg.inputId);
+  const panel = document.getElementById(cfg.panelId);
+  if (preview) { preview.textContent = emoji || cfg.defaultEmoji; preview.style.borderColor = 'var(--border)'; }
+  if (input) input.value = emoji || '';
+  if (panel) panel.style.display = 'none';
+}
+
+function getEmojiPickerValue(key) {
+  const cfg = EMOJI_PICKER_CONFIG[key];
+  if (!cfg) return '📌';
+  const input = document.getElementById(cfg.inputId);
+  const preview = document.getElementById(cfg.previewId);
+  if (input && input.value.trim()) return input.value.trim();
+  if (preview) return preview.textContent || cfg.defaultEmoji;
+  return cfg.defaultEmoji;
+}
+
+// Legacy compatibility shims
+function buildEmojiGrid(selectedIcon) { _buildEmojiGrid('cat', selectedIcon); }
+function pickEmoji(e) { pickEmojiFor('cat', e); }
 
 function buildColorGrid(selectedColor) { buildColorGridFor('colorGrid', selectedColor); }
 function selectColor(col) { selectColorFor('colorGrid', col); }
@@ -5130,15 +5239,13 @@ function openAddCategory() {
   state.editingCatId = null;
   document.getElementById('catModalTitle').textContent = 'New category';
   document.getElementById('catName').value = '';
-  document.getElementById('catIcon').value = '';
   document.getElementById('catType').value = 'variable';
   document.getElementById('catBudget').value = '';
   document.getElementById('catDeleteBtn').style.display = 'none';
   document.getElementById('catSaveBtn').textContent = 'Save category';
   const randomColor = PALETTE[Math.floor(Math.random()*PALETTE.length)];
   buildColorGrid(randomColor);
-  buildEmojiGrid('');
-  document.getElementById('catIconPreview').textContent = '📌';
+  setEmojiPicker('cat', '');
   _setCatOffset(false);
   _populateLinkedGoalDropdown('');
   openModal('catModal');
@@ -5149,14 +5256,12 @@ function openEditCategory(id) {
   state.editingCatId = id;
   document.getElementById('catModalTitle').textContent = 'Edit category';
   document.getElementById('catName').value = cat.name;
-  document.getElementById('catIcon').value = cat.icon;
   document.getElementById('catType').value = cat.type;
   document.getElementById('catBudget').value = cat.budgetLimit || '';
   document.getElementById('catDeleteBtn').style.display = 'block';
   document.getElementById('catSaveBtn').textContent = 'Update category';
   buildColorGrid(cat.color);
-  buildEmojiGrid(cat.icon);
-  document.getElementById('catIconPreview').textContent = cat.icon || '📌';
+  setEmojiPicker('cat', cat.icon || '');
   _setCatOffset(cat.autoOffset || false);
   _populateLinkedGoalDropdown(cat.linkedSavingsGoalId || '');
   openModal('catModal');
@@ -6580,16 +6685,15 @@ function pickSavingsEmoji(gridId, previewId, inputId, e) {
 // ── Savings Categories ────────────────────────────────────────────────────────
 function openAddSavingsCat() {
   editingSavingsCatId = null;
-  document.getElementById('savingsCatModalTitle').textContent = 'New savings category';
+  document.getElementById('savingsCatModalTitle').textContent = 'New savings goal';
   document.getElementById('scName').value = '';
-  document.getElementById('scIcon').value = '';
-  document.getElementById('scIconPreview').textContent = '🎯';
+  document.getElementById('scTarget').value = '';
   document.getElementById('scGoalDate').value = '';
   document.getElementById('scDeleteBtn').style.display = 'none';
-  document.getElementById('scSaveBtn').textContent = 'Save category';
+  document.getElementById('scSaveBtn').textContent = 'Save goal';
   const col = PALETTE[Math.floor(Math.random()*PALETTE.length)];
   buildColorGridFor('scColorGrid', col);
-  buildSavingsEmojiGrid('scEmojiGrid','scIconPreview','scIcon','');
+  setEmojiPicker('sc', '');
   openModal('savingsCatModal');
   setTimeout(()=>document.getElementById('scName').focus(),350);
 }
@@ -6643,15 +6747,14 @@ function _confirmDeleteSavings(catId, subId) {
 function openEditSavingsCat(id) {
   const cat = savingsCatById(id); if (!cat) return;
   editingSavingsCatId = id;
-  document.getElementById('savingsCatModalTitle').textContent = 'Edit category';
+  document.getElementById('savingsCatModalTitle').textContent = 'Edit goal';
   document.getElementById('scName').value = cat.name;
-  document.getElementById('scIcon').value = cat.icon||'';
-  document.getElementById('scIconPreview').textContent = cat.icon||'🎯';
+  document.getElementById('scTarget').value = cat.target || '';
   document.getElementById('scGoalDate').value = cat.goalDate||'';
   document.getElementById('scDeleteBtn').style.display = 'block';
-  document.getElementById('scSaveBtn').textContent = 'Update category';
+  document.getElementById('scSaveBtn').textContent = 'Update goal';
   buildColorGridFor('scColorGrid', cat.color);
-  buildSavingsEmojiGrid('scEmojiGrid','scIconPreview','scIcon',cat.icon||'');
+  setEmojiPicker('sc', cat.icon||'');
   openModal('savingsCatModal');
 }
 function saveSavingsCat() {
@@ -6660,12 +6763,13 @@ function saveSavingsCat() {
   const icon = document.getElementById('scIcon').value.trim() || '🎯';
   const color = getSelectedColorFrom('scColorGrid');
   const goalDate = document.getElementById('scGoalDate').value || '';
+  const target = parseFloat(document.getElementById('scTarget').value) || 0;
   if (!state.savingsCategories) state.savingsCategories = [];
   if (editingSavingsCatId) {
     const idx = state.savingsCategories.findIndex(c=>c.id===editingSavingsCatId);
-    if (idx>=0) state.savingsCategories[idx] = {...state.savingsCategories[idx], name, icon, color, goalDate};
+    if (idx>=0) state.savingsCategories[idx] = {...state.savingsCategories[idx], name, icon, color, goalDate, target};
   } else {
-    state.savingsCategories.push({id:uid(), name, icon, color, goalDate});
+    state.savingsCategories.push({id:uid(), name, icon, color, goalDate, target});
   }
   saveState(); closeModal('savingsCatModal'); renderContent();
 }
@@ -6685,14 +6789,12 @@ function openAddSavingsSub(catId) {
   document.getElementById('savingsSubModalTitle').textContent = 'New savings goal';
   document.getElementById('savingsSubParentLabel').textContent = 'In: ' + (cat ? cat.icon+' '+cat.name : '');
   document.getElementById('ssName').value = '';
-  document.getElementById('ssIcon').value = '';
-  document.getElementById('ssIconPreview').textContent = '✨';
   document.getElementById('ssTarget').value = '';
   document.getElementById('ssGoalDate').value = '';
   document.getElementById('ssDeleteBtn').style.display = 'none';
   document.getElementById('ssSaveBtn').textContent = 'Save goal';
   document.getElementById('ssSaveBtn').onclick = () => saveSavingsSub(catId);
-  buildSavingsEmojiGrid('ssEmojiGrid','ssIconPreview','ssIcon','');
+  setEmojiPicker('ss', '');
   openModal('savingsSubModal');
   setTimeout(()=>document.getElementById('ssName').focus(),350);
 }
@@ -6703,14 +6805,12 @@ function openEditSavingsSub(id) {
   document.getElementById('savingsSubModalTitle').textContent = 'Edit goal';
   document.getElementById('savingsSubParentLabel').textContent = 'In: ' + (cat ? cat.icon+' '+cat.name : '');
   document.getElementById('ssName').value = sub.name;
-  document.getElementById('ssIcon').value = sub.icon||'';
-  document.getElementById('ssIconPreview').textContent = sub.icon||'✨';
   document.getElementById('ssTarget').value = sub.target||'';
   document.getElementById('ssGoalDate').value = sub.goalDate||'';
   document.getElementById('ssDeleteBtn').style.display = 'block';
   document.getElementById('ssSaveBtn').textContent = 'Update goal';
   document.getElementById('ssSaveBtn').onclick = () => saveSavingsSub(sub.catId);
-  buildSavingsEmojiGrid('ssEmojiGrid','ssIconPreview','ssIcon',sub.icon||'');
+  setEmojiPicker('ss', sub.icon||'');
   openModal('savingsSubModal');
 }
 function saveSavingsSub(catId) {
@@ -7058,7 +7158,8 @@ function renderSavings() {
       '</div>' +
       '<div style="text-align:right;flex-shrink:0;margin-right:8px">' +
         '<div style="font-size:16px;font-weight:700;color:'+(catTotal < 0 ? 'var(--red)' : 'var(--text)')+'">'+( catTotal < 0 ? '-' : '')+fmt(Math.abs(catTotal))+'</div>' +
-        (catCycleNet !== 0 ? '<div style="font-size:10px;color:'+(catCycleNet>0?'var(--accent)':'var(--red)')+'">'+( catCycleNet>0?'+':'-')+'$'+Math.abs(catCycleNet).toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2})+' this cycle</div>' : '<div style="font-size:10px;color:var(--muted)">total saved</div>') +
+        (cat.target > 0 ? '<div style="font-size:10px;color:var(--muted)">of '+fmt(cat.target)+'</div>' : '') +
+        (catCycleNet !== 0 && !cat.target ? '<div style="font-size:10px;color:'+(catCycleNet>0?'var(--accent)':'var(--red)')+'">'+( catCycleNet>0?'+':'-')+'$'+Math.abs(catCycleNet).toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2})+' this cycle</div>' : (!cat.target ? '<div style="font-size:10px;color:var(--muted)">total saved</div>' : '')) +
       '</div>' +
       '<button onclick="openSavingsHistory(\''+cat.id+'\',null)" style="background:var(--surface2);border:none;border-radius:8px;padding:6px 8px;cursor:pointer;flex-shrink:0" title="View history">' +
         '<svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M2 4h12M2 8h8M2 12h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>' +
@@ -7185,14 +7286,57 @@ function renderSavings() {
         html += '</div>';
       }
     } else {
-      // Direct deposits/withdrawals on category
+      // Direct deposits/withdrawals on category — show progress + ETA
       const allDeps = depositsForCat(cat.id).sort((a,b)=>b.date.localeCompare(a.date)||b.id.localeCompare(a.id));
-      // Check if any expense category is linked to this goal
       const linkedCats = (state.categories||[]).filter(c=>c.linkedSavingsGoalId===cat.id);
-      const hasLinkedCat = linkedCats.length > 0;
+
+      // ── Progress bar ───────────────────────────────────────────────────────
+      if (cat.target > 0) {
+        const pct = Math.min((catTotal / cat.target) * 100, 100);
+        const toGo = cat.target - catTotal;
+        html += '<div style="padding:0 14px 10px">' +
+          '<div style="background:var(--surface2);border-radius:100px;height:6px;overflow:hidden;margin-bottom:6px">' +
+            '<div style="width:'+pct+'%;height:100%;background:'+cat.color+';border-radius:100px;transition:width 0.4s"></div>' +
+          '</div>' +
+          '<div style="font-size:11px;color:var(--muted)">' +
+            Math.round(pct)+'% · ' +
+            (toGo > 0 ? fmt(Math.max(toGo, 0))+' to go of '+fmt(cat.target) : '🎉 Goal reached!') +
+          '</div>' +
+        '</div>';
+      }
+
+      // ── ETA block ─────────────────────────────────────────────────────────
+      if (cat.target > 0 && catTotal < cat.target && allDeps.length > 0) {
+        const remaining = cat.target - catTotal;
+        const firstDate = new Date(allDeps.reduce((a,b)=>a.date<b.date?a:b).date+'T00:00:00');
+        const monthsActive = Math.max((new Date()-firstDate)/(1000*60*60*24*30.44), 1);
+        const netTotal = allDeps.reduce((s,d)=>s+(d.type==='withdrawal'||d.type==='bill-payment'?-d.amount:d.amount),0);
+        const avgMonthly = netTotal / monthsActive;
+        if (avgMonthly > 0) {
+          const monthsToGo = remaining / avgMonthly;
+          const etaDate = new Date();
+          etaDate.setMonth(etaDate.getMonth() + Math.ceil(monthsToGo));
+          const etaStr = etaDate.toLocaleDateString('en-AU',{month:'short',year:'numeric'});
+          const onTrack = cat.goalDate ? (etaDate <= new Date(cat.goalDate+'T00:00:00')) : null;
+          const requiredMonthly = cat.goalDate ? remaining / Math.max(Math.ceil((new Date(cat.goalDate+'T00:00:00')-new Date())/(1000*60*60*24*30.44)),1) : null;
+          const shortfall = requiredMonthly ? Math.max(requiredMonthly - avgMonthly, 0) : null;
+          html += '<div style="margin:0 14px 10px;background:var(--surface2);border-radius:10px;padding:9px 12px;font-size:11px">' +
+            '<div style="display:flex;justify-content:space-between;align-items:center">' +
+              '<span style="color:var(--muted)">At current pace · '+'$'+Math.round(avgMonthly).toLocaleString('en-AU')+'/mo</span>' +
+              '<span style="font-weight:600;color:'+(onTrack===true?'var(--accent)':onTrack===false?'var(--red)':'var(--text)')+'">' +
+                (onTrack===true?'✓ On track':onTrack===false?'⚠ Behind':'ETA '+etaStr) +
+              '</span>' +
+            '</div>' +
+            (onTrack===false && shortfall ? '<div style="color:var(--red);margin-top:3px">Need +$'+Math.round(shortfall).toLocaleString('en-AU')+'/mo to hit goal date</div>' : '') +
+            (onTrack===null ? '<div style="color:var(--muted);margin-top:2px">Projected: '+etaStr+'</div>' : '') +
+          '</div>';
+        }
+      } else if (cat.target > 0 && catTotal >= cat.target) {
+        html += '<div style="margin:0 14px 10px;font-size:12px;color:var(--accent);font-weight:600">🎉 Goal reached!</div>';
+      }
+
       html += '<div style="border-top:1px solid var(--surface2);padding:10px 14px;display:flex;gap:8px">' +
         '<button onclick="openAddDeposit(null,\''+cat.id+'\')" style="flex:1;background:var(--accent-dim);color:var(--accent);border:none;border-radius:8px;padding:10px;font-size:13px;font-weight:700;font-family:var(--font);cursor:pointer">+ Add / Withdraw</button>' +
-        '<button onclick="openAddSavingsSub(\''+cat.id+'\')" style="background:var(--surface2);color:var(--muted);border:none;border-radius:8px;padding:10px 12px;font-size:12px;font-family:var(--font);cursor:pointer">Add goals</button>' +
       '</div>';
       if (allDeps.length > 0) {
         html += '<div style="border-top:1px solid var(--surface2)">';
@@ -8689,27 +8833,17 @@ function getFYRange(fyLabel) {
 function getCurrentFY() { return getFY(todayStr()); }
 function taxCatById(id) { return (state.taxCategories||[]).find(c=>c.id===id); }
 
-function buildTaxEmojiGrid(selected) {
-  const grid = document.getElementById('txCatEmojiGrid'); if (!grid) return;
-  grid.innerHTML = TAX_EMOJIS.map(e =>
-    '<div onclick="pickTaxEmoji(\'' + e + '\')" style="width:36px;height:36px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:20px;cursor:pointer;background:'+(e===selected?'var(--accent-dim)':'transparent')+';border:2px solid '+(e===selected?'var(--accent)':'transparent')+';transition:all 0.1s">'+e+'</div>'
-  ).join('');
-}
-function pickTaxEmoji(e) {
-  document.getElementById('txCatIcon').value = e;
-  document.getElementById('txCatIconPreview').textContent = e;
-  buildTaxEmojiGrid(e);
-}
+function buildTaxEmojiGrid(selected) { _buildEmojiGrid('txCat', selected); }
+function pickTaxEmoji(e) { pickEmojiFor('txCat', e); }
+
 function openAddTaxCat() {
   editingTaxCatId = null;
   document.getElementById('taxCatModalTitle').textContent = 'New tax category';
   document.getElementById('txCatName').value = '';
-  document.getElementById('txCatIcon').value = '';
-  document.getElementById('txCatIconPreview').textContent = '📋';
   document.getElementById('txCatSaveBtn').textContent = 'Save category';
   document.getElementById('txCatDeleteBtn').style.display = 'none';
   buildColorGridFor('txCatColorGrid', PALETTE[Math.floor(Math.random()*PALETTE.length)]);
-  buildTaxEmojiGrid('');
+  setEmojiPicker('txCat', '');
   openModal('taxCatModal');
   setTimeout(()=>document.getElementById('txCatName').focus(),350);
 }
@@ -8718,14 +8852,44 @@ function openEditTaxCat(id) {
   editingTaxCatId = id;
   document.getElementById('taxCatModalTitle').textContent = 'Edit category';
   document.getElementById('txCatName').value = cat.name;
-  document.getElementById('txCatIcon').value = cat.icon||'';
-  document.getElementById('txCatIconPreview').textContent = cat.icon||'📋';
   document.getElementById('txCatSaveBtn').textContent = 'Update category';
   document.getElementById('txCatDeleteBtn').style.display = 'block';
   buildColorGridFor('txCatColorGrid', cat.color);
-  buildTaxEmojiGrid(cat.icon||'');
+  setEmojiPicker('txCat', cat.icon||'');
   openModal('taxCatModal');
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function saveTaxCat() {
   const name = document.getElementById('txCatName').value.trim(); if (!name) return;
   const icon = document.getElementById('txCatIcon').value.trim() || '📋';
