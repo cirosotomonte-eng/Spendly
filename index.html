@@ -36,7 +36,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '2.2.2-202603302120';
+  const APP_VER = '2.2.3-202603302228';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -1074,6 +1074,11 @@ async function applyUpdate() {
     </div>
     <!-- Goal info line -->
     <div id="txGoalInfo" style="display:none;background:var(--surface2);border-radius:10px;padding:10px 12px;margin-bottom:14px;font-size:12px;color:var(--muted);line-height:1.6"></div>
+    <!-- Goal picker — shown when category has multiple linked goals -->
+    <div id="expGoalPickerWrap" style="display:none;margin-bottom:14px">
+      <label>Which savings goal?</label>
+      <div id="expGoalPickerList" style="display:flex;flex-direction:column;gap:6px"></div>
+    </div>
     <label id="expAmountLabel">Description (optional)</label>
     <input type="text" id="expName" placeholder="e.g. Coffee with client">
     <label>Date</label>
@@ -1150,10 +1155,8 @@ async function applyUpdate() {
     <div class="color-grid" id="colorGrid"></div>
     <label>Monthly budget for this category ($)</label>
     <input type="number" inputmode="decimal" id="catBudget" placeholder="0 (optional)">
-    <label>Link to savings goal (optional)</label>
-    <select id="catLinkedGoal">
-      <option value="">None</option>
-    </select>
+    <label>Link to savings goals (optional)</label>
+    <div id="catLinkedGoalsWrap" style="background:var(--surface2);border-radius:10px;padding:10px 12px;margin-bottom:14px;max-height:160px;overflow-y:auto"></div>
     <button class="btn-primary" id="catSaveBtn" onclick="saveCategory()">Save category</button>
     <button class="btn-danger" id="catDeleteBtn" onclick="deleteCategory()" style="display:none">Delete category</button>
     <button class="btn-ghost" onclick="closeModal('catModal')">Cancel</button>
@@ -1506,6 +1509,11 @@ async function applyUpdate() {
     </div>
     <!-- Goal info line -->
     <div id="recTxGoalInfo" style="display:none;background:var(--surface2);border-radius:10px;padding:10px 12px;margin-bottom:14px;font-size:12px;color:var(--muted);line-height:1.6"></div>
+    <!-- Goal picker — shown when category has multiple linked goals -->
+    <div id="recGoalPickerWrap" style="display:none;margin-bottom:14px">
+      <label>Which savings goal?</label>
+      <div id="recGoalPickerList" style="display:flex;flex-direction:column;gap:6px"></div>
+    </div>
     <label>Frequency</label>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px" id="recFreqBtns">
       <button type="button" onclick="setRecFreq('weekly')" id="recFreqWeekly" style="padding:10px;border-radius:10px;border:2px solid var(--accent);background:var(--accent-dim);color:var(--accent);font-weight:700;font-family:var(--font);cursor:pointer;font-size:13px">Weekly</button>
@@ -1854,9 +1862,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.2.2';
+const APP_VERSION = '2.2.3';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '30 Mar 2026 9:20 PM AEDT';
+const BUILD_TIME = '30 Mar 2026 10:28 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -4146,7 +4154,13 @@ function renderExpenseResults(resultsEl) {
         '</div>' +
         (e.name ? '<div class="item-meta">' + e.name + '</div>' : '') +
         (e.goalCoveredAmount > 0 && e.transactionType !== 'saving' ? (() => {
-          const goal = (() => { const c = catById(e.categoryId); return c && c.linkedSavingsGoalId ? savingsCatById(c.linkedSavingsGoalId) : null; })();
+          const goal = (() => {
+            // Use stored goal ID on expense first, then fall back to category link
+            if (e.linkedGoalId) return savingsCatById(e.linkedGoalId);
+            const c = catById(e.categoryId);
+            const ids = getLinkedGoalIds(c);
+            return ids.length > 0 ? savingsCatById(ids[0]) : null;
+          })();
           const shortfall = e.amount - e.goalCoveredAmount;
           return '<div style="font-size:10px;color:var(--muted);margin-top:3px;line-height:1.5">' +
             '💚 ' + fmt(e.goalCoveredAmount) + ' from ' + (goal ? goal.name : 'savings') +
@@ -5416,7 +5430,7 @@ function openAddCategory() {
   buildColorGrid(randomColor);
   setEmojiPicker('cat', '');
   _setCatOffset(false);
-  _populateLinkedGoalDropdown('');
+  _populateLinkedGoalDropdown([]);
   openModal('catModal');
   setTimeout(()=>document.getElementById('catName').focus(), 350);
 }
@@ -5432,7 +5446,7 @@ function openEditCategory(id) {
   buildColorGrid(cat.color);
   setEmojiPicker('cat', cat.icon || '');
   _setCatOffset(cat.autoOffset || false);
-  _populateLinkedGoalDropdown(cat.linkedSavingsGoalId || '');
+  _populateLinkedGoalDropdown(getLinkedGoalIds(cat));
   openModal('catModal');
 }
 let _catOffsetState = false;
@@ -5457,28 +5471,56 @@ function _setCatOffset(val) {
   }
 }
 
-function _populateLinkedGoalDropdown(selectedId) {
-  const sel = document.getElementById('catLinkedGoal');
-  if (!sel) return;
+// Returns array of linked goal IDs for a category (handles old single-ID and new array)
+function getLinkedGoalIds(cat) {
+  if (!cat) return [];
+  if (Array.isArray(cat.linkedSavingsGoalIds)) return cat.linkedSavingsGoalIds.filter(id => savingsCatById(id));
+  if (cat.linkedSavingsGoalId) return [cat.linkedSavingsGoalId].filter(id => savingsCatById(id));
+  return [];
+}
+
+function _populateLinkedGoalDropdown(selectedIds) {
+  // selectedIds: array of goal IDs (or single string for compat)
+  const selected = Array.isArray(selectedIds) ? selectedIds : (selectedIds ? [selectedIds] : []);
+  const wrap = document.getElementById('catLinkedGoalsWrap');
+  if (!wrap) return;
   const goals = state.savingsCategories || [];
-  sel.innerHTML = '<option value="">None — regular expense category</option>' +
-    goals.map(g => '<option value="' + g.id + '"' + (g.id === selectedId ? ' selected' : '') + '>' + (g.icon||'💰') + ' ' + g.name + '</option>').join('');
+  if (goals.length === 0) {
+    wrap.innerHTML = '<div style="font-size:12px;color:var(--muted)">No savings goals yet — create one in the Savings tab first.</div>';
+    return;
+  }
+  wrap.innerHTML = goals.map(g =>
+    '<label style="display:flex;align-items:center;gap:10px;padding:6px 4px;cursor:pointer">' +
+      '<input type="checkbox" value="' + g.id + '"' + (selected.includes(g.id) ? ' checked' : '') +
+        ' style="width:16px;height:16px;accent-color:var(--accent);flex-shrink:0">' +
+      '<span style="font-size:14px">' + (g.icon||'💰') + '</span>' +
+      '<span style="font-size:13px;font-weight:500">' + g.name + '</span>' +
+    '</label>'
+  ).join('');
+}
+
+function _getLinkedGoalIdsFromModal() {
+  const wrap = document.getElementById('catLinkedGoalsWrap');
+  if (!wrap) return [];
+  return Array.from(wrap.querySelectorAll('input[type=checkbox]:checked')).map(cb => cb.value);
 }
 
 function saveCategory() {
   const name = document.getElementById('catName').value.trim();
-  const icon = document.getElementById('catIcon').value.trim() || '📌';
+  const icon = getEmojiPickerValue('cat');
   const type = document.getElementById('catType').value;
   const color = getSelectedColor();
   const budgetLimit = parseFloat(document.getElementById('catBudget').value) || 0;
-  const linkedSavingsGoalId = document.getElementById('catLinkedGoal').value || null;
+  const linkedSavingsGoalIds = _getLinkedGoalIdsFromModal();
+  // Keep backward-compat single field pointing to first linked goal
+  const linkedSavingsGoalId = linkedSavingsGoalIds[0] || null;
   if (!name) return;
   if (state.editingCatId) {
     const idx = state.categories.findIndex(c=>c.id===state.editingCatId);
     const existing = state.categories[idx] || {};
-    if (idx>=0) state.categories[idx] = { ...existing, name, icon, type, color, budgetLimit, linkedSavingsGoalId };
+    if (idx>=0) state.categories[idx] = { ...existing, name, icon, type, color, budgetLimit, linkedSavingsGoalId, linkedSavingsGoalIds };
   } else {
-    state.categories.push({ id: uid(), name, icon, type, color, budgetLimit, linkedSavingsGoalId, autoOffset: false });
+    state.categories.push({ id: uid(), name, icon, type, color, budgetLimit, linkedSavingsGoalId, linkedSavingsGoalIds, autoOffset: false });
   }
   saveState();
   closeModal('catModal');
@@ -5537,14 +5579,53 @@ function setTxType(type) {
   _updateTxGoalInfo();
 }
 
+// Currently selected goal ID in the expense modal
+let _expSelectedGoalId = null;
+
 function onExpCatChange() {
-  _txType = 'expense'; // reset to expense on category change
+  _txType = 'expense';
   setTxType('expense');
+  _expSelectedGoalId = null;
   const catId = document.getElementById('expCat').value;
   const cat = catById(catId);
-  const hasLinkedGoal = cat && cat.linkedSavingsGoalId;
-  document.getElementById('txTypeRow').style.display = hasLinkedGoal ? '' : 'none';
-  document.getElementById('txGoalInfo').style.display = hasLinkedGoal ? '' : 'none';
+  const linkedIds = getLinkedGoalIds(cat);
+  // Show type toggle only when there are linked goals
+  document.getElementById('txTypeRow').style.display = linkedIds.length > 0 ? '' : 'none';
+  // Auto-select if exactly one linked goal
+  if (linkedIds.length === 1) _expSelectedGoalId = linkedIds[0];
+  _renderExpGoalPicker(linkedIds);
+  _updateTxGoalInfo();
+}
+
+function _renderExpGoalPicker(linkedIds) {
+  const wrap = document.getElementById('expGoalPickerWrap');
+  const list = document.getElementById('expGoalPickerList');
+  if (!wrap || !list) return;
+  // Only show picker when 2+ goals
+  if (linkedIds.length < 2) { wrap.style.display = 'none'; return; }
+  wrap.style.display = '';
+  const fmtB = n => '$' + Math.abs(n).toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2});
+  list.innerHTML = linkedIds.map(gid => {
+    const g = savingsCatById(gid);
+    if (!g) return '';
+    const balance = totalSavedForCat(gid);
+    const isSelected = _expSelectedGoalId === gid;
+    return '<button type="button" onclick="selectExpGoal(\'' + gid + '\')" style="display:flex;align-items:center;gap:10px;width:100%;padding:10px 12px;border-radius:10px;border:2px solid ' + (isSelected?'var(--accent)':'var(--border)') + ';background:' + (isSelected?'var(--accent-dim)':'var(--surface2)') + ';cursor:pointer;text-align:left;font-family:var(--font)">' +
+      '<span style="font-size:20px;flex-shrink:0">' + (g.icon||'💰') + '</span>' +
+      '<div style="flex:1;min-width:0">' +
+        '<div style="font-size:13px;font-weight:600;color:' + (isSelected?'var(--accent)':'var(--text)') + '">' + g.name + '</div>' +
+        '<div style="font-size:11px;color:var(--muted)">Balance: ' + fmtB(balance) + (g.target ? ' · Target: ' + fmtB(g.target) : '') + '</div>' +
+      '</div>' +
+      (isSelected ? '<span style="color:var(--accent);font-weight:700;font-size:16px">✓</span>' : '') +
+    '</button>';
+  }).join('');
+}
+
+function selectExpGoal(goalId) {
+  _expSelectedGoalId = goalId;
+  const catId = document.getElementById('expCat').value;
+  const cat = catById(catId);
+  _renderExpGoalPicker(getLinkedGoalIds(cat));
   _updateTxGoalInfo();
 }
 
@@ -5553,12 +5634,23 @@ function _updateTxGoalInfo() {
   if (!infoEl) return;
   const catId = document.getElementById('expCat').value;
   const cat = catById(catId);
-  if (!cat || !cat.linkedSavingsGoalId) { infoEl.style.display = 'none'; return; }
-  const goal = savingsCatById(cat.linkedSavingsGoalId);
+  const linkedIds = getLinkedGoalIds(cat);
+  if (linkedIds.length === 0) { infoEl.style.display = 'none'; return; }
+
+  // Use picked goal, or auto-selected single goal
+  const goalId = _expSelectedGoalId || linkedIds[0];
+  if (!goalId) { infoEl.style.display = 'none'; return; }
+  const goal = savingsCatById(goalId);
   if (!goal) { infoEl.style.display = 'none'; return; }
 
-  // Compute balance EXCLUDING the current transaction's linked deposit/withdrawal
-  // so editing doesn't double-count the existing effect
+  // If multiple goals and none picked yet, prompt to pick
+  if (linkedIds.length > 1 && !_expSelectedGoalId) {
+    infoEl.innerHTML = '👆 Select which savings goal this transaction is for above.';
+    infoEl.style.display = '';
+    return;
+  }
+
+  // Compute balance excluding current edit
   let excludeIds = new Set();
   if (state.editingExpenseId) {
     const existing = state.expenses.find(e=>e.id===state.editingExpenseId);
@@ -5581,7 +5673,7 @@ function _updateTxGoalInfo() {
       infoEl.innerHTML = '💚 Full amount covered by <strong style="color:var(--text)">' + goal.icon + ' ' + goal.name + '</strong> (balance: ' + fmtB(balance) + ')<br><span style="color:#34C759">Budget unaffected.</span>';
     } else if (balance > 0 && amt > 0) {
       const shortfall = amt - balance;
-      infoEl.innerHTML = '<strong style="color:var(--orange)">Split transaction!</strong> ' + fmtB(balance) + ' deducted from <strong style="color:var(--text)">' + goal.icon + ' ' + goal.name + '</strong> and ' + fmtB(shortfall) + ' deducted from budget.';
+      infoEl.innerHTML = '<strong style="color:var(--orange)">Split transaction!</strong> ' + fmtB(balance) + ' from <strong style="color:var(--text)">' + goal.icon + ' ' + goal.name + '</strong> + ' + fmtB(shortfall) + ' from budget.';
     } else {
       infoEl.innerHTML = '💚 Linked to <strong style="color:var(--text)">' + goal.icon + ' ' + goal.name + '</strong> (balance: ' + fmtB(balance) + ')<br>' + (balance <= 0 ? '<span style="color:var(--red)">No savings available — full amount from budget.</span>' : '<span style="color:var(--muted)">Enter an amount to see the breakdown.</span>');
     }
@@ -5852,6 +5944,7 @@ function openAddExpense() {
   if (state.categories.length === 0) { openAddCategory(); return; }
   state.editingExpenseId = null;
   _txType = 'expense';
+  _expSelectedGoalId = null;
   document.getElementById('expenseModalTitle').textContent = 'New transaction';
   document.getElementById('expAmount').value = '';
   document.getElementById('expAmount').oninput = _updateTxGoalInfo;
@@ -5861,8 +5954,8 @@ function openAddExpense() {
   document.getElementById('expSaveBtn').textContent = 'Save';
   document.getElementById('txTypeRow').style.display = 'none';
   document.getElementById('txGoalInfo').style.display = 'none';
+  document.getElementById('expGoalPickerWrap').style.display = 'none';
   document.getElementById('expLinkedWarning').style.display = 'none';
-  _txType = 'expense'; // always expense in this modal now
   setExpTaxToggle(false);
   setTxType('expense');
   populateCatSelect();
@@ -5874,6 +5967,14 @@ function openEditExpense(id) {
   const e = state.expenses.find(x=>x.id===id); if (!e) return;
   state.editingExpenseId = id;
   _txType = e.transactionType || 'expense';
+  // Restore which goal was selected for this expense
+  _expSelectedGoalId = e.linkedGoalId || e.linkedDepositId && (() => {
+    const dep = (state.savingsDeposits||[]).find(d=>d.id===e.linkedDepositId);
+    return dep ? dep.catId : null;
+  })() || e.linkedWithdrawalId && (() => {
+    const dep = (state.savingsDeposits||[]).find(d=>d.id===e.linkedWithdrawalId);
+    return dep ? dep.catId : null;
+  })() || null;
   document.getElementById('expenseModalTitle').textContent = 'Edit transaction';
   document.getElementById('expAmount').value = e.amount;
   document.getElementById('expAmount').oninput = _updateTxGoalInfo;
@@ -5884,16 +5985,18 @@ function openEditExpense(id) {
   populateCatSelect();
   document.getElementById('expCat').value = e.categoryId;
   const cat = catById(e.categoryId);
-  const hasLinkedGoal = cat && cat.linkedSavingsGoalId;
-  document.getElementById('txTypeRow').style.display = hasLinkedGoal ? '' : 'none';
+  const linkedIds = getLinkedGoalIds(cat);
+  document.getElementById('txTypeRow').style.display = linkedIds.length > 0 ? '' : 'none';
   setTxType(_txType);
+  _renderExpGoalPicker(linkedIds);
   _updateTxGoalInfo();
 
-  // Show linked warning if this transaction has a linked savings entry
+  // Show linked warning
   const warnEl = document.getElementById('expLinkedWarning');
   const hasLinked = e.linkedDepositId || e.linkedWithdrawalId;
   if (hasLinked) {
-    const goal = hasLinkedGoal ? savingsCatById(cat.linkedSavingsGoalId) : null;
+    const goalId = _expSelectedGoalId || linkedIds[0];
+    const goal = goalId ? savingsCatById(goalId) : null;
     const txLabel = e.transactionType === 'saving' ? 'saving deposit' : 'goal withdrawal';
     warnEl.innerHTML = '⚠️ Deleting this will also remove the linked ' + txLabel +
       (goal ? ' from <strong style="color:var(--text)">' + goal.icon + ' ' + goal.name + '</strong>' : ' in your savings goal') + '.';
@@ -5902,10 +6005,8 @@ function openEditExpense(id) {
     warnEl.style.display = 'none';
   }
 
-  // Set tax deductible toggle based on existing linked tax transaction
   const linkedTaxTx = (state.taxTransactions||[]).find(t => t.linkedExpenseId === id);
   setExpTaxToggle(!!linkedTaxTx, linkedTaxTx ? linkedTaxTx.catId : null);
-
   openModal('expenseModal');
 }
 
@@ -5917,7 +6018,14 @@ function saveExpense() {
   if (!amount || amount<=0 || !date || !categoryId) return;
 
   const cat = catById(categoryId);
-  const linkedGoalId = cat ? cat.linkedSavingsGoalId : null;
+  const linkedIds = getLinkedGoalIds(cat);
+  // Use picker selection, or auto-select single linked goal
+  const linkedGoalId = linkedIds.length > 0 ? (_expSelectedGoalId || linkedIds[0]) : null;
+  // Require goal selection when category has multiple linked goals
+  if (linkedIds.length > 1 && !_expSelectedGoalId) {
+    showToast('Please select a savings goal for this transaction', 2500);
+    return;
+  }
   const txType = linkedGoalId ? _txType : 'expense';
 
   // Remove old linked deposits if editing
@@ -5950,7 +6058,7 @@ function saveExpense() {
     }
   }
 
-  const expRecord = { id:expId, amount, name, categoryId, date, transactionType:txType, linkedDepositId, linkedWithdrawalId, goalCoveredAmount };
+  const expRecord = { id:expId, amount, name, categoryId, date, transactionType:txType, linkedGoalId: linkedGoalId||undefined, linkedDepositId, linkedWithdrawalId, goalCoveredAmount };
 
   if (state.editingExpenseId) {
     const idx = state.expenses.findIndex(e=>e.id===state.editingExpenseId);
@@ -9612,23 +9720,45 @@ function setRecTxType(type) {
   checkRecChanged();
 }
 
+let _recSelectedGoalId = null;
+
 function updateRecTxGoalInfo() {
   const catId = document.getElementById('recCat').value;
   const cat = catById(catId);
-  const linkedGoalId = cat ? cat.linkedSavingsGoalId : null;
+  const linkedIds = getLinkedGoalIds(cat);
   const typeRow = document.getElementById('recTxTypeRow');
   const infoEl = document.getElementById('recTxGoalInfo');
-  if (!linkedGoalId) {
+  const pickerWrap = document.getElementById('recGoalPickerWrap');
+
+  if (linkedIds.length === 0) {
     if (typeRow) typeRow.style.display = 'none';
     if (infoEl) infoEl.style.display = 'none';
+    if (pickerWrap) pickerWrap.style.display = 'none';
     recTxType = 'expense';
+    _recSelectedGoalId = null;
     return;
   }
-  // Show the toggle
+
+  // Show type toggle
   if (typeRow) typeRow.style.display = '';
-  const goal = savingsCatById(linkedGoalId);
+
+  // Auto-select single goal
+  if (linkedIds.length === 1) _recSelectedGoalId = linkedIds[0];
+
+  // Render goal picker when multiple goals
+  _renderRecGoalPicker(linkedIds);
+
+  const goalId = _recSelectedGoalId || linkedIds[0];
+  const goal = savingsCatById(goalId);
   if (!goal || !infoEl) return;
-  const balance = totalSavedForCat(linkedGoalId);
+
+  if (linkedIds.length > 1 && !_recSelectedGoalId) {
+    infoEl.innerHTML = '👆 Select which savings goal this recurring transaction is for above.';
+    infoEl.style.display = '';
+    return;
+  }
+
+  const balance = totalSavedForCat(goalId);
   const fmtB = n => '$' + Math.abs(n).toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2});
   if (recTxType === 'saving') {
     infoEl.innerHTML = '💚 Each fire will deposit into <strong style="color:var(--text)">' + goal.icon + ' ' + goal.name + '</strong> and deduct from budget.<br>Current balance: ' + fmtB(balance);
@@ -9636,6 +9766,38 @@ function updateRecTxGoalInfo() {
     infoEl.innerHTML = '💳 Each fire will withdraw from <strong style="color:var(--text)">' + goal.icon + ' ' + goal.name + '</strong> first (current balance: ' + fmtB(balance) + ').<br>Any shortfall will deduct from budget instead.';
   }
   infoEl.style.display = '';
+}
+
+function _renderRecGoalPicker(linkedIds) {
+  const wrap = document.getElementById('recGoalPickerWrap');
+  const list = document.getElementById('recGoalPickerList');
+  if (!wrap || !list) return;
+  if (linkedIds.length < 2) { wrap.style.display = 'none'; return; }
+  wrap.style.display = '';
+  const fmtB = n => '$' + Math.abs(n).toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2});
+  list.innerHTML = linkedIds.map(gid => {
+    const g = savingsCatById(gid);
+    if (!g) return '';
+    const balance = totalSavedForCat(gid);
+    const isSelected = _recSelectedGoalId === gid;
+    return '<button type="button" onclick="selectRecGoal(\'' + gid + '\')" style="display:flex;align-items:center;gap:10px;width:100%;padding:10px 12px;border-radius:10px;border:2px solid ' + (isSelected?'var(--accent)':'var(--border)') + ';background:' + (isSelected?'var(--accent-dim)':'var(--surface2)') + ';cursor:pointer;text-align:left;font-family:var(--font)">' +
+      '<span style="font-size:20px;flex-shrink:0">' + (g.icon||'💰') + '</span>' +
+      '<div style="flex:1;min-width:0">' +
+        '<div style="font-size:13px;font-weight:600;color:' + (isSelected?'var(--accent)':'var(--text)') + '">' + g.name + '</div>' +
+        '<div style="font-size:11px;color:var(--muted)">Balance: ' + fmtB(balance) + (g.target ? ' · Target: ' + fmtB(g.target) : '') + '</div>' +
+      '</div>' +
+      (isSelected ? '<span style="color:var(--accent);font-weight:700;font-size:16px">✓</span>' : '') +
+    '</button>';
+  }).join('');
+}
+
+function selectRecGoal(goalId) {
+  _recSelectedGoalId = goalId;
+  const catId = document.getElementById('recCat').value;
+  const cat = catById(catId);
+  _renderRecGoalPicker(getLinkedGoalIds(cat));
+  updateRecTxGoalInfo();
+  checkRecChanged();
 }
 
 function openAddRecurring() {
@@ -9653,6 +9815,7 @@ function openAddRecurring() {
   const ocheck = document.getElementById('recOffsetCheck');
   if (ocheck) { ocheck.textContent=''; ocheck.style.background='var(--surface3)'; ocheck.style.border='2px solid var(--border)'; }
   populateRecCatSelect();
+  _recSelectedGoalId = null;
   updateRecOffsetVisibility();
   recTxType = 'expense';
   setRecTxType('expense');
@@ -9691,6 +9854,7 @@ function openEditRecurring(id) {
   }
   populateRecCatSelect();
   if (rec.categoryId) document.getElementById('recCat').value = rec.categoryId;
+  _recSelectedGoalId = rec.linkedGoalId || null;
   updateRecOffsetVisibility();
   recTxType = rec.transactionType || 'expense';
   setRecTxType(recTxType);
@@ -9724,6 +9888,14 @@ function saveRecurring() {
   const amount = parseFloat(document.getElementById('recAmount').value);
   const categoryId = document.getElementById('recCat').value;
   if (!name || !amount || !categoryId) return;
+  // Validate goal selection when category has multiple linked goals
+  const cat = catById(categoryId);
+  const linkedIds = getLinkedGoalIds(cat);
+  if (linkedIds.length > 1 && !_recSelectedGoalId) {
+    showToast('Please select a savings goal for this recurring transaction', 2500);
+    return;
+  }
+  const linkedGoalId = linkedIds.length > 0 ? (_recSelectedGoalId || linkedIds[0]) : undefined;
   // Validate frequency-specific fields
   if (recFreqState === 'monthly' && !document.getElementById('recMonthDay').value) return;
   if (recFreqState === 'xweeks' && (!document.getElementById('recXweeksNum').value || !document.getElementById('recXweeksDate').value)) return;
@@ -9733,11 +9905,11 @@ function saveRecurring() {
   const rec = {
     id: editingRecurringId || uid(),
     name, amount, categoryId,
+    linkedGoalId,
     frequency: recFreqState,
     active: recActiveState,
     autoOffset: recOffsetState,
     transactionType: recTxType,
-    // Frequency-specific
     weekday: recFreqState === 'weekly' ? recWeekdayState : undefined,
     monthDay: recFreqState === 'monthly' ? parseInt(document.getElementById('recMonthDay').value) : undefined,
     xweeksNum: recFreqState === 'xweeks' ? parseInt(document.getElementById('recXweeksNum').value) : undefined,
@@ -10211,7 +10383,8 @@ function applyRecurringExpenses() {
     const expId = uid();
     const txType = r.transactionType || 'expense';
     const cat = catById(r.categoryId);
-    const linkedGoalId = cat ? cat.linkedSavingsGoalId : null;
+    // Use the goal stored on the recurring record, or fall back to first linked goal on category
+    const linkedGoalId = r.linkedGoalId || (cat ? getLinkedGoalIds(cat)[0] : null) || null;
     let linkedDepositId = null;
     let linkedWithdrawalId = null;
     let goalCoveredAmount = 0;
@@ -10237,6 +10410,7 @@ function applyRecurringExpenses() {
       categoryId: r.categoryId,
       date: todayDateStr,
       transactionType: txType,
+      linkedGoalId: linkedGoalId || undefined,
       linkedDepositId,
       linkedWithdrawalId,
       goalCoveredAmount,
