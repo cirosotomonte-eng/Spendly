@@ -36,7 +36,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '2.2.4-202603302234';
+  const APP_VER = '2.2.5-202603302257';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -1862,9 +1862,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.2.4';
+const APP_VERSION = '2.2.5';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '30 Mar 2026 10:34 PM AEDT';
+const BUILD_TIME = '30 Mar 2026 10:57 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -4149,22 +4149,23 @@ function renderExpenseResults(resultsEl) {
         '<div class="item-info"><div class="item-name">' + cat.name +
           (e.transactionType==='saving' ? '<span style="font-size:9px;background:rgba(52,199,89,0.15);color:#34C759;border-radius:4px;padding:1px 5px;font-weight:700;margin-left:5px;vertical-align:middle">SAVING</span>' :
            e.goalCoveredAmount > 0 && e.goalCoveredAmount < e.amount ? '<span style="font-size:9px;background:rgba(240,168,96,0.15);color:var(--orange);border-radius:4px;padding:1px 5px;font-weight:700;margin-left:5px;vertical-align:middle">SPLIT</span>' :
-           e.goalCoveredAmount >= e.amount && e.goalCoveredAmount > 0 ? '<span style="font-size:9px;background:rgba(52,199,89,0.15);color:#34C759;border-radius:4px;padding:1px 5px;font-weight:700;margin-left:5px;vertical-align:middle">GOAL</span>' :
            e.linkedDepositId ? '<span style="font-size:9px;background:rgba(52,199,89,0.15);color:#34C759;border-radius:4px;padding:1px 5px;font-weight:700;margin-left:5px;vertical-align:middle">SAVING</span>' : '') +
         '</div>' +
         (e.name ? '<div class="item-meta">' + e.name + '</div>' : '') +
         (e.goalCoveredAmount > 0 && e.transactionType !== 'saving' ? (() => {
           const goal = (() => {
-            // Use stored goal ID on expense first, then fall back to category link
             if (e.linkedGoalId) return savingsCatById(e.linkedGoalId);
             const c = catById(e.categoryId);
             const ids = getLinkedGoalIds(c);
             return ids.length > 0 ? savingsCatById(ids[0]) : null;
           })();
+          const goalName = goal ? goal.name : 'savings';
           const shortfall = e.amount - e.goalCoveredAmount;
-          return '<div style="font-size:10px;color:var(--muted);margin-top:3px;line-height:1.5">' +
-            '💚 ' + fmt(e.goalCoveredAmount) + ' from ' + (goal ? goal.name : 'savings') +
-            (shortfall > 0 ? ' · 💳 ' + fmt(shortfall) + ' from budget' : '') +
+          const isFullyCovered = shortfall <= 0;
+          return '<div style="font-size:10px;color:#34C759;margin-top:3px;line-height:1.5">' +
+            (isFullyCovered
+              ? '💚 Covered by ' + goalName
+              : '💚 ' + fmt(e.goalCoveredAmount) + ' from ' + goalName + ' · <span style="color:var(--muted)">💳 ' + fmt(shortfall) + ' from budget</span>') +
           '</div>';
         })() : '') +
         '</div>' +
