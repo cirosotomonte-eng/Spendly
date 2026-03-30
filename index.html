@@ -36,7 +36,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '2.2.13-202603310758';
+  const APP_VER = '2.2.15-202603310852';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -1083,6 +1083,13 @@ async function applyUpdate() {
     <input type="text" id="expName" placeholder="e.g. Coffee with client">
     <label>Date</label>
     <input type="date" id="expDate">
+    <label>Payment method</label>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px" id="expPaymentBtns">
+      <button type="button" onclick="setExpPayment('cc')"     id="expPay_cc"       style="padding:9px;border-radius:10px;border:2px solid var(--accent);background:var(--accent-dim);color:var(--accent);font-weight:700;font-family:var(--font);cursor:pointer;font-size:12px">💳 Credit Card</button>
+      <button type="button" onclick="setExpPayment('cash')"   id="expPay_cash"     style="padding:9px;border-radius:10px;border:2px solid var(--border);background:var(--surface2);color:var(--muted);font-weight:600;font-family:var(--font);cursor:pointer;font-size:12px">💵 Cash</button>
+      <button type="button" onclick="setExpPayment('bank')"   id="expPay_bank"     style="padding:9px;border-radius:10px;border:2px solid var(--border);background:var(--surface2);color:var(--muted);font-weight:600;font-family:var(--font);cursor:pointer;font-size:12px">🏦 Bank Transfer</button>
+      <button type="button" onclick="setExpPayment('other')"  id="expPay_other"    style="padding:9px;border-radius:10px;border:2px solid var(--border);background:var(--surface2);color:var(--muted);font-weight:600;font-family:var(--font);cursor:pointer;font-size:12px">💸 Other</button>
+    </div>
     <!-- Tax deductible toggle -->
     <div id="expTaxRow" onclick="toggleTaxDeductible()" style="display:flex;align-items:center;justify-content:space-between;background:var(--surface2);border-radius:10px;padding:12px 14px;margin-bottom:14px;cursor:pointer;-webkit-tap-highlight-color:transparent;user-select:none">
       <div>
@@ -1862,9 +1869,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.2.13';
+const APP_VERSION = '2.2.15';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '31 Mar 2026 7:58 AM AEDT';
+const BUILD_TIME = '31 Mar 2026 8:52 AM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -3875,6 +3882,7 @@ function renderFutureCycle(el) {
 
 // ── Expenses tab ──────────────────────────────────────────────────────────────
 let expenseSearchQuery = '';
+let _expPaymentFilter = new Set(); // empty = show all
 let _searchDebounce = null;
 function debounceSearch(val) {
   expenseSearchQuery = val;
@@ -4025,6 +4033,7 @@ function renderExpenses() {
   el.innerHTML = subTabBar +
     '<div id="expPaneLog">' +
       searchBar +
+      '<div id="expPaymentFilter" style="margin-bottom:10px"></div>' +
       '<div id="recurringCollapsible"></div>' +
       '<div id="expenseResults"></div>' +
     '</div>' +
@@ -4035,7 +4044,7 @@ function renderExpenses() {
     document.getElementById('expPaneRecurring').style.display = '';
     renderRecurringPane();
   } else {
-    // Defer expense results render until DOM has painted — fixes blank list on tab switch in Safari
+    renderPaymentFilterBar();
     if (!query) renderRecurringSection();
     requestAnimationFrame(() => {
       const resultsEl = document.getElementById('expenseResults');
@@ -4068,8 +4077,8 @@ function renderRecurringPane() {
       return na - nb;
     });
     const todayStr_ = todayStr();
-      html += '<div style="display:flex;flex-direction:column;gap:10px">';
-      sorted.forEach(r => {
+    html += '<div style="display:flex;flex-direction:column;gap:10px">';
+    sorted.forEach(r => {
       const cat = catById(r.categoryId);
       const next = getRecNextDate(r);
       const nextStr = next ? next.toLocaleDateString('en-AU',{weekday:'short',day:'numeric',month:'short'}) : '—';
@@ -4085,7 +4094,7 @@ function renderRecurringPane() {
           '<div class="cat-icon">'+(cat?cat.icon:'❓')+'</div>' +
           '<div class="item-info">' +
             '<div class="item-name">' + r.name + autoOffsetBadge + pausedBadge + dueBadge + '</div>' +
-            '<div class="item-meta" style="color:'+(isDueToday?'#34C759':isOverdue?'var(--red)':'var(--muted)')+'">' + recFreqLabel(r) + ' · Next: ' + nextStr + '</div>' +
+            '<div class="item-meta" style="color:'+(isDueToday?'#34C759':isOverdue?'var(--red)':'var(--muted)')+'\">' + recFreqLabel(r) + ' · Next: ' + nextStr + '</div>' +
           '</div>' +
         '</div>' +
         '<div style="display:flex;align-items:center;gap:10px;flex-shrink:0">' +
@@ -4100,6 +4109,49 @@ function renderRecurringPane() {
     html += '</div>';
   }
   pane.innerHTML = html;
+}
+
+function renderPaymentFilterBar() {
+  const el = document.getElementById('expPaymentFilter');
+  if (!el) return;
+  const methods = [
+    { key: 'cc',    icon: '💳', label: 'CC' },
+    { key: 'cash',  icon: '💵', label: 'Cash' },
+    { key: 'bank',  icon: '🏦', label: 'Bank' },
+    { key: 'other', icon: '💸', label: 'Other' },
+  ];
+  const hasFilter = _expPaymentFilter.size > 0;
+  let html = '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">';
+  // "All" pill
+  html += '<button type="button" onclick="clearPaymentFilter()" style="padding:5px 12px;border-radius:100px;border:1.5px solid ' + (!hasFilter?'var(--accent)':'var(--border)') + ';background:' + (!hasFilter?'var(--accent-dim)':'var(--surface2)') + ';color:' + (!hasFilter?'var(--accent)':'var(--muted)') + ';font-size:12px;font-weight:' + (!hasFilter?'700':'500') + ';font-family:var(--font);cursor:pointer;-webkit-tap-highlight-color:transparent">All</button>';
+  methods.forEach(m => {
+    const active = _expPaymentFilter.has(m.key);
+    html += '<button type="button" onclick="togglePaymentFilter(\'' + m.key + '\')" style="padding:5px 12px;border-radius:100px;border:1.5px solid ' + (active?'var(--accent)':'var(--border)') + ';background:' + (active?'var(--accent-dim)':'var(--surface2)') + ';color:' + (active?'var(--accent)':'var(--muted)') + ';font-size:12px;font-weight:' + (active?'700':'500') + ';font-family:var(--font);cursor:pointer;-webkit-tap-highlight-color:transparent">' + m.icon + ' ' + m.label + '</button>';
+  });
+  html += '</div>';
+  el.innerHTML = html;
+}
+
+function togglePaymentFilter(method) {
+  if (_expPaymentFilter.has(method)) {
+    _expPaymentFilter.delete(method);
+  } else {
+    _expPaymentFilter.add(method);
+  }
+  renderPaymentFilterBar();
+  const resultsEl = document.getElementById('expenseResults');
+  if (resultsEl) renderExpenseResults(resultsEl);
+  // Hide recurring collapsible when filtering
+  const rec = document.getElementById('recurringCollapsible');
+  if (rec) { if (_expPaymentFilter.size > 0) rec.style.display = 'none'; else renderRecurringSection(); }
+}
+
+function clearPaymentFilter() {
+  _expPaymentFilter.clear();
+  renderPaymentFilterBar();
+  const resultsEl = document.getElementById('expenseResults');
+  if (resultsEl) renderExpenseResults(resultsEl);
+  renderRecurringSection();
 }
 
 function openAddRecurringInline() {
@@ -4120,11 +4172,12 @@ function renderExpenseResults(resultsEl) {
   if (!resultsEl) return;
   const query = expenseSearchQuery.trim().toLowerCase();
   const allExpenses = cycleExpenses()
-    .filter(e => e.transactionType !== 'saving') // savings live in the Savings tab now
+    .filter(e => e.transactionType !== 'saving')
     .sort((a,b) => b.date.localeCompare(a.date) || b.id.localeCompare(a.id));
   const allUpcoming = isCurrentCycle() ? getUpcomingRecurring().sort((a,b) => a.date.localeCompare(b.date)) : [];
 
-  const expenses = query ? allExpenses.filter(e => {
+  // Apply text search
+  let expenses = query ? allExpenses.filter(e => {
     const cat = catById(e.categoryId);
     const badge = e.transactionType === 'saving' ? 'saving' :
                   e.goalCoveredAmount > 0 && e.goalCoveredAmount < e.amount ? 'split' :
@@ -4134,17 +4187,26 @@ function renderExpenseResults(resultsEl) {
            badge.includes(query);
   }) : allExpenses;
 
-  // Filter upcoming when searching
+  // Apply payment method filter
+  const hasPaymentFilter = _expPaymentFilter.size > 0;
+  if (hasPaymentFilter) {
+    expenses = expenses.filter(e => {
+      const pm = e.paymentMethod || 'cc';
+      return _expPaymentFilter.has(pm);
+    });
+  }
+
+  // Filter upcoming when searching (payment filter doesn't apply to upcoming — they haven't fired yet)
   const upcomingFiltered = query ? allUpcoming.filter(e => {
     const cat = catById(e.categoryId);
     return (cat ? cat.name.toLowerCase() : '').includes(query) || (e.name||'').toLowerCase().includes(query);
-  }) : allUpcoming;
+  }) : (hasPaymentFilter ? [] : allUpcoming);
 
   // ── Upcoming recurring section handled by collapsible above search results ─
 
   if (expenses.length === 0) {
-    resultsEl.innerHTML = query
-      ? '<div class="empty"><div class="empty-icon">\ud83d\udd0d</div><div class="empty-text">No results</div><div class="empty-sub">No expenses match \"' + query + '\"</div></div>'
+    resultsEl.innerHTML = (query || hasPaymentFilter)
+      ? '<div class="empty"><div class="empty-icon">\ud83d\udd0d</div><div class="empty-text">No results</div><div class="empty-sub">No expenses match the current filter</div></div>'
       : '<div class="empty"><div class="empty-icon">\ud83d\udcb8</div><div class="empty-text">No expenses yet</div><div class="empty-sub">Tap + to add your first transaction</div></div>';
     return;
   }
@@ -4154,14 +4216,20 @@ function renderExpenseResults(resultsEl) {
 
   let html = '';
 
-  if (query) {
+  if (query || hasPaymentFilter) {
     const loggedTotal = expenses.reduce((s,e) => s + budgetAmount(e), 0);
     const upcomingMatchTotal = upcomingFiltered.reduce((s,e) => s + e.amount, 0);
     const grandTotal = loggedTotal + upcomingMatchTotal;
     const totalCount = expenses.length + upcomingFiltered.length;
+    const filterDesc = hasPaymentFilter
+      ? [..._expPaymentFilter].map(k => EXP_PAYMENT_METHODS[k]?.icon + ' ' + EXP_PAYMENT_METHODS[k]?.label).join(', ')
+      : null;
     html += '<div style="background:var(--surface);border-radius:var(--r);padding:11px 14px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center">' +
       '<div>' +
-        '<div style="font-size:12px;color:var(--muted)">' + totalCount + ' result' + (totalCount !== 1 ? 's' : '') + ' for <strong style="color:var(--text)">"' + query + '"</strong></div>' +
+        '<div style="font-size:12px;color:var(--muted)">' + totalCount + ' result' + (totalCount !== 1 ? 's' : '') +
+          (filterDesc ? ' · <strong style="color:var(--text)">' + filterDesc + '</strong>' : '') +
+          (query ? ' for <strong style="color:var(--text)">"' + query + '"</strong>' : '') +
+        '</div>' +
         (upcomingMatchTotal > 0 ? '<div style="font-size:11px;color:var(--muted);margin-top:2px">' + expenses.length + ' logged · ' + upcomingFiltered.length + ' upcoming</div>' : '') +
       '</div>' +
       '<div style="text-align:right">' +
@@ -4199,7 +4267,11 @@ function renderExpenseResults(resultsEl) {
            e.goalCoveredAmount > 0 && e.goalCoveredAmount < e.amount ? '<span style="font-size:9px;background:rgba(240,168,96,0.15);color:var(--orange);border-radius:4px;padding:1px 5px;font-weight:700;margin-left:5px;vertical-align:middle">SPLIT</span>' :
            e.linkedDepositId ? '<span style="font-size:9px;background:rgba(52,199,89,0.15);color:#34C759;border-radius:4px;padding:1px 5px;font-weight:700;margin-left:5px;vertical-align:middle">SAVING</span>' : '') +
         '</div>' +
-        (e.name ? '<div class="item-meta">' + e.name + '</div>' : '') +
+        (e.name || e.paymentMethod ? '<div class="item-meta" style="display:flex;align-items:center;gap:6px">' +
+          (e.name ? '<span>' + e.name + '</span>' : '') +
+          (e.paymentMethod && e.paymentMethod !== 'cc' && EXP_PAYMENT_METHODS[e.paymentMethod] ?
+            '<span style="font-size:9px;background:var(--surface2);color:var(--muted);border-radius:4px;padding:1px 5px;font-weight:600">' + EXP_PAYMENT_METHODS[e.paymentMethod].icon + ' ' + EXP_PAYMENT_METHODS[e.paymentMethod].label + '</span>' : '') +
+        '</div>' : '') +
         (e.goalCoveredAmount > 0 && e.transactionType !== 'saving' ? (() => {
           const goal = (() => {
             if (e.linkedGoalId) return savingsCatById(e.linkedGoalId);
@@ -5652,6 +5724,27 @@ function populateCatSelect() {
   }
 }
 let _txType = 'expense'; // 'expense' | 'saving'
+let _expPaymentMethod = 'cc'; // 'cc' | 'cash' | 'bank' | 'other'
+
+const EXP_PAYMENT_METHODS = {
+  cc:    { label: 'Credit Card',    icon: '💳' },
+  cash:  { label: 'Cash',           icon: '💵' },
+  bank:  { label: 'Bank Transfer',  icon: '🏦' },
+  other: { label: 'Other',          icon: '💸' },
+};
+
+function setExpPayment(method) {
+  _expPaymentMethod = method;
+  Object.keys(EXP_PAYMENT_METHODS).forEach(m => {
+    const btn = document.getElementById('expPay_' + m);
+    if (!btn) return;
+    const isActive = m === method;
+    btn.style.border = isActive ? '2px solid var(--accent)' : '2px solid var(--border)';
+    btn.style.background = isActive ? 'var(--accent-dim)' : 'var(--surface2)';
+    btn.style.color = isActive ? 'var(--accent)' : 'var(--muted)';
+    btn.style.fontWeight = isActive ? '700' : '600';
+  });
+}
 
 function setTxType(type) {
   _txType = type;
@@ -6038,6 +6131,8 @@ function openAddExpense() {
   state.editingExpenseId = null;
   _txType = 'expense';
   _expSelectedGoalId = null;
+  _expPaymentMethod = 'cc';
+  setExpPayment('cc');
   document.getElementById('expenseModalTitle').textContent = 'New transaction';
   document.getElementById('expAmount').value = '';
   document.getElementById('expAmount').oninput = _updateTxGoalInfo;
@@ -6060,6 +6155,8 @@ function openEditExpense(id) {
   const e = state.expenses.find(x=>x.id===id); if (!e) return;
   state.editingExpenseId = id;
   _txType = e.transactionType || 'expense';
+  _expPaymentMethod = e.paymentMethod || 'cc';
+  setExpPayment(_expPaymentMethod);
   // Restore which goal was selected for this expense
   _expSelectedGoalId = e.linkedGoalId || e.linkedDepositId && (() => {
     const dep = (state.savingsDeposits||[]).find(d=>d.id===e.linkedDepositId);
@@ -6151,7 +6248,7 @@ function saveExpense() {
     }
   }
 
-  const expRecord = { id:expId, amount, name, categoryId, date, transactionType:txType, linkedGoalId: linkedGoalId||undefined, linkedDepositId, linkedWithdrawalId, goalCoveredAmount };
+  const expRecord = { id:expId, amount, name, categoryId, date, transactionType:txType, paymentMethod:_expPaymentMethod, linkedGoalId: linkedGoalId||undefined, linkedDepositId, linkedWithdrawalId, goalCoveredAmount };
 
   if (state.editingExpenseId) {
     const idx = state.expenses.findIndex(e=>e.id===state.editingExpenseId);
