@@ -36,7 +36,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '2.1.1-202603292259';
+  const APP_VER = '2.1.2-202603301521';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -853,10 +853,24 @@ async function applyUpdate() {
 
   <div class="content" id="content"></div>
 
-  <button class="fab" id="fab" onclick="openAddExpense()" style="display:none">
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 2v12M2 8h12" stroke="#fff" stroke-width="2.5" stroke-linecap="round"/></svg>
-    Add expense
-  </button>
+  <div id="fabContainer" style="position:fixed;bottom:28px;left:50%;transform:translateX(-50%);display:none;flex-direction:column;align-items:center;gap:10px;z-index:50">
+    <!-- Expanded options -->
+    <div id="fabOptions" style="display:none;flex-direction:column;align-items:center;gap:8px">
+      <button onclick="fabSelectSaving()" style="background:rgba(52,199,89,0.15);color:#34C759;border:2px solid rgba(52,199,89,0.4);border-radius:100px;padding:12px 22px;font-size:14px;font-weight:700;font-family:var(--font);cursor:pointer;display:flex;align-items:center;gap:8px;white-space:nowrap;box-shadow:0 4px 16px rgba(0,0,0,0.2)">
+        <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><path d="M8 2v12M2 8h12" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg>
+        Save for a goal
+      </button>
+      <button onclick="fabSelectExpense()" style="background:var(--accent);color:#fff;border:none;border-radius:100px;padding:12px 22px;font-size:14px;font-weight:700;font-family:var(--font);cursor:pointer;display:flex;align-items:center;gap:8px;white-space:nowrap;box-shadow:0 4px 16px rgba(79,142,247,0.35)">
+        <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><path d="M8 2v12M2 8h12" stroke="#fff" stroke-width="2.5" stroke-linecap="round"/></svg>
+        Add expense
+      </button>
+    </div>
+    <!-- Main FAB -->
+    <button id="fab" onclick="toggleFab()" style="background:var(--accent);color:#fff;border:none;border-radius:100px;padding:14px 28px;font-size:15px;font-weight:700;font-family:var(--font);cursor:pointer;display:flex;align-items:center;gap:8px;box-shadow:0 8px 32px rgba(79,142,247,0.2);transition:all 0.2s;white-space:nowrap">
+      <svg id="fabIcon" width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 2v12M2 8h12" stroke="#fff" stroke-width="2.5" stroke-linecap="round"/></svg>
+      <span id="fabLabel">Add</span>
+    </button>
+  </div>
 
   <!-- Bottom nav -->
   <nav class="bottom-nav" id="bottomNav">
@@ -1065,7 +1079,7 @@ async function applyUpdate() {
     <input type="number" inputmode="decimal" id="expAmount" placeholder="0.00" step="0.01" min="0">
     <label>Category</label>
     <select id="expCat" onchange="onExpCatChange()"></select>
-    <!-- Transaction type toggle — only shown for linked categories -->
+    <!-- Transaction type toggle — hidden, savings now use dedicated modal -->
     <div id="txTypeRow" style="display:none;margin-bottom:14px">
       <div style="display:flex;gap:8px">
         <button id="txTypeExpense" onclick="setTxType('expense')" style="flex:1;padding:10px;border-radius:10px;border:2px solid var(--accent);background:var(--accent-dim);color:var(--accent);font-weight:700;font-family:var(--font);cursor:pointer;font-size:13px">💳 Expense</button>
@@ -1097,6 +1111,26 @@ async function applyUpdate() {
     <div id="expLinkedWarning" style="display:none;background:rgba(240,168,96,0.1);border:1px solid rgba(240,168,96,0.3);border-radius:10px;padding:10px 12px;margin-bottom:8px;font-size:12px;color:var(--muted);line-height:1.6"></div>
     <button class="btn-danger" id="expDeleteBtn" onclick="deleteExpense()" style="display:none">Delete</button>
     <button class="btn-ghost" onclick="closeModal('expenseModal')">Cancel</button>
+  </div>
+</div>
+
+<!-- Add/Edit Saving modal -->
+<div class="modal-overlay" id="savingModal">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title" id="savingModalTitle">Save for a goal</div>
+    <label>Savings goal</label>
+    <select id="savingGoal" onchange="onSavingGoalChange()"></select>
+    <div id="savingGoalInfo" style="display:none;background:var(--surface2);border-radius:10px;padding:10px 12px;margin-bottom:14px;font-size:12px;color:var(--muted);line-height:1.6"></div>
+    <label>Amount</label>
+    <input type="number" inputmode="decimal" id="savingAmount" placeholder="0.00" step="0.01" min="0" oninput="onSavingGoalChange()">
+    <label>Note (optional)</label>
+    <input type="text" id="savingNote" placeholder="e.g. Monthly transfer">
+    <label>Date</label>
+    <input type="date" id="savingDate">
+    <button class="btn-primary" id="savingSaveBtn" onclick="saveSaving()">Save</button>
+    <button class="btn-danger" id="savingDeleteBtn" onclick="deleteSaving()" style="display:none">Delete</button>
+    <button class="btn-ghost" onclick="closeModal('savingModal')">Cancel</button>
   </div>
 </div>
 
@@ -1749,9 +1783,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.1.1';
+const APP_VERSION = '2.1.2';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '29 Mar 2026 10:59 PM AEDT';
+const BUILD_TIME = '30 Mar 2026 3:21 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -2447,9 +2481,8 @@ function navigateCycle(delta) {
   const next = (state.viewingCycleOffset || 0) + delta;
   if (next > 3) return; // cap at 3 cycles ahead
   state.viewingCycleOffset = next;
-  const fab = document.getElementById('fab');
-  fab.style.display = (next < 0 || state.currentTab === 'calendar') ? 'none' : '';
-  // In future cycles, still show FAB (for adding planned expenses)
+  const fab = document.getElementById('fabContainer');
+  fab.style.display = (next < 0 || state.currentTab === 'calendar') ? 'none' : 'flex';
   if (next > 0) fab.style.display = 'none';
   updateHeader();
   renderContent();
@@ -3469,6 +3502,13 @@ function renderContentBody() {
 function renderContent() {
   setTimeout(initModalSwipeDown, 100);
   renderTabs();
+  // Show FAB only on expenses tab in current cycle
+  const fabEl = document.getElementById('fabContainer');
+  if (fabEl) {
+    const showFab = state.currentTab === 'expenses' && !isFutureCycle() && isSetupComplete();
+    fabEl.style.display = showFab ? 'flex' : 'none';
+    if (!showFab) closeFab();
+  }
   if      (state.currentTab === 'expenses')  renderExpenses();
   else if (state.currentTab === 'analytics') renderAnalytics();
   else if (state.currentTab === 'goals')     renderGoals();
@@ -3828,7 +3868,9 @@ const _origSaveRec = window.saveRecurring;
 function renderExpenseResults(resultsEl) {
   if (!resultsEl) return;
   const query = expenseSearchQuery.trim().toLowerCase();
-  const allExpenses = cycleExpenses().sort((a,b) => b.date.localeCompare(a.date) || b.id.localeCompare(a.id));
+  const allExpenses = cycleExpenses()
+    .filter(e => e.transactionType !== 'saving') // savings live in the Savings tab now
+    .sort((a,b) => b.date.localeCompare(a.date) || b.id.localeCompare(a.id));
   const allUpcoming = isCurrentCycle() ? getUpcomingRecurring().sort((a,b) => a.date.localeCompare(b.date)) : [];
 
   const expenses = query ? allExpenses.filter(e => {
@@ -5175,7 +5217,7 @@ function saveCategory() {
   renderContent();
   updateHeader();
   if (state.categories.length === 1 && state.currentTab !== 'goals') {
-    document.getElementById('fab').style.display = '';
+    document.getElementById('fabContainer').style.display = 'flex';
   }
 }
 function deleteCategory() {
@@ -5296,6 +5338,203 @@ function applyTaxToggleUI(on) {
   if (catRow) catRow.style.display = on ? '' : 'none';
 }
 
+// ── FAB (split: expense / saving) ────────────────────────────────────────────
+let _fabOpen = false;
+
+function toggleFab() {
+  _fabOpen ? closeFab() : openFab();
+}
+
+function openFab() {
+  _fabOpen = true;
+  const opts = document.getElementById('fabOptions');
+  const fab = document.getElementById('fab');
+  const icon = document.getElementById('fabIcon');
+  if (opts) opts.style.display = 'flex';
+  if (fab) fab.style.background = 'var(--surface2)';
+  if (icon) icon.style.transform = 'rotate(45deg)';
+  // Close on outside tap
+  setTimeout(() => document.addEventListener('touchstart', _fabOutsideClose, { once: true, passive: true }), 10);
+}
+
+function closeFab() {
+  _fabOpen = false;
+  const opts = document.getElementById('fabOptions');
+  const fab = document.getElementById('fab');
+  const icon = document.getElementById('fabIcon');
+  if (opts) opts.style.display = 'none';
+  if (fab) fab.style.background = 'var(--accent)';
+  if (icon) icon.style.transform = 'rotate(0deg)';
+}
+
+function _fabOutsideClose(e) {
+  if (!document.getElementById('fabContainer')?.contains(e.target)) closeFab();
+}
+
+function fabSelectExpense() {
+  closeFab();
+  openAddExpense();
+}
+
+function fabSelectSaving() {
+  closeFab();
+  openAddSaving();
+}
+
+// ── Add/Edit Saving modal ─────────────────────────────────────────────────────
+let _editingSavingExpenseId = null;
+
+function _populateSavingGoalDropdown() {
+  const sel = document.getElementById('savingGoal');
+  if (!sel) return;
+  // Collect all categories that have a linked savings goal
+  const linkedCats = (state.categories || []).filter(c => c.linkedSavingsGoalId);
+  // Also include standalone savings categories
+  const savingsCats = state.savingsCategories || [];
+
+  sel.innerHTML = '';
+  // Group 1: savings categories (goals)
+  savingsCats.forEach(sc => {
+    const o = document.createElement('option');
+    o.value = 'savings:' + sc.id;
+    o.textContent = (sc.icon || '💰') + ' ' + sc.name;
+    sel.appendChild(o);
+  });
+  // Group 2: expense categories linked to a goal
+  linkedCats.forEach(c => {
+    const goal = savingsCatById(c.linkedSavingsGoalId);
+    if (goal) {
+      const o = document.createElement('option');
+      o.value = 'linked:' + c.id;
+      o.textContent = (c.icon || '💰') + ' ' + c.name + ' → ' + goal.name;
+      sel.appendChild(o);
+    }
+  });
+  if (sel.options.length === 0) {
+    sel.innerHTML = '<option value="">— No savings goals set up —</option>';
+  }
+}
+
+function openAddSaving() {
+  _editingSavingExpenseId = null;
+  document.getElementById('savingModalTitle').textContent = 'Save for a goal';
+  document.getElementById('savingAmount').value = '';
+  document.getElementById('savingNote').value = '';
+  document.getElementById('savingDate').value = todayStr();
+  document.getElementById('savingSaveBtn').textContent = 'Save';
+  document.getElementById('savingDeleteBtn').style.display = 'none';
+  document.getElementById('savingGoalInfo').style.display = 'none';
+  _populateSavingGoalDropdown();
+  openModal('savingModal');
+  setTimeout(() => document.getElementById('savingAmount').focus(), 350);
+}
+
+function onSavingGoalChange() {
+  const sel = document.getElementById('savingGoal');
+  const infoEl = document.getElementById('savingGoalInfo');
+  const val = sel.value;
+  if (!val || val.startsWith('—')) { infoEl.style.display = 'none'; return; }
+
+  let goalId = null;
+  if (val.startsWith('savings:')) goalId = val.replace('savings:', '');
+  else if (val.startsWith('linked:')) {
+    const cat = catById(val.replace('linked:', ''));
+    if (cat) goalId = cat.linkedSavingsGoalId;
+  }
+  if (!goalId) { infoEl.style.display = 'none'; return; }
+
+  const goal = savingsCatById(goalId);
+  if (!goal) { infoEl.style.display = 'none'; return; }
+
+  const balance = (state.savingsDeposits || [])
+    .filter(d => d.catId === goalId)
+    .reduce((s,d) => s + (d.type === 'withdrawal' || d.type === 'bill-payment' ? -d.amount : d.amount), 0);
+  const amt = parseFloat(document.getElementById('savingAmount').value) || 0;
+  const newBal = balance + amt;
+  const fmt2 = n => '$' + Math.abs(n).toLocaleString('en-AU', { minimumFractionDigits:2, maximumFractionDigits:2 });
+
+  infoEl.style.display = '';
+  infoEl.innerHTML = '💚 Saving into <strong style="color:var(--text)">' + (goal.icon||'💰') + ' ' + goal.name + '</strong><br>' +
+    'Current balance: ' + fmt2(balance) +
+    (amt > 0 ? ' · After deposit: <strong style="color:#34C759">' + fmt2(newBal) + '</strong>' : '');
+}
+
+function saveSaving() {
+  const amount = parseFloat(document.getElementById('savingAmount').value);
+  const note = document.getElementById('savingNote').value.trim();
+  const date = document.getElementById('savingDate').value;
+  const goalVal = document.getElementById('savingGoal').value;
+  if (!amount || amount <= 0 || !date || !goalVal || goalVal.startsWith('—')) return;
+
+  // Resolve goal + category
+  let catId = null, goalId = null;
+  if (goalVal.startsWith('savings:')) {
+    goalId = goalVal.replace('savings:', '');
+    // Find any expense category linked to this goal, or use goalId as catId
+    const linkedCat = (state.categories || []).find(c => c.linkedSavingsGoalId === goalId);
+    catId = linkedCat ? linkedCat.id : null;
+  } else if (goalVal.startsWith('linked:')) {
+    catId = goalVal.replace('linked:', '');
+    const cat = catById(catId);
+    if (cat) goalId = cat.linkedSavingsGoalId;
+  }
+  if (!goalId) return;
+
+  if (!state.savingsDeposits) state.savingsDeposits = [];
+
+  // Remove old linked deposit if editing
+  if (_editingSavingExpenseId) {
+    const old = state.expenses.find(e => e.id === _editingSavingExpenseId);
+    if (old && old.linkedDepositId) {
+      state.savingsDeposits = state.savingsDeposits.filter(d => d.id !== old.linkedDepositId);
+    }
+    state.expenses = state.expenses.filter(e => e.id !== _editingSavingExpenseId);
+  }
+
+  // Create savings deposit
+  const depositId = uid();
+  state.savingsDeposits.push({
+    id: depositId, catId: goalId, targetId: goalId,
+    amount, date, note: note || 'Saving deposit', type: 'deposit',
+    linkedExpenseId: null,
+  });
+
+  // Create expense record (transactionType: 'saving') if category exists — for budget deduction
+  if (catId) {
+    const expId = uid();
+    state.expenses.push({
+      id: expId, amount, name: note || 'Saving deposit',
+      categoryId: catId, date,
+      transactionType: 'saving',
+      linkedDepositId: depositId,
+      linkedWithdrawalId: null,
+      goalCoveredAmount: 0,
+    });
+    // Update deposit to link back
+    const dep = state.savingsDeposits.find(d => d.id === depositId);
+    if (dep) dep.linkedExpenseId = expId;
+  }
+
+  saveState();
+  closeModal('savingModal');
+  updateHeader();
+  renderContent();
+  showToast('💚 Saved ' + fmt(amount) + ' to ' + (savingsCatById(goalId)?.name || 'goal'), 3000);
+}
+
+function deleteSaving() {
+  if (!_editingSavingExpenseId) return;
+  const old = state.expenses.find(e => e.id === _editingSavingExpenseId);
+  if (old && old.linkedDepositId) {
+    state.savingsDeposits = (state.savingsDeposits||[]).filter(d => d.id !== old.linkedDepositId);
+  }
+  state.expenses = state.expenses.filter(e => e.id !== _editingSavingExpenseId);
+  saveState();
+  closeModal('savingModal');
+  updateHeader();
+  renderContent();
+}
+
 function onTaxToggleChange() {
   // Legacy — kept for safety, delegates to new system
   applyTaxToggleUI(_taxDeductible);
@@ -5338,6 +5577,7 @@ function openAddExpense() {
   document.getElementById('txTypeRow').style.display = 'none';
   document.getElementById('txGoalInfo').style.display = 'none';
   document.getElementById('expLinkedWarning').style.display = 'none';
+  _txType = 'expense'; // always expense in this modal now
   setExpTaxToggle(false);
   setTxType('expense');
   populateCatSelect();
