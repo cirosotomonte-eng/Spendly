@@ -36,7 +36,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '2.2.15-202603310852';
+  const APP_VER = '2.2.16-202603310913';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -1869,9 +1869,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.2.15';
+const APP_VERSION = '2.2.16';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '31 Mar 2026 8:52 AM AEDT';
+const BUILD_TIME = '31 Mar 2026 9:13 AM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -4217,7 +4217,11 @@ function renderExpenseResults(resultsEl) {
   let html = '';
 
   if (query || hasPaymentFilter) {
-    const loggedTotal = expenses.reduce((s,e) => s + budgetAmount(e), 0);
+    // When filtering by payment method, show gross transaction amounts (for CC reconciliation)
+    // not budget-adjusted amounts (which would be $0 for goal-covered expenses)
+    const loggedTotal = hasPaymentFilter
+      ? expenses.reduce((s,e) => s + e.amount, 0)
+      : expenses.reduce((s,e) => s + budgetAmount(e), 0);
     const upcomingMatchTotal = upcomingFiltered.reduce((s,e) => s + e.amount, 0);
     const grandTotal = loggedTotal + upcomingMatchTotal;
     const totalCount = expenses.length + upcomingFiltered.length;
