@@ -36,7 +36,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '2.2.5-202603302257';
+  const APP_VER = '2.2.6-202603302301';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -1862,9 +1862,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.2.5';
+const APP_VERSION = '2.2.6';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '30 Mar 2026 10:57 PM AEDT';
+const BUILD_TIME = '30 Mar 2026 11:01 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -9711,6 +9711,13 @@ function checkRecChanged() {
 let recTxType = 'expense'; // 'expense' | 'saving'
 
 function setRecTxType(type) {
+  // If the current category has linked goals, always force expense type —
+  // saving recurring transactions belong in the Savings tab
+  const catId = document.getElementById('recCat')?.value;
+  const cat = catById(catId);
+  const linkedIds = getLinkedGoalIds(cat);
+  if (linkedIds.length > 0) type = 'expense';
+
   recTxType = type;
   const expBtn = document.getElementById('recTxTypeExpense');
   const savBtn = document.getElementById('recTxTypeSaving');
@@ -9749,8 +9756,10 @@ function updateRecTxGoalInfo() {
     return;
   }
 
-  // Show type toggle
-  if (typeRow) typeRow.style.display = '';
+  // Category has linked goals — only Expense makes sense here.
+  // Saving recurring transactions are set up in the Savings tab instead.
+  recTxType = 'expense';
+  if (typeRow) typeRow.style.display = 'none'; // hide the toggle entirely
 
   // Auto-select single goal
   if (linkedIds.length === 1) _recSelectedGoalId = linkedIds[0];
@@ -9770,11 +9779,7 @@ function updateRecTxGoalInfo() {
 
   const balance = totalSavedForCat(goalId);
   const fmtB = n => '$' + Math.abs(n).toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2});
-  if (recTxType === 'saving') {
-    infoEl.innerHTML = '💚 Each fire will deposit into <strong style="color:var(--text)">' + goal.icon + ' ' + goal.name + '</strong> and deduct from budget.<br>Current balance: ' + fmtB(balance);
-  } else {
-    infoEl.innerHTML = '💳 Each fire will withdraw from <strong style="color:var(--text)">' + goal.icon + ' ' + goal.name + '</strong> first (current balance: ' + fmtB(balance) + ').<br>Any shortfall will deduct from budget instead.';
-  }
+  infoEl.innerHTML = '💳 Each fire will withdraw from <strong style="color:var(--text)">' + goal.icon + ' ' + goal.name + '</strong> first (current balance: ' + fmtB(balance) + ').<br>Any shortfall will deduct from budget instead.';
   infoEl.style.display = '';
 }
 
