@@ -36,7 +36,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '2.2.0-202603302044';
+  const APP_VER = '2.2.1-202603302100';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -1572,6 +1572,68 @@ async function applyUpdate() {
   </div>
 </div>
 
+
+<!-- Recurring saving modal -->
+<div class="modal-overlay" id="recurringSavingModal">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title" id="recSavingModalTitle">New recurring saving</div>
+    <label>Description</label>
+    <input type="text" id="recSavingName" placeholder="e.g. Monthly holiday fund" oninput="checkRecSavingChanged()">
+    <label>Amount ($)</label>
+    <input type="number" inputmode="decimal" id="recSavingAmount" placeholder="0.00" step="0.01" min="0" oninput="checkRecSavingChanged()">
+    <label>Savings goal <span style="font-size:11px;color:var(--red);font-weight:600">required</span></label>
+    <select id="recSavingGoal" onchange="updateRecSavingGoalInfo();checkRecSavingChanged()"></select>
+    <div id="recSavingGoalInfo" style="display:none;background:var(--surface2);border-radius:10px;padding:10px 12px;margin-bottom:14px;font-size:12px;color:var(--muted);line-height:1.6"></div>
+    <label>Frequency</label>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px">
+      <button type="button" onclick="setRecSavingFreq('weekly')" id="recSavingFreqWeekly" style="padding:10px;border-radius:10px;border:2px solid var(--accent);background:var(--accent-dim);color:var(--accent);font-weight:700;font-family:var(--font);cursor:pointer;font-size:13px">Weekly</button>
+      <button type="button" onclick="setRecSavingFreq('xweeks')" id="recSavingFreqXweeks" style="padding:10px;border-radius:10px;border:2px solid var(--border);background:var(--surface2);color:var(--muted);font-weight:600;font-family:var(--font);cursor:pointer;font-size:13px">Every X weeks</button>
+      <button type="button" onclick="setRecSavingFreq('monthly')" id="recSavingFreqMonthly" style="padding:10px;border-radius:10px;border:2px solid var(--border);background:var(--surface2);color:var(--muted);font-weight:600;font-family:var(--font);cursor:pointer;font-size:13px">Monthly</button>
+      <button type="button" onclick="setRecSavingFreq('quarterly')" id="recSavingFreqQuarterly" style="padding:10px;border-radius:10px;border:2px solid var(--border);background:var(--surface2);color:var(--muted);font-weight:600;font-family:var(--font);cursor:pointer;font-size:13px">Quarterly</button>
+      <button type="button" onclick="setRecSavingFreq('yearly')" id="recSavingFreqYearly" style="padding:10px;border-radius:10px;border:2px solid var(--border);background:var(--surface2);color:var(--muted);font-weight:600;font-family:var(--font);cursor:pointer;font-size:13px;grid-column:1/-1">Yearly</button>
+    </div>
+    <div id="recSavingWeeklySection" style="margin-bottom:14px">
+      <label>Day of week</label>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">
+        <button type="button" onclick="setRecSavingWeekday(1)" id="recSavingWd1" class="rec-wd-btn active">Mon</button>
+        <button type="button" onclick="setRecSavingWeekday(2)" id="recSavingWd2" class="rec-wd-btn">Tue</button>
+        <button type="button" onclick="setRecSavingWeekday(3)" id="recSavingWd3" class="rec-wd-btn">Wed</button>
+        <button type="button" onclick="setRecSavingWeekday(4)" id="recSavingWd4" class="rec-wd-btn">Thu</button>
+        <button type="button" onclick="setRecSavingWeekday(5)" id="recSavingWd5" class="rec-wd-btn">Fri</button>
+        <button type="button" onclick="setRecSavingWeekday(6)" id="recSavingWd6" class="rec-wd-btn">Sat</button>
+        <button type="button" onclick="setRecSavingWeekday(0)" id="recSavingWd0" class="rec-wd-btn">Sun</button>
+      </div>
+    </div>
+    <div id="recSavingXweeksSection" style="display:none;margin-bottom:14px">
+      <label>Repeat every how many weeks?</label>
+      <input type="number" inputmode="numeric" id="recSavingXweeksNum" placeholder="e.g. 2" min="1" max="52" oninput="updateRecSavingPreview();checkRecSavingChanged()" style="margin-bottom:10px">
+      <label>Last done / start date</label>
+      <input type="date" id="recSavingXweeksDate" oninput="updateRecSavingPreview();checkRecSavingChanged()">
+    </div>
+    <div id="recSavingMonthlySection" style="display:none;margin-bottom:14px">
+      <label>Day of month</label>
+      <input type="number" inputmode="numeric" id="recSavingMonthDay" placeholder="e.g. 19" min="1" max="31" oninput="updateRecSavingPreview();checkRecSavingChanged()">
+    </div>
+    <div id="recSavingQuarterlySection" style="display:none;margin-bottom:14px">
+      <label>Next due date</label>
+      <input type="date" id="recSavingQuarterlyDate" oninput="checkRecSavingChanged()">
+    </div>
+    <div id="recSavingYearlySection" style="display:none;margin-bottom:14px">
+      <label>Next due date</label>
+      <input type="date" id="recSavingYearlyDate" oninput="updateRecSavingPreview();checkRecSavingChanged()">
+    </div>
+    <div id="recSavingPreview" style="font-size:12px;color:var(--muted);margin-bottom:14px;min-height:16px;background:var(--surface2);border-radius:8px;padding:8px 10px;display:none"></div>
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+      <div id="recSavingActiveCheck" onclick="toggleRecSavingActive()" style="width:22px;height:22px;border-radius:6px;background:var(--accent);border:2px solid var(--accent);display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:13px;color:#fff;flex-shrink:0">&#10003;</div>
+      <span style="font-size:13px">Active</span>
+    </div>
+    <button class="btn-primary" id="recSavingSaveBtn" onclick="saveRecurringSaving()">Save</button>
+    <button class="btn-danger" id="recSavingDeleteBtn" onclick="deleteRecurringSaving()" style="display:none">Delete</button>
+    <button class="btn-ghost" onclick="closeModal('recurringSavingModal')">Cancel</button>
+  </div>
+</div>
+
 <!-- Gift card modal -->
 <div class="modal-overlay" id="giftCardModal">
   <div class="modal">
@@ -1792,9 +1854,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.2.0';
+const APP_VERSION = '2.2.1';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '30 Mar 2026 8:44 PM AEDT';
+const BUILD_TIME = '30 Mar 2026 9:00 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -2066,7 +2128,7 @@ async function signOut() {
   try { localStorage.removeItem('spendly_backup'); } catch(e) {}
   try { sessionStorage.clear(); } catch(e) {}
   // Reset state and show auth screen
-  state = { currentTab:'expenses', viewingCycleOffset:0, budget:0, cycleDay:1, appName:'', categories:[], expenses:[], recurringExpenses:[], savingsCategories:[], savingsSubcategories:[], savingsDeposits:[], recyclingTrips:[], mortgage:{}, taxCategories:[], taxTransactions:[], giftCards:[], portfolio:[], netWorth:[], notes:[], setupDone:false };
+  state = { currentTab:'expenses', viewingCycleOffset:0, budget:0, cycleDay:1, appName:'', categories:[], expenses:[], recurringExpenses:[], recurringSavings:[], savingsCategories:[], savingsSubcategories:[], savingsDeposits:[], recyclingTrips:[], mortgage:{}, taxCategories:[], taxTransactions:[], giftCards:[], portfolio:[], netWorth:[], notes:[], setupDone:false };
   showAuthScreen();
   document.getElementById('app').style.visibility = 'hidden';
 }
@@ -6784,6 +6846,81 @@ function pickSavingsEmoji(gridId, previewId, inputId, e) {
 }
 
 // ── Savings Categories ────────────────────────────────────────────────────────
+function setSavingsSubTab(tab) {
+  window._savingsSubTab = tab;
+  renderContent();
+}
+
+function renderRecurringSavingsPane() {
+  const recs = (state.recurringSavings||[]).filter(r=>r.active!==false);
+  const allRecs = state.recurringSavings||[];
+  const { cycleStart, cycleEnd } = getCycleRange(0);
+  const todayDateStr = todayStr();
+  const fmtAmt = n => '$' + n.toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2});
+
+  let html = '<button onclick="openAddRecurringSaving()" style="width:100%;background:rgba(52,199,89,0.1);color:#34C759;border:2px solid rgba(52,199,89,0.3);border-radius:var(--r);padding:13px;font-size:14px;font-weight:700;font-family:var(--font);cursor:pointer;margin-bottom:16px;display:flex;align-items:center;justify-content:center;gap:8px">+ New recurring saving</button>';
+
+  // ── Upcoming this cycle ────────────────────────────────────────────────
+  const upcoming = getUpcomingRecurringSavings();
+  if (upcoming.length > 0) {
+    html += '<div class="section-label">Coming up this cycle</div>';
+    html += '<div style="background:var(--surface);border-radius:var(--r);overflow:hidden;margin-bottom:14px">';
+    upcoming.forEach((u, i) => {
+      const daysAway = Math.round((u.dateObj - new Date().setHours(0,0,0,0)) / 86400000);
+      const dueStr = daysAway === 0 ? 'Today' : daysAway === 1 ? 'Tomorrow' : u.dateObj.toLocaleDateString('en-AU',{weekday:'short',day:'numeric',month:'short'});
+      const isToday = daysAway === 0;
+      // Check if already fired today
+      const alreadyFired = (state.savingsDeposits||[]).some(d => d.recurringId === u.r.id && d.date === todayDateStr);
+      html += '<div style="display:flex;align-items:center;gap:12px;padding:12px 14px;' + (i>0?'border-top:1px solid var(--surface2)':'') + ';cursor:pointer" onclick="openEditRecurringSaving(\'' + u.r.id + '\')">' +
+        '<div style="width:38px;height:38px;border-radius:10px;background:rgba(52,199,89,0.12);display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0">' + (u.goal ? u.goal.icon : '💰') + '</div>' +
+        '<div style="flex:1;min-width:0">' +
+          '<div style="font-size:13px;font-weight:600">' + u.r.name + (alreadyFired ? ' <span style="font-size:9px;background:rgba(52,199,89,0.15);color:#34C759;border-radius:4px;padding:1px 5px;font-weight:700">DONE</span>' : '') + '</div>' +
+          '<div style="font-size:11px;color:' + (isToday?'#34C759':'var(--muted)') + '">' + dueStr + (u.goal ? ' · ' + u.goal.name : '') + '</div>' +
+        '</div>' +
+        '<div style="font-size:13px;font-weight:700;color:#34C759;flex-shrink:0">+' + fmtAmt(u.r.amount) + '</div>' +
+      '</div>';
+    });
+    html += '</div>';
+  }
+
+  // ── All recurring savings ──────────────────────────────────────────────
+  if (allRecs.length === 0) {
+    html += '<div class="empty"><div class="empty-icon">🔁</div><div class="empty-text">No recurring savings yet</div><div class="empty-sub">Tap the button above to set up automatic savings deposits</div></div>';
+    return html;
+  }
+
+  // Sort by next due date
+  const sorted = allRecs.slice().sort((a,b) => {
+    const na = getRecNextDate(a), nb = getRecNextDate(b);
+    if (!na && !nb) return 0; if (!na) return 1; if (!nb) return -1;
+    return na - nb;
+  });
+
+  html += '<div class="section-label">All recurring savings</div>';
+  html += '<div style="background:var(--surface);border-radius:var(--r);overflow:hidden">';
+  sorted.forEach((r, i) => {
+    const goal = savingsCatById(r.savingsGoalId);
+    const next = getRecNextDate(r);
+    const nextStr = next ? next.toLocaleDateString('en-AU',{weekday:'short',day:'numeric',month:'short'}) : '—';
+    const isActive = r.active !== false;
+    const freqLabel = recFreqLabel(r);
+    const isDueToday = next && dateToStr(next) === todayDateStr;
+    html += '<div style="display:flex;align-items:center;gap:12px;padding:13px 14px;' + (i>0?'border-top:1px solid var(--surface2)':'') + ';cursor:pointer" onclick="openEditRecurringSaving(\'' + r.id + '\')">' +
+      '<div style="width:38px;height:38px;border-radius:10px;background:rgba(52,199,89,0.12);display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">' + (goal ? goal.icon : '💰') + '</div>' +
+      '<div style="flex:1;min-width:0">' +
+        '<div style="font-size:13px;font-weight:600">' + r.name + (!isActive ? '<span style="font-size:10px;color:var(--orange);font-weight:400"> · Paused</span>' : '') + '</div>' +
+        '<div style="font-size:11px;color:' + (isDueToday?'#34C759':'var(--muted)') + '">' + freqLabel + ' · Next: ' + nextStr + (isDueToday ? ' <span style="font-size:9px;background:rgba(52,199,89,0.15);color:#34C759;border-radius:4px;padding:1px 5px;font-weight:700">TODAY</span>' : '') + '</div>' +
+      '</div>' +
+      '<div style="text-align:right;flex-shrink:0">' +
+        '<div style="font-size:13px;font-weight:600;color:#34C759">+' + fmtAmt(r.amount) + '</div>' +
+        '<div style="font-size:10px;color:var(--muted)">' + (goal ? goal.name : '—') + '</div>' +
+      '</div>' +
+    '</div>';
+  });
+  html += '</div>';
+  return html;
+}
+
 function openAddSavingsCat() {
   editingSavingsCatId = null;
   document.getElementById('savingsCatModalTitle').textContent = 'New savings goal';
@@ -7199,6 +7336,21 @@ function renderSavings() {
       { svg: SVG_PLUS, onclick: 'openAddSavingsCat()', title: 'Add goal' }
     ]
   });
+
+  // Sub-tab strip: Goals | Recurring
+  const savSubTab = window._savingsSubTab || 'goals';
+  html += '<div style="display:flex;border-bottom:1px solid var(--surface2);margin-bottom:14px">' +
+    '<button onclick="setSavingsSubTab(\'goals\')" style="flex:1;padding:10px 0;border:none;background:none;font-size:14px;font-weight:600;font-family:var(--font);cursor:pointer;color:' + (savSubTab==='goals'?'var(--accent)':'var(--muted)') + ';border-bottom:2px solid ' + (savSubTab==='goals'?'var(--accent)':'transparent') + ';margin-bottom:-1px;transition:all 0.15s">Goals</button>' +
+    '<button onclick="setSavingsSubTab(\'recurring\')" style="flex:1;padding:10px 0;border:none;background:none;font-size:14px;font-weight:600;font-family:var(--font);cursor:pointer;color:' + (savSubTab==='recurring'?'var(--accent)':'var(--muted)') + ';border-bottom:2px solid ' + (savSubTab==='recurring'?'var(--accent)':'transparent') + ';margin-bottom:-1px;transition:all 0.15s">Recurring</button>' +
+  '</div>';
+  // ── Recurring savings sub-tab ────────────────────────────────────────────
+  if (savSubTab === 'recurring') {
+    html += renderRecurringSavingsPane();
+    el.innerHTML = html;
+    return;
+  }
+
+  // ── Summary stats (Goals tab only) ───────────────────────────────────────
   html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:8px 0 14px">' +
     '<div style="background:var(--surface);border-radius:var(--r);padding:12px 14px">' +
       '<div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:4px">Total saved</div>' +
@@ -9620,6 +9772,265 @@ function deleteRecurring() {
   }
 }
 
+// ── Recurring Savings ─────────────────────────────────────────────────────────
+let editingRecurringSavingId = null;
+let recSavingFreqState = 'weekly';
+let recSavingWeekdayState = 1;
+let recSavingActiveState = true;
+let recSavingOriginalSnapshot = null;
+
+function setRecSavingFreq(freq) {
+  recSavingFreqState = freq;
+  const freqs = ['weekly','xweeks','monthly','quarterly','yearly'];
+  freqs.forEach(f => {
+    const btn = document.getElementById('recSavingFreq' + f.charAt(0).toUpperCase() + f.slice(1));
+    const isActive = f === freq;
+    if (btn) {
+      btn.style.border = isActive ? '2px solid var(--accent)' : '2px solid var(--border)';
+      btn.style.background = isActive ? 'var(--accent-dim)' : 'var(--surface2)';
+      btn.style.color = isActive ? 'var(--accent)' : 'var(--muted)';
+      btn.style.fontWeight = isActive ? '700' : '600';
+    }
+  });
+  ['weekly','xweeks','monthly','quarterly','yearly'].forEach(f => {
+    const sec = document.getElementById('recSaving' + f.charAt(0).toUpperCase() + f.slice(1) + 'Section');
+    if (sec) sec.style.display = f === freq ? '' : 'none';
+  });
+  updateRecSavingPreview();
+}
+
+function setRecSavingWeekday(wd) {
+  recSavingWeekdayState = wd;
+  for (let i=0; i<=6; i++) {
+    const btn = document.getElementById('recSavingWd' + i);
+    if (btn) {
+      btn.style.background = i===wd ? 'var(--accent)' : 'var(--surface2)';
+      btn.style.color = i===wd ? '#fff' : 'var(--muted)';
+      btn.style.border = i===wd ? '2px solid var(--accent)' : '2px solid var(--border)';
+      btn.style.fontWeight = i===wd ? '700' : '500';
+    }
+  }
+  updateRecSavingPreview();
+}
+
+function toggleRecSavingActive() {
+  recSavingActiveState = !recSavingActiveState;
+  const el = document.getElementById('recSavingActiveCheck');
+  if (el) {
+    el.textContent = recSavingActiveState ? '✓' : '';
+    el.style.background = recSavingActiveState ? 'var(--accent)' : 'var(--surface3)';
+    el.style.border = '2px solid ' + (recSavingActiveState ? 'var(--accent)' : 'var(--border)');
+  }
+}
+
+function updateRecSavingGoalInfo() {
+  const goalId = document.getElementById('recSavingGoal').value;
+  const infoEl = document.getElementById('recSavingGoalInfo');
+  if (!goalId || !infoEl) { if (infoEl) infoEl.style.display = 'none'; return; }
+  const goal = savingsCatById(goalId);
+  if (!goal) { infoEl.style.display = 'none'; return; }
+  const balance = totalSavedForCat(goalId);
+  const fmtB = n => '$' + Math.abs(n).toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2});
+  infoEl.innerHTML = '💚 Each fire will deposit into <strong style="color:var(--text)">' + goal.icon + ' ' + goal.name + '</strong> and deduct from budget.<br>Current balance: ' + fmtB(balance);
+  infoEl.style.display = '';
+}
+
+function updateRecSavingPreview() {
+  const prev = document.getElementById('recSavingPreview');
+  if (!prev) return;
+  // Build a temp rec object to reuse getRecNextDate
+  const r = {
+    frequency: recSavingFreqState,
+    weekday: recSavingWeekdayState,
+    monthDay: parseInt(document.getElementById('recSavingMonthDay')?.value) || undefined,
+    xweeksNum: parseInt(document.getElementById('recSavingXweeksNum')?.value) || undefined,
+    nextDate: recSavingFreqState === 'xweeks' ? document.getElementById('recSavingXweeksDate')?.value
+            : recSavingFreqState === 'quarterly' ? document.getElementById('recSavingQuarterlyDate')?.value
+            : recSavingFreqState === 'yearly' ? document.getElementById('recSavingYearlyDate')?.value
+            : undefined,
+  };
+  const next = getRecNextDate(r);
+  if (next) {
+    const days = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+    let label = '';
+    if (recSavingFreqState === 'weekly') label = 'Every ' + days[recSavingWeekdayState];
+    else if (recSavingFreqState === 'xweeks') label = 'Every ' + (r.xweeksNum||2) + ' weeks';
+    else if (recSavingFreqState === 'monthly') label = 'Monthly on the ' + (r.monthDay||'?') + (r.monthDay===1?'st':r.monthDay===2?'nd':r.monthDay===3?'rd':'th');
+    else if (recSavingFreqState === 'quarterly') label = 'Quarterly';
+    else if (recSavingFreqState === 'yearly') label = 'Yearly';
+    prev.textContent = '📅 ' + label + ' · Next: ' + next.toLocaleDateString('en-AU',{weekday:'short',day:'numeric',month:'short'});
+    prev.style.display = '';
+  } else { prev.style.display = 'none'; }
+}
+
+function populateRecSavingGoalSelect(selectedId) {
+  const sel = document.getElementById('recSavingGoal');
+  if (!sel) return;
+  const goals = state.savingsCategories || [];
+  sel.innerHTML = '<option value="">— Select a savings goal —</option>' +
+    goals.map(g => '<option value="' + g.id + '"' + (g.id===selectedId?' selected':'') + '>' + (g.icon||'💰') + ' ' + g.name + '</option>').join('');
+}
+
+function checkRecSavingChanged() {
+  const btn = document.getElementById('recSavingSaveBtn');
+  if (!btn) return;
+  const name = document.getElementById('recSavingName')?.value.trim();
+  const amount = parseFloat(document.getElementById('recSavingAmount')?.value);
+  const goal = document.getElementById('recSavingGoal')?.value;
+  btn.disabled = !name || !amount || !goal;
+  btn.style.opacity = btn.disabled ? '0.4' : '1';
+}
+
+function openAddRecurringSaving() {
+  editingRecurringSavingId = null;
+  recSavingActiveState = true;
+  recSavingFreqState = 'weekly';
+  recSavingWeekdayState = 1;
+  document.getElementById('recSavingModalTitle').textContent = 'New recurring saving';
+  document.getElementById('recSavingName').value = '';
+  document.getElementById('recSavingAmount').value = '';
+  document.getElementById('recSavingDeleteBtn').style.display = 'none';
+  const btn = document.getElementById('recSavingSaveBtn');
+  btn.textContent = 'Save'; btn.disabled = true; btn.style.opacity = '0.4';
+  const check = document.getElementById('recSavingActiveCheck');
+  check.textContent = '✓'; check.style.background = 'var(--accent)'; check.style.border = '2px solid var(--accent)';
+  populateRecSavingGoalSelect('');
+  document.getElementById('recSavingGoalInfo').style.display = 'none';
+  document.getElementById('recSavingXweeksNum').value = '';
+  document.getElementById('recSavingXweeksDate').value = '';
+  document.getElementById('recSavingMonthDay').value = '';
+  document.getElementById('recSavingQuarterlyDate').value = '';
+  document.getElementById('recSavingYearlyDate').value = '';
+  setRecSavingFreq('weekly');
+  setRecSavingWeekday(1);
+  openModal('recurringSavingModal');
+  setTimeout(() => document.getElementById('recSavingName').focus(), 350);
+}
+
+function openEditRecurringSaving(id) {
+  const rec = (state.recurringSavings||[]).find(r=>r.id===id);
+  if (!rec) return;
+  editingRecurringSavingId = id;
+  recSavingActiveState = rec.active !== false;
+  recSavingFreqState = rec.frequency || 'weekly';
+  recSavingWeekdayState = rec.weekday !== undefined ? rec.weekday : 1;
+  document.getElementById('recSavingModalTitle').textContent = 'Edit recurring saving';
+  document.getElementById('recSavingName').value = rec.name || '';
+  document.getElementById('recSavingAmount').value = rec.amount || '';
+  document.getElementById('recSavingDeleteBtn').style.display = 'block';
+  const btn = document.getElementById('recSavingSaveBtn');
+  btn.textContent = 'Update'; btn.disabled = false; btn.style.opacity = '1';
+  const check = document.getElementById('recSavingActiveCheck');
+  check.textContent = recSavingActiveState ? '✓' : '';
+  check.style.background = recSavingActiveState ? 'var(--accent)' : 'var(--surface3)';
+  check.style.border = '2px solid ' + (recSavingActiveState ? 'var(--accent)' : 'var(--border)');
+  populateRecSavingGoalSelect(rec.savingsGoalId || '');
+  if (rec.frequency === 'xweeks') { document.getElementById('recSavingXweeksNum').value = rec.xweeksNum || ''; document.getElementById('recSavingXweeksDate').value = rec.nextDate || ''; }
+  else if (rec.frequency === 'monthly') document.getElementById('recSavingMonthDay').value = rec.monthDay || '';
+  else if (rec.frequency === 'quarterly') document.getElementById('recSavingQuarterlyDate').value = rec.nextDate || '';
+  else if (rec.frequency === 'yearly') document.getElementById('recSavingYearlyDate').value = rec.nextDate || '';
+  setRecSavingFreq(rec.frequency || 'weekly');
+  setRecSavingWeekday(recSavingWeekdayState);
+  updateRecSavingGoalInfo();
+  updateRecSavingPreview();
+  openModal('recurringSavingModal');
+}
+
+function saveRecurringSaving() {
+  const name = document.getElementById('recSavingName').value.trim();
+  const amount = parseFloat(document.getElementById('recSavingAmount').value);
+  const savingsGoalId = document.getElementById('recSavingGoal').value;
+  if (!name || !amount || !savingsGoalId) { showToast('Please fill in all required fields', 2000); return; }
+  if (!state.recurringSavings) state.recurringSavings = [];
+  const rec = {
+    id: editingRecurringSavingId || uid(),
+    name, amount, savingsGoalId,
+    frequency: recSavingFreqState,
+    active: recSavingActiveState,
+    weekday: recSavingFreqState === 'weekly' ? recSavingWeekdayState : undefined,
+    monthDay: recSavingFreqState === 'monthly' ? parseInt(document.getElementById('recSavingMonthDay').value) : undefined,
+    xweeksNum: recSavingFreqState === 'xweeks' ? parseInt(document.getElementById('recSavingXweeksNum').value) : undefined,
+    nextDate: recSavingFreqState === 'xweeks' ? document.getElementById('recSavingXweeksDate').value
+            : recSavingFreqState === 'quarterly' ? document.getElementById('recSavingQuarterlyDate').value
+            : recSavingFreqState === 'yearly' ? document.getElementById('recSavingYearlyDate').value
+            : undefined,
+  };
+  if (editingRecurringSavingId) {
+    const idx = state.recurringSavings.findIndex(r=>r.id===editingRecurringSavingId);
+    if (idx>=0) state.recurringSavings[idx] = rec;
+  } else {
+    state.recurringSavings.push(rec);
+  }
+  saveState();
+  closeModal('recurringSavingModal');
+  renderContent();
+  showToast('💚 Recurring saving saved', 2000);
+}
+
+function deleteRecurringSaving() {
+  if (!editingRecurringSavingId) return;
+  if (!confirm('Delete this recurring saving?')) return;
+  state.recurringSavings = (state.recurringSavings||[]).filter(r=>r.id!==editingRecurringSavingId);
+  saveState();
+  closeModal('recurringSavingModal');
+  renderContent();
+}
+
+// Fire recurring savings: called alongside applyRecurringExpenses
+function applyRecurringSavings() {
+  const recs = (state.recurringSavings||[]).filter(r=>r.active!==false);
+  if (!recs.length) return;
+  const today = new Date(); today.setHours(0,0,0,0);
+  const todayDateStr = todayStr();
+  let added = false;
+
+  recs.forEach(r => {
+    const next = getRecNextDate(r);
+    if (!next) return;
+    next.setHours(0,0,0,0);
+    if (next.getTime() !== today.getTime()) return;
+
+    // Guard: already deposited today for this recurring
+    const alreadyExists = (state.savingsDeposits||[]).some(d =>
+      d.recurringId === r.id && d.date === todayDateStr
+    );
+    if (alreadyExists) return;
+
+    if (!state.savingsDeposits) state.savingsDeposits = [];
+    state.savingsDeposits.push({
+      id: uid(),
+      catId: r.savingsGoalId,
+      targetId: r.savingsGoalId,
+      amount: r.amount,
+      date: todayDateStr,
+      note: r.name,
+      type: 'deposit',
+      recurringId: r.id,
+    });
+    added = true;
+  });
+
+  if (added) saveState();
+}
+
+// Upcoming recurring savings in current cycle (for display in savings tab)
+function getUpcomingRecurringSavings() {
+  const recs = (state.recurringSavings||[]).filter(r=>r.active!==false);
+  const { cycleStart, cycleEnd } = getCycleRange(0);
+  const todayDateStr = todayStr();
+  const upcoming = [];
+  recs.forEach(r => {
+    const next = getRecNextDate(r);
+    if (!next) return;
+    const key = dateToStr(next);
+    if (next >= cycleStart && next <= cycleEnd) {
+      const goal = savingsCatById(r.savingsGoalId);
+      upcoming.push({ r, goal, date: key, dateObj: next });
+    }
+  });
+  return upcoming.sort((a,b) => a.date.localeCompare(b.date));
+}
+
 function recFreqLabel(r) {
   if (r.frequency === 'weekly') {
     const days = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
@@ -9755,7 +10166,7 @@ function openRecurringList() {
 function repairMissingRecurringExpenses() {
   // Always reset the lock for manual runs — user explicitly requested this
   _applyRecurringRunning = false;
-  applyRecurringExpenses();
+  applyRecurringExpenses(); applyRecurringSavings();
 }
 
 let _applyRecurringRunning = false;
@@ -12137,14 +12548,14 @@ document.addEventListener('visibilitychange', () => {
       // Day has changed — reload from cloud first to get fresh data, then apply recurring
       _lastRecurringCheckDate = currentDate;
       loadState().then(() => {
-        applyRecurringExpenses();
+        applyRecurringExpenses(); applyRecurringSavings();
         recordTodayOffsetSaving();
         renderContent();
       });
     } else {
       // Same day — just apply recurring on existing state (do NOT reload from cloud —
       // that would overwrite any unsaved in-memory changes)
-      applyRecurringExpenses();
+      applyRecurringExpenses(); applyRecurringSavings();
       renderContent();
     }
   }
