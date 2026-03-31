@@ -36,7 +36,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '2.3.3-202603312043';
+  const APP_VER = '2.3.5-202603312106';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -1084,12 +1084,7 @@ async function applyUpdate() {
     <label>Date</label>
     <input type="date" id="expDate">
     <label>Payment method</label>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px" id="expPaymentBtns">
-      <button type="button" onclick="setExpPayment('cc')"     id="expPay_cc"       style="padding:9px;border-radius:10px;border:2px solid var(--accent);background:var(--accent-dim);color:var(--accent);font-weight:700;font-family:var(--font);cursor:pointer;font-size:12px">💳 Credit Card</button>
-      <button type="button" onclick="setExpPayment('cash')"   id="expPay_cash"     style="padding:9px;border-radius:10px;border:2px solid var(--border);background:var(--surface2);color:var(--muted);font-weight:600;font-family:var(--font);cursor:pointer;font-size:12px">💵 Cash</button>
-      <button type="button" onclick="setExpPayment('bank')"   id="expPay_bank"     style="padding:9px;border-radius:10px;border:2px solid var(--border);background:var(--surface2);color:var(--muted);font-weight:600;font-family:var(--font);cursor:pointer;font-size:12px">🏦 Bank Transfer</button>
-      <button type="button" onclick="setExpPayment('other')"  id="expPay_other"    style="padding:9px;border-radius:10px;border:2px solid var(--border);background:var(--surface2);color:var(--muted);font-weight:600;font-family:var(--font);cursor:pointer;font-size:12px">💸 Other</button>
-    </div>
+    <select id="expPaymentSelect" onchange="onExpPaymentSelectChange()" style="margin-bottom:14px"></select>
     <!-- Tax deductible toggle -->
     <div id="expTaxRow" onclick="toggleTaxDeductible()" style="display:flex;align-items:center;justify-content:space-between;background:var(--surface2);border-radius:10px;padding:12px 14px;margin-bottom:14px;cursor:pointer;-webkit-tap-highlight-color:transparent;user-select:none">
       <div>
@@ -1228,6 +1223,10 @@ async function applyUpdate() {
     <input type="number" inputmode="decimal" id="scTarget" placeholder="e.g. 5000">
     <label>Goal date (optional)</label>
     <input type="date" id="scGoalDate">
+    <label>Bank account (optional — where does this money live?)</label>
+    <select id="scLinkedAccount" style="margin-bottom:14px">
+      <option value="">None</option>
+    </select>
     <button class="btn-primary" id="scSaveBtn" onclick="saveSavingsCat()">Save goal</button>
     <button class="btn-danger" id="scDeleteBtn" onclick="deleteSavingsCat()" style="display:none">Delete goal</button>
     <button class="btn-ghost" onclick="closeModal('savingsCatModal')">Cancel</button>
@@ -1939,9 +1938,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.3.3';
+const APP_VERSION = '2.3.5';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '31 Mar 2026 8:43 PM AEDT';
+const BUILD_TIME = '31 Mar 2026 9:06 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -3556,12 +3555,6 @@ function getNavConfig() {
         }
       });
     }
-    // Sync labels from DEFAULT_NAV_CONFIG for tabs that haven't been renamed
-    state.navConfig.forEach(t => {
-      const def = DEFAULT_NAV_CONFIG.find(d => d.id === t.id);
-      // Update label if it matches the old name (Finance → Accounts)
-      if (def && t.label === 'Finance') t.label = def.label;
-    });
     return state.navConfig;
   }
   return DEFAULT_NAV_CONFIG.map(t => ({ ...t }));
@@ -5833,17 +5826,58 @@ const EXP_PAYMENT_METHODS = {
   other: { label: 'Other',          icon: '💸' },
 };
 
+function populateExpPaymentSelect(selectedMethod, selectedAccountId) {
+  const sel = document.getElementById('expPaymentSelect');
+  if (!sel) return;
+  const accts = (state.accounts || []).filter(a => a.type !== 'credit');
+  let html = '<optgroup label="Standard">' +
+    '<option value="cc"' + (selectedMethod==='cc'?' selected':'') + '>💳 Credit Card</option>' +
+    '<option value="cash"' + (selectedMethod==='cash'?' selected':'') + '>💵 Cash</option>' +
+    '<option value="other"' + (selectedMethod==='other'?' selected':'') + '>💸 Other</option>' +
+  '</optgroup>';
+  if (accts.length > 0) {
+    html += '<optgroup label="Bank Accounts">';
+    accts.forEach(a => {
+      const val = 'acct:' + a.id;
+      const isSelected = selectedMethod === 'account' && selectedAccountId === a.id;
+      html += '<option value="' + val + '"' + (isSelected ? ' selected' : '') + '>' + (a.icon||'🏦') + ' ' + a.name + '</option>';
+    });
+    html += '</optgroup>';
+  }
+  sel.innerHTML = html;
+}
+
+function onExpPaymentSelectChange() {
+  const sel = document.getElementById('expPaymentSelect');
+  if (!sel) return;
+  const val = sel.value;
+  if (val.startsWith('acct:')) {
+    _expPaymentMethod = 'account';
+    _expPaymentAccountId = val.replace('acct:', '');
+  } else {
+    _expPaymentMethod = val;
+    _expPaymentAccountId = null;
+  }
+}
+
+// Keep setExpPayment for filter bar compat — now also syncs the dropdown
 function setExpPayment(method) {
   _expPaymentMethod = method;
-  Object.keys(EXP_PAYMENT_METHODS).forEach(m => {
-    const btn = document.getElementById('expPay_' + m);
-    if (!btn) return;
-    const isActive = m === method;
-    btn.style.border = isActive ? '2px solid var(--accent)' : '2px solid var(--border)';
-    btn.style.background = isActive ? 'var(--accent-dim)' : 'var(--surface2)';
-    btn.style.color = isActive ? 'var(--accent)' : 'var(--muted)';
-    btn.style.fontWeight = isActive ? '700' : '600';
-  });
+  _expPaymentAccountId = null;
+  const sel = document.getElementById('expPaymentSelect');
+  if (sel) sel.value = method;
+}
+
+function setExpPaymentAccount(accountId) {
+  _expPaymentMethod = 'account';
+  _expPaymentAccountId = accountId;
+  const sel = document.getElementById('expPaymentSelect');
+  if (sel) sel.value = 'acct:' + accountId;
+}
+
+// populateExpPaymentAccounts now just rebuilds the whole dropdown
+function populateExpPaymentAccounts() {
+  populateExpPaymentSelect(_expPaymentMethod, _expPaymentAccountId);
 }
 
 function setTxType(type) {
@@ -6233,8 +6267,7 @@ function openAddExpense() {
   _expSelectedGoalId = null;
   _expPaymentMethod = 'cc';
   _expPaymentAccountId = null;
-  setExpPayment('cc');
-  populateExpPaymentAccounts();
+  populateExpPaymentSelect('cc', null);
   document.getElementById('expenseModalTitle').textContent = 'New transaction';
   document.getElementById('expAmount').value = '';
   document.getElementById('expAmount').oninput = _updateTxGoalInfo;
@@ -6259,12 +6292,7 @@ function openEditExpense(id) {
   _txType = e.transactionType || 'expense';
   _expPaymentMethod = e.paymentMethod || 'cc';
   _expPaymentAccountId = e.paymentAccountId || null;
-  populateExpPaymentAccounts();
-  if (_expPaymentAccountId) {
-    setExpPaymentAccount(_expPaymentAccountId);
-  } else {
-    setExpPayment(_expPaymentMethod);
-  }
+  populateExpPaymentSelect(_expPaymentMethod, _expPaymentAccountId);
   // Restore which goal was selected for this expense
   _expSelectedGoalId = e.linkedGoalId || e.linkedDepositId && (() => {
     const dep = (state.savingsDeposits||[]).find(d=>d.id===e.linkedDepositId);
@@ -7333,6 +7361,14 @@ function renderRecurringSavingsPane() {
   return html;
 }
 
+function _populateSavingsAccountSelect(selectedId) {
+  const sel = document.getElementById('scLinkedAccount');
+  if (!sel) return;
+  const accts = state.accounts || [];
+  sel.innerHTML = '<option value="">None</option>' +
+    accts.map(a => '<option value="' + a.id + '"' + (a.id === selectedId ? ' selected' : '') + '>' + (a.icon||'🏦') + ' ' + a.name + '</option>').join('');
+}
+
 function openAddSavingsCat() {
   editingSavingsCatId = null;
   document.getElementById('savingsCatModalTitle').textContent = 'New savings goal';
@@ -7344,6 +7380,7 @@ function openAddSavingsCat() {
   const col = PALETTE[Math.floor(Math.random()*PALETTE.length)];
   buildColorGridFor('scColorGrid', col);
   setEmojiPicker('sc', '');
+  _populateSavingsAccountSelect('');
   openModal('savingsCatModal');
   setTimeout(()=>document.getElementById('scName').focus(),350);
 }
@@ -7405,6 +7442,7 @@ function openEditSavingsCat(id) {
   document.getElementById('scSaveBtn').textContent = 'Update goal';
   buildColorGridFor('scColorGrid', cat.color);
   setEmojiPicker('sc', cat.icon||'');
+  _populateSavingsAccountSelect(cat.linkedAccountId || '');
   openModal('savingsCatModal');
 }
 function saveSavingsCat() {
@@ -7414,12 +7452,13 @@ function saveSavingsCat() {
   const color = getSelectedColorFrom('scColorGrid');
   const goalDate = document.getElementById('scGoalDate').value || '';
   const target = parseFloat(document.getElementById('scTarget').value) || 0;
+  const linkedAccountId = document.getElementById('scLinkedAccount').value || null;
   if (!state.savingsCategories) state.savingsCategories = [];
   if (editingSavingsCatId) {
     const idx = state.savingsCategories.findIndex(c=>c.id===editingSavingsCatId);
-    if (idx>=0) state.savingsCategories[idx] = {...state.savingsCategories[idx], name, icon, color, goalDate, target};
+    if (idx>=0) state.savingsCategories[idx] = {...state.savingsCategories[idx], name, icon, color, goalDate, target, linkedAccountId};
   } else {
-    state.savingsCategories.push({id:uid(), name, icon, color, goalDate, target});
+    state.savingsCategories.push({id:uid(), name, icon, color, goalDate, target, linkedAccountId});
   }
   saveState(); closeModal('savingsCatModal'); renderContent();
 }
