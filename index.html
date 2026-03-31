@@ -36,7 +36,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '2.3.0-202603311956';
+  const APP_VER = '2.3.1-202603312024';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -1939,9 +1939,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.3.0';
+const APP_VERSION = '2.3.1';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '31 Mar 2026 7:56 PM AEDT';
+const BUILD_TIME = '31 Mar 2026 8:24 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -3347,7 +3347,11 @@ function renderTabs() {
   const currentMain = getCurrentMainTab();
   cfg.forEach(t => {
     const btn = document.getElementById('bn' + t.id.charAt(0).toUpperCase() + t.id.slice(1));
-    if (btn) btn.classList.toggle('active', currentMain === t.id);
+    if (!btn) return;
+    btn.classList.toggle('active', currentMain === t.id);
+    // Sync label text — update nav button to reflect current config label
+    const textNode = Array.from(btn.childNodes).find(n => n.nodeType === 3); // text node
+    if (textNode) textNode.textContent = t.label;
   });
   renderSubTabs();
 }
@@ -3537,9 +3541,26 @@ function getNavConfig() {
     const allSections = DEFAULT_NAV_CONFIG.flatMap(t => t.sections);
     const usedSections = state.navConfig.flatMap(t => t.sections);
     const missingSections = allSections.filter(s => !usedSections.includes(s));
-    if (missingSections.length > 0 && state.navConfig.length > 0) {
-      state.navConfig[state.navConfig.length - 1].sections.push(...missingSections);
+    if (missingSections.length > 0) {
+      missingSections.forEach(s => {
+        // Find the default home for this section and add it there
+        const defaultTab = DEFAULT_NAV_CONFIG.find(t => t.sections.includes(s));
+        const targetId = defaultTab ? defaultTab.id : null;
+        const target = targetId ? state.navConfig.find(t => t.id === targetId) : null;
+        if (target) {
+          target.sections.push(s);
+        } else {
+          // Fallback: add to last tab
+          state.navConfig[state.navConfig.length - 1].sections.push(s);
+        }
+      });
     }
+    // Sync labels from DEFAULT_NAV_CONFIG for tabs that haven't been renamed
+    state.navConfig.forEach(t => {
+      const def = DEFAULT_NAV_CONFIG.find(d => d.id === t.id);
+      // Update label if it matches the old name (Finance → Accounts)
+      if (def && t.label === 'Finance') t.label = def.label;
+    });
     return state.navConfig;
   }
   return DEFAULT_NAV_CONFIG.map(t => ({ ...t }));
