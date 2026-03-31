@@ -36,7 +36,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '2.3.1-202603312024';
+  const APP_VER = '2.3.2-202603312031';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -1939,9 +1939,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.3.1';
+const APP_VERSION = '2.3.2';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '31 Mar 2026 8:24 PM AEDT';
+const BUILD_TIME = '31 Mar 2026 8:31 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -3520,8 +3520,9 @@ function saveTabConfig() {
 
 function switchTab(tab) {
   if (tab !== 'expenses') expenseSearchQuery = '';
+  if (tab !== 'accounts') _viewingAccountId = null;
   state.currentTab = tab;
-  renderContent(); // renderContent calls renderTabs() which calls renderSubTabs()
+  renderContent();
 }
 function getTabConfig() {
   return ALL_TABS.map(t => ({ ...t, enabled: true }));
@@ -3798,6 +3799,7 @@ function renderContentBody() {
     });
   }
   else if (tab === 'goals')     renderGoals();
+  else if (tab === 'accounts')  renderAccounts();
   else if (tab === 'savings')   renderSavings();
   else if (tab === 'portfolio') renderPortfolio();
   else if (tab === 'giftcards') renderGiftCards();
