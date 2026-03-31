@@ -36,7 +36,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '2.2.17-202603310936';
+  const APP_VER = '2.3.0-202603311956';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -867,7 +867,7 @@ async function applyUpdate() {
       <span class="nav-icon">💰</span>Save
     </button>
     <button class="bottom-nav-item" id="bnFinance" onclick="switchMainTab('finance')">
-      <span class="nav-icon">🏦</span>Finance
+      <span class="nav-icon">🏦</span>Accounts
     </button>
     <button class="bottom-nav-item" id="bnInsights" onclick="switchMainTab('insights')">
       <span class="nav-icon">📊</span>Insights
@@ -1649,6 +1649,76 @@ async function applyUpdate() {
   </div>
 </div>
 
+<!-- Account modal -->
+<div class="modal-overlay" id="accountModal">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title" id="accountModalTitle">New account</div>
+    <label>Account name</label>
+    <input type="text" id="acctName" placeholder="e.g. CommBank Everyday">
+    <label>Type</label>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px" id="acctTypeBtns">
+      <button type="button" onclick="setAcctType('transaction')" id="acctTypeTransaction" style="padding:9px;border-radius:10px;border:2px solid var(--accent);background:var(--accent-dim);color:var(--accent);font-weight:700;font-family:var(--font);cursor:pointer;font-size:12px">💳 Transaction</button>
+      <button type="button" onclick="setAcctType('savings')"     id="acctTypeSavings"     style="padding:9px;border-radius:10px;border:2px solid var(--border);background:var(--surface2);color:var(--muted);font-weight:600;font-family:var(--font);cursor:pointer;font-size:12px">💰 Savings</button>
+      <button type="button" onclick="setAcctType('offset')"      id="acctTypeOffset"      style="padding:9px;border-radius:10px;border:2px solid var(--border);background:var(--surface2);color:var(--muted);font-weight:600;font-family:var(--font);cursor:pointer;font-size:12px">🏠 Offset</button>
+      <button type="button" onclick="setAcctType('credit')"      id="acctTypeCredit"      style="padding:9px;border-radius:10px;border:2px solid var(--border);background:var(--surface2);color:var(--muted);font-weight:600;font-family:var(--font);cursor:pointer;font-size:12px">💳 Credit Card</button>
+    </div>
+    <label>Opening balance ($)</label>
+    <input type="number" inputmode="decimal" id="acctOpeningBalance" placeholder="0.00" step="0.01">
+    <label>Opening balance date</label>
+    <input type="date" id="acctOpeningDate">
+    <label>Color</label>
+    <div class="color-grid" id="acctColorGrid"></div>
+    <button class="btn-primary" id="acctSaveBtn" onclick="saveAccount()">Save account</button>
+    <button class="btn-danger" id="acctDeleteBtn" onclick="deleteAccount()" style="display:none">Delete account</button>
+    <button class="btn-ghost" onclick="closeModal('accountModal')">Cancel</button>
+  </div>
+</div>
+
+<!-- Income modal -->
+<div class="modal-overlay" id="incomeModal">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title" id="incomeModalTitle">Log income</div>
+    <label>Amount ($)</label>
+    <input type="number" inputmode="decimal" id="incomeAmount" placeholder="0.00" step="0.01" min="0">
+    <label>Description</label>
+    <input type="text" id="incomeDesc" placeholder="e.g. Salary, Freelance">
+    <label>Into account</label>
+    <select id="incomeAccount"></select>
+    <label>Date</label>
+    <input type="date" id="incomeDate">
+    <button class="btn-primary" id="incomeSaveBtn" onclick="saveIncome()">Save</button>
+    <button class="btn-danger" id="incomeDeleteBtn" onclick="deleteIncome()" style="display:none">Delete</button>
+    <button class="btn-ghost" onclick="closeModal('incomeModal')">Cancel</button>
+  </div>
+</div>
+
+<!-- Transfer modal -->
+<div class="modal-overlay" id="transferModal">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title" id="transferModalTitle">Transfer</div>
+    <label>Amount ($)</label>
+    <input type="number" inputmode="decimal" id="transferAmount" placeholder="0.00" step="0.01" min="0">
+    <label>From account</label>
+    <select id="transferFrom" onchange="updateTransferGoalPicker()"></select>
+    <label>To account</label>
+    <select id="transferTo" onchange="updateTransferGoalPicker()"></select>
+    <div id="transferGoalWrap" style="display:none">
+      <label>Tag to savings goal (optional)</label>
+      <select id="transferGoal"></select>
+    </div>
+    <label>Date</label>
+    <input type="date" id="transferDate">
+    <label>Note (optional)</label>
+    <input type="text" id="transferNote" placeholder="e.g. Monthly savings">
+    <button class="btn-primary" id="transferSaveBtn" onclick="saveTransfer()">Save</button>
+    <button class="btn-danger" id="transferDeleteBtn" onclick="deleteTransfer()" style="display:none">Delete</button>
+    <button class="btn-ghost" onclick="closeModal('transferModal')">Cancel</button>
+  </div>
+</div>
+
 <!-- Gift card modal -->
 <div class="modal-overlay" id="giftCardModal">
   <div class="modal">
@@ -1869,9 +1939,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.2.17';
+const APP_VERSION = '2.3.0';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '31 Mar 2026 9:36 AM AEDT';
+const BUILD_TIME = '31 Mar 2026 7:56 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -2143,7 +2213,7 @@ async function signOut() {
   try { localStorage.removeItem('spendly_backup'); } catch(e) {}
   try { sessionStorage.clear(); } catch(e) {}
   // Reset state and show auth screen
-  state = { currentTab:'expenses', viewingCycleOffset:0, budget:0, cycleDay:1, appName:'', categories:[], expenses:[], recurringExpenses:[], recurringSavings:[], savingsCategories:[], savingsSubcategories:[], savingsDeposits:[], recyclingTrips:[], mortgage:{}, taxCategories:[], taxTransactions:[], giftCards:[], portfolio:[], netWorth:[], notes:[], setupDone:false };
+  state = { currentTab:'expenses', viewingCycleOffset:0, budget:0, cycleDay:1, appName:'', categories:[], expenses:[], recurringExpenses:[], recurringSavings:[], savingsCategories:[], savingsSubcategories:[], savingsDeposits:[], recyclingTrips:[], mortgage:{}, taxCategories:[], taxTransactions:[], giftCards:[], portfolio:[], netWorth:[], notes:[], accounts:[], accountTransactions:[], setupDone:false };
   showAuthScreen();
   document.getElementById('app').style.visibility = 'hidden';
 }
@@ -3232,16 +3302,18 @@ function updateHeader() {
 const MAIN_TABS = {
   spend:    { label:'Spend',    icon:'💳', sections:['expenses','goals'] },
   save:     { label:'Save',     icon:'💰', sections:['savings','giftcards','recycling'] },
-  finance:  { label:'Finance',  icon:'🏦', sections:['portfolio','networth','mortgage','tax'] },
+  finance:  { label:'Accounts', icon:'🏦', sections:['accounts','portfolio','networth','mortgage','tax'] },
   insights: { label:'Insights', icon:'📊', sections:['analytics','notes','investor'] },
 };
 const SECTION_LABELS = {
   expenses:'Expenses', goals:'Budget', savings:'Savings', giftcards:'Wallet',
   recycling:'Recycling', portfolio:'Portfolio', networth:'Net Worth',
   mortgage:'Mortgage', tax:'Tax', analytics:'Analytics', notes:'Notes', investor:'Playbook',
+  accounts:'Accounts',
 };
 const ALL_TABS = [
   { id:'expenses',  icon:'💸', label:'Expenses',  locked:true  },
+  { id:'accounts',  icon:'🏦', label:'Accounts'              },
   { id:'goals',     icon:'🎯', label:'Budget'              },
   { id:'savings',   icon:'💰', label:'Savings'             },
   { id:'recycling', icon:'♻️', label:'Recycling'           },
@@ -3289,7 +3361,7 @@ function renderSubTabs() {
   const sectionIcons = {
     expenses:'💸', goals:'🎯', savings:'💰', giftcards:'🎁',
     recycling:'♻️', portfolio:'📈', networth:'💎', mortgage:'🏠',
-    tax:'🧾', analytics:'📊', notes:'📝', investor:'💡',
+    tax:'🧾', analytics:'📊', notes:'📝', investor:'💡', accounts:'🏦',
   };
   let html = '<div class="sub-tabs">';
   tab.sections.forEach(id => {
@@ -3455,7 +3527,7 @@ function getTabConfig() {
 const DEFAULT_NAV_CONFIG = [
   { id:'spend',    label:'Spend',    icon:'💳', sections:['expenses','goals'] },
   { id:'save',     label:'Save',     icon:'💰', sections:['savings','giftcards','recycling'] },
-  { id:'finance',  label:'Finance',  icon:'🏦', sections:['portfolio','networth','mortgage','tax'] },
+  { id:'finance',  label:'Accounts',  icon:'🏦', sections:['accounts','portfolio','networth','mortgage','tax'] },
   { id:'insights', label:'Insights', icon:'📊', sections:['analytics','notes','investor'] },
 ];
 
@@ -3723,7 +3795,7 @@ function renderContent() {
     fabEl.style.display = showFab ? '' : 'none';
   }
   if      (state.currentTab === 'expenses')  renderExpenses();
-  else if (state.currentTab === 'analytics') renderAnalytics();
+  else if (state.currentTab === 'accounts')   renderAccounts();
   else if (state.currentTab === 'goals')     renderGoals();
   else if (state.currentTab === 'calendar')  renderCalendar();
   else if (state.currentTab === 'recycling') renderRecycling();
@@ -5728,7 +5800,8 @@ function populateCatSelect() {
   }
 }
 let _txType = 'expense'; // 'expense' | 'saving'
-let _expPaymentMethod = 'cc'; // 'cc' | 'cash' | 'bank' | 'other'
+let _expPaymentMethod = 'cc'; // 'cc' | 'cash' | 'bank' | 'other' | 'account'
+let _expPaymentAccountId = null; // set when a bank account is selected as payment method
 
 const EXP_PAYMENT_METHODS = {
   cc:    { label: 'Credit Card',    icon: '💳' },
@@ -6136,7 +6209,9 @@ function openAddExpense() {
   _txType = 'expense';
   _expSelectedGoalId = null;
   _expPaymentMethod = 'cc';
+  _expPaymentAccountId = null;
   setExpPayment('cc');
+  populateExpPaymentAccounts();
   document.getElementById('expenseModalTitle').textContent = 'New transaction';
   document.getElementById('expAmount').value = '';
   document.getElementById('expAmount').oninput = _updateTxGoalInfo;
@@ -6160,7 +6235,13 @@ function openEditExpense(id) {
   state.editingExpenseId = id;
   _txType = e.transactionType || 'expense';
   _expPaymentMethod = e.paymentMethod || 'cc';
-  setExpPayment(_expPaymentMethod);
+  _expPaymentAccountId = e.paymentAccountId || null;
+  populateExpPaymentAccounts();
+  if (_expPaymentAccountId) {
+    setExpPaymentAccount(_expPaymentAccountId);
+  } else {
+    setExpPayment(_expPaymentMethod);
+  }
   // Restore which goal was selected for this expense
   _expSelectedGoalId = e.linkedGoalId || e.linkedDepositId && (() => {
     const dep = (state.savingsDeposits||[]).find(d=>d.id===e.linkedDepositId);
@@ -6252,7 +6333,7 @@ function saveExpense() {
     }
   }
 
-  const expRecord = { id:expId, amount, name, categoryId, date, transactionType:txType, paymentMethod:_expPaymentMethod, linkedGoalId: linkedGoalId||undefined, linkedDepositId, linkedWithdrawalId, goalCoveredAmount };
+  const expRecord = { id:expId, amount, name, categoryId, date, transactionType:txType, paymentMethod:_expPaymentMethod, paymentAccountId:_expPaymentAccountId||undefined, linkedGoalId: linkedGoalId||undefined, linkedDepositId, linkedWithdrawalId, goalCoveredAmount };
 
   if (state.editingExpenseId) {
     const idx = state.expenses.findIndex(e=>e.id===state.editingExpenseId);
@@ -10567,7 +10648,7 @@ function openRecurringList() {
 function repairMissingRecurringExpenses() {
   // Always reset the lock for manual runs — user explicitly requested this
   _applyRecurringRunning = false;
-  applyRecurringExpenses(); applyRecurringSavings();
+  applyRecurringExpenses(); applyRecurringSavings(); migrateOffsetToAccount();
 }
 
 let _applyRecurringRunning = false;
@@ -12075,6 +12156,518 @@ function openNetWorthAddSheet() {
 }
 
 function renderNetWorth() {
+
+// ── Accounts ──────────────────────────────────────────────────────────────────
+
+const ACCOUNT_TYPES = {
+  transaction: { label: 'Transaction', icon: '💳' },
+  savings:     { label: 'Savings',     icon: '💰' },
+  offset:      { label: 'Offset',      icon: '🏠' },
+  credit:      { label: 'Credit Card', icon: '💳' },
+};
+
+let _editingAccountId = null;
+let _editingIncomeId = null;
+let _editingTransferId = null;
+let _acctType = 'transaction';
+
+function accountById(id) { return (state.accounts||[]).find(a=>a.id===id); }
+
+// ── Account balance calculation ───────────────────────────────────────────────
+function getAccountBalance(accountId) {
+  const acct = accountById(accountId);
+  if (!acct) return 0;
+  let bal = acct.openingBalance || 0;
+  const txns = (state.accountTransactions||[]).filter(t => !t.deleted);
+
+  txns.forEach(t => {
+    if (t.type === 'income' && t.accountId === accountId) bal += t.amount;
+    if (t.type === 'transfer') {
+      if (t.fromAccountId === accountId) bal -= t.amount;
+      if (t.toAccountId === accountId)   bal += t.amount;
+    }
+  });
+
+  // Expenses paid from this account
+  (state.expenses||[]).forEach(e => {
+    if (e.paymentAccountId === accountId) bal -= e.amount;
+  });
+
+  // Savings deposits sourced from this account
+  (state.savingsDeposits||[]).forEach(d => {
+    if (d.sourceAccountId === accountId) bal -= d.amount;
+  });
+
+  return Math.round(bal * 100) / 100;
+}
+
+function getAccountTransactions(accountId) {
+  const rows = [];
+  const txns = (state.accountTransactions||[]).filter(t => !t.deleted);
+
+  txns.forEach(t => {
+    if (t.type === 'income' && t.accountId === accountId) {
+      rows.push({ id: t.id, date: t.date, label: t.description || 'Income', amount: t.amount, direction: 'in', type: 'income', raw: t });
+    }
+    if (t.type === 'transfer') {
+      if (t.fromAccountId === accountId) {
+        const toAcct = accountById(t.toAccountId);
+        rows.push({ id: t.id, date: t.date, label: (t.note || 'Transfer') + (toAcct ? ' → ' + toAcct.name : ''), amount: t.amount, direction: 'out', type: 'transfer', raw: t });
+      }
+      if (t.toAccountId === accountId) {
+        const fromAcct = accountById(t.fromAccountId);
+        rows.push({ id: t.id, date: t.date, label: (t.note || 'Transfer') + (fromAcct ? ' ← ' + fromAcct.name : ''), amount: t.amount, direction: 'in', type: 'transfer', raw: t });
+      }
+    }
+  });
+
+  // Expenses
+  (state.expenses||[]).forEach(e => {
+    if (e.paymentAccountId === accountId) {
+      const cat = catById(e.categoryId);
+      rows.push({ id: e.id, date: e.date, label: e.name || (cat ? cat.name : 'Expense'), amount: e.amount, direction: 'out', type: 'expense', raw: e });
+    }
+  });
+
+  // Savings deposits
+  (state.savingsDeposits||[]).forEach(d => {
+    if (d.sourceAccountId === accountId) {
+      const goal = savingsCatById(d.catId);
+      rows.push({ id: d.id, date: d.date, label: d.note || (goal ? 'Saving: ' + goal.name : 'Savings deposit'), amount: d.amount, direction: 'out', type: 'saving', raw: d });
+    }
+  });
+
+  return rows.sort((a,b) => b.date.localeCompare(a.date) || b.id.localeCompare(a.id));
+}
+
+// ── Offset migration ──────────────────────────────────────────────────────────
+function migrateOffsetToAccount() {
+  if (!(state.offsetTransactions||[]).length) return;
+  if ((state.accounts||[]).some(a => a.migratedFromOffset)) return; // already done
+
+  // Find or create offset account
+  let offsetAcct = (state.accounts||[]).find(a => a.type === 'offset');
+  if (!offsetAcct) {
+    if (!state.accounts) state.accounts = [];
+    offsetAcct = { id: uid(), name: 'Offset Account', type: 'offset', icon: '🏠', color: '#4F8EF7', openingBalance: 0, openingDate: '', migratedFromOffset: true };
+    state.accounts.push(offsetAcct);
+  }
+
+  // Migrate offset transactions as account transactions
+  if (!state.accountTransactions) state.accountTransactions = [];
+  (state.offsetTransactions||[]).forEach(ot => {
+    // Check not already migrated
+    if ((state.accountTransactions||[]).some(t => t.migratedOffsetId === ot.id)) return;
+    if (ot.type === 'withdrawal' || ot.type === 'bill-payment') {
+      state.accountTransactions.push({ id: uid(), type: 'transfer', fromAccountId: offsetAcct.id, toAccountId: '__external__', amount: ot.amount, date: ot.date, note: ot.note || 'Offset withdrawal', migratedOffsetId: ot.id });
+    } else {
+      state.accountTransactions.push({ id: uid(), type: 'income', accountId: offsetAcct.id, amount: ot.amount, date: ot.date, description: ot.note || 'Offset deposit', migratedOffsetId: ot.id });
+    }
+  });
+}
+
+// ── Account CRUD ──────────────────────────────────────────────────────────────
+function setAcctType(type) {
+  _acctType = type;
+  Object.keys(ACCOUNT_TYPES).forEach(k => {
+    const btn = document.getElementById('acctType' + k.charAt(0).toUpperCase() + k.slice(1));
+    if (!btn) return;
+    const active = k === type;
+    btn.style.border = active ? '2px solid var(--accent)' : '2px solid var(--border)';
+    btn.style.background = active ? 'var(--accent-dim)' : 'var(--surface2)';
+    btn.style.color = active ? 'var(--accent)' : 'var(--muted)';
+    btn.style.fontWeight = active ? '700' : '600';
+  });
+}
+
+function openAddAccount() {
+  _editingAccountId = null;
+  document.getElementById('accountModalTitle').textContent = 'New account';
+  document.getElementById('acctName').value = '';
+  document.getElementById('acctOpeningBalance').value = '';
+  document.getElementById('acctOpeningDate').value = todayStr();
+  document.getElementById('acctSaveBtn').textContent = 'Save account';
+  document.getElementById('acctDeleteBtn').style.display = 'none';
+  buildColorGridFor('acctColorGrid', PALETTE[Math.floor(Math.random()*PALETTE.length)]);
+  setAcctType('transaction');
+  openModal('accountModal');
+  setTimeout(() => document.getElementById('acctName').focus(), 350);
+}
+
+function openEditAccount(id) {
+  const acct = accountById(id); if (!acct) return;
+  _editingAccountId = id;
+  document.getElementById('accountModalTitle').textContent = 'Edit account';
+  document.getElementById('acctName').value = acct.name;
+  document.getElementById('acctOpeningBalance').value = acct.openingBalance || '';
+  document.getElementById('acctOpeningDate').value = acct.openingDate || '';
+  document.getElementById('acctSaveBtn').textContent = 'Update account';
+  document.getElementById('acctDeleteBtn').style.display = 'block';
+  buildColorGridFor('acctColorGrid', acct.color);
+  setAcctType(acct.type || 'transaction');
+  openModal('accountModal');
+}
+
+function saveAccount() {
+  const name = document.getElementById('acctName').value.trim();
+  if (!name) return;
+  const openingBalance = parseFloat(document.getElementById('acctOpeningBalance').value) || 0;
+  const openingDate = document.getElementById('acctOpeningDate').value || todayStr();
+  const color = getSelectedColorFrom('acctColorGrid');
+  const icon = ACCOUNT_TYPES[_acctType]?.icon || '🏦';
+  if (!state.accounts) state.accounts = [];
+  if (_editingAccountId) {
+    const idx = state.accounts.findIndex(a => a.id === _editingAccountId);
+    if (idx >= 0) state.accounts[idx] = { ...state.accounts[idx], name, type: _acctType, icon, color, openingBalance, openingDate };
+  } else {
+    state.accounts.push({ id: uid(), name, type: _acctType, icon, color, openingBalance, openingDate });
+  }
+  saveState(); closeModal('accountModal'); renderContent();
+}
+
+function deleteAccount() {
+  if (!_editingAccountId) return;
+  if (!confirm('Delete this account? Its transaction history will be removed.')) return;
+  state.accounts = (state.accounts||[]).filter(a => a.id !== _editingAccountId);
+  state.accountTransactions = (state.accountTransactions||[]).filter(t =>
+    t.accountId !== _editingAccountId &&
+    t.fromAccountId !== _editingAccountId &&
+    t.toAccountId !== _editingAccountId
+  );
+  saveState(); closeModal('accountModal'); renderContent();
+}
+
+// ── Income CRUD ───────────────────────────────────────────────────────────────
+function populateAccountSelect(elId, selectedId) {
+  const sel = document.getElementById(elId); if (!sel) return;
+  const accts = state.accounts || [];
+  sel.innerHTML = accts.map(a => '<option value="' + a.id + '"' + (a.id===selectedId?' selected':'') + '>' + (a.icon||'🏦') + ' ' + a.name + '</option>').join('');
+}
+
+function openAddIncome(accountId) {
+  _editingIncomeId = null;
+  document.getElementById('incomeModalTitle').textContent = 'Log income';
+  document.getElementById('incomeAmount').value = '';
+  document.getElementById('incomeDesc').value = '';
+  document.getElementById('incomeDate').value = todayStr();
+  document.getElementById('incomeSaveBtn').textContent = 'Save';
+  document.getElementById('incomeDeleteBtn').style.display = 'none';
+  populateAccountSelect('incomeAccount', accountId || (state.accounts||[])[0]?.id);
+  openModal('incomeModal');
+  setTimeout(() => document.getElementById('incomeAmount').focus(), 350);
+}
+
+function openEditIncome(id) {
+  const t = (state.accountTransactions||[]).find(t => t.id === id && t.type === 'income');
+  if (!t) return;
+  _editingIncomeId = id;
+  document.getElementById('incomeModalTitle').textContent = 'Edit income';
+  document.getElementById('incomeAmount').value = t.amount;
+  document.getElementById('incomeDesc').value = t.description || '';
+  document.getElementById('incomeDate').value = t.date;
+  document.getElementById('incomeSaveBtn').textContent = 'Update';
+  document.getElementById('incomeDeleteBtn').style.display = 'block';
+  populateAccountSelect('incomeAccount', t.accountId);
+  openModal('incomeModal');
+}
+
+function saveIncome() {
+  const amount = parseFloat(document.getElementById('incomeAmount').value);
+  const description = document.getElementById('incomeDesc').value.trim();
+  const accountId = document.getElementById('incomeAccount').value;
+  const date = document.getElementById('incomeDate').value;
+  if (!amount || !accountId || !date) return;
+  if (!state.accountTransactions) state.accountTransactions = [];
+  const rec = { id: _editingIncomeId || uid(), type: 'income', accountId, amount, description, date };
+  if (_editingIncomeId) {
+    const idx = state.accountTransactions.findIndex(t => t.id === _editingIncomeId);
+    if (idx >= 0) state.accountTransactions[idx] = rec;
+  } else {
+    state.accountTransactions.push(rec);
+  }
+  saveState(); closeModal('incomeModal'); renderContent();
+}
+
+function deleteIncome() {
+  if (!_editingIncomeId) return;
+  state.accountTransactions = (state.accountTransactions||[]).filter(t => t.id !== _editingIncomeId);
+  saveState(); closeModal('incomeModal'); renderContent();
+}
+
+// ── Transfer CRUD ─────────────────────────────────────────────────────────────
+function updateTransferGoalPicker() {
+  const toId = document.getElementById('transferTo')?.value;
+  const wrap = document.getElementById('transferGoalWrap');
+  const goalSel = document.getElementById('transferGoal');
+  if (!wrap || !goalSel) return;
+  const toAcct = accountById(toId);
+  // Show goal picker if the destination account has savings goals linked to it
+  const goals = state.savingsCategories || [];
+  const linkedGoals = goals.filter(g => g.linkedAccountId === toId);
+  // Also show all goals if destination is a savings-type account
+  const allGoals = toAcct && (toAcct.type === 'savings' || toAcct.type === 'offset') ? goals : linkedGoals;
+  if (allGoals.length === 0) { wrap.style.display = 'none'; return; }
+  wrap.style.display = '';
+  goalSel.innerHTML = '<option value="">None (unallocated)</option>' +
+    allGoals.map(g => '<option value="' + g.id + '">' + (g.icon||'💰') + ' ' + g.name + '</option>').join('');
+}
+
+function openAddTransfer(fromAccountId) {
+  _editingTransferId = null;
+  document.getElementById('transferModalTitle').textContent = 'Transfer';
+  document.getElementById('transferAmount').value = '';
+  document.getElementById('transferDate').value = todayStr();
+  document.getElementById('transferNote').value = '';
+  document.getElementById('transferSaveBtn').textContent = 'Save';
+  document.getElementById('transferDeleteBtn').style.display = 'none';
+  const accts = state.accounts || [];
+  populateAccountSelect('transferFrom', fromAccountId || accts[0]?.id);
+  populateAccountSelect('transferTo', accts[1]?.id || accts[0]?.id);
+  updateTransferGoalPicker();
+  openModal('transferModal');
+  setTimeout(() => document.getElementById('transferAmount').focus(), 350);
+}
+
+function openEditTransfer(id) {
+  const t = (state.accountTransactions||[]).find(t => t.id === id && t.type === 'transfer');
+  if (!t) return;
+  _editingTransferId = id;
+  document.getElementById('transferModalTitle').textContent = 'Edit transfer';
+  document.getElementById('transferAmount').value = t.amount;
+  document.getElementById('transferDate').value = t.date;
+  document.getElementById('transferNote').value = t.note || '';
+  document.getElementById('transferSaveBtn').textContent = 'Update';
+  document.getElementById('transferDeleteBtn').style.display = 'block';
+  populateAccountSelect('transferFrom', t.fromAccountId);
+  populateAccountSelect('transferTo', t.toAccountId);
+  updateTransferGoalPicker();
+  if (t.goalId) {
+    const goalSel = document.getElementById('transferGoal');
+    if (goalSel) goalSel.value = t.goalId;
+  }
+  openModal('transferModal');
+}
+
+function saveTransfer() {
+  const amount = parseFloat(document.getElementById('transferAmount').value);
+  const fromAccountId = document.getElementById('transferFrom').value;
+  const toAccountId = document.getElementById('transferTo').value;
+  const date = document.getElementById('transferDate').value;
+  const note = document.getElementById('transferNote').value.trim();
+  const goalId = document.getElementById('transferGoal')?.value || null;
+  if (!amount || !fromAccountId || !toAccountId || !date) return;
+  if (fromAccountId === toAccountId) { showToast('From and To accounts must be different', 2000); return; }
+  if (!state.accountTransactions) state.accountTransactions = [];
+  const rec = { id: _editingTransferId || uid(), type: 'transfer', fromAccountId, toAccountId, amount, date, note, goalId: goalId || undefined };
+  if (_editingTransferId) {
+    const idx = state.accountTransactions.findIndex(t => t.id === _editingTransferId);
+    if (idx >= 0) {
+      // Remove old savings deposit if goal changed
+      const old = state.accountTransactions[idx];
+      if (old.savingsDepositId) state.savingsDeposits = (state.savingsDeposits||[]).filter(d => d.id !== old.savingsDepositId);
+      state.accountTransactions[idx] = rec;
+    }
+  } else {
+    state.accountTransactions.push(rec);
+  }
+  // If tagged to a goal, create a savings deposit
+  if (goalId) {
+    if (!state.savingsDeposits) state.savingsDeposits = [];
+    const depositId = uid();
+    rec.savingsDepositId = depositId;
+    state.savingsDeposits.push({ id: depositId, catId: goalId, targetId: goalId, amount, date, note: note || 'Transfer', type: 'deposit', transferId: rec.id });
+  }
+  saveState(); closeModal('transferModal'); renderContent();
+  showToast('✅ Transfer saved', 2000);
+}
+
+function deleteTransfer() {
+  if (!_editingTransferId) return;
+  const t = (state.accountTransactions||[]).find(x => x.id === _editingTransferId);
+  if (t && t.savingsDepositId) state.savingsDeposits = (state.savingsDeposits||[]).filter(d => d.id !== t.savingsDepositId);
+  state.accountTransactions = (state.accountTransactions||[]).filter(t => t.id !== _editingTransferId);
+  saveState(); closeModal('transferModal'); renderContent();
+}
+
+// ── Populate payment account select in expense modal ─────────────────────────
+function populateExpPaymentAccounts() {
+  // Called when expense modal opens — adds bank accounts to payment buttons
+  const wrap = document.getElementById('expPaymentBtns');
+  if (!wrap) return;
+  const accts = (state.accounts||[]).filter(a => a.type !== 'credit');
+  // Remove old account buttons
+  wrap.querySelectorAll('.acct-pay-btn').forEach(b => b.remove());
+  accts.forEach(a => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'acct-pay-btn';
+    btn.style.cssText = 'padding:9px;border-radius:10px;border:2px solid var(--border);background:var(--surface2);color:var(--muted);font-weight:600;font-family:var(--font);cursor:pointer;font-size:12px';
+    btn.textContent = (a.icon||'🏦') + ' ' + a.name;
+    btn.onclick = () => setExpPaymentAccount(a.id);
+    btn.id = 'expPayAcct_' + a.id;
+    wrap.appendChild(btn);
+  });
+}
+
+let _expPaymentAccountId = null; // set when an account is selected
+
+function setExpPaymentAccount(accountId) {
+  _expPaymentAccountId = accountId;
+  _expPaymentMethod = 'account'; // flag that an account was chosen
+  // Deactivate standard method buttons
+  ['cc','cash','bank','other'].forEach(m => {
+    const btn = document.getElementById('expPay_' + m);
+    if (btn) { btn.style.border='2px solid var(--border)'; btn.style.background='var(--surface2)'; btn.style.color='var(--muted)'; btn.style.fontWeight='600'; }
+  });
+  // Highlight selected account button, deactivate others
+  (state.accounts||[]).forEach(a => {
+    const btn = document.getElementById('expPayAcct_' + a.id);
+    if (!btn) return;
+    const active = a.id === accountId;
+    btn.style.border = active ? '2px solid var(--accent)' : '2px solid var(--border)';
+    btn.style.background = active ? 'var(--accent-dim)' : 'var(--surface2)';
+    btn.style.color = active ? 'var(--accent)' : 'var(--muted)';
+    btn.style.fontWeight = active ? '700' : '600';
+  });
+}
+
+// ── renderAccounts ────────────────────────────────────────────────────────────
+let _viewingAccountId = null;
+
+function renderAccounts() {
+  const el = document.getElementById('content');
+  if (!state.accounts) state.accounts = [];
+
+  // Run offset migration if needed
+  migrateOffsetToAccount();
+
+  const accts = state.accounts;
+  const fmtB = n => {
+    const abs = Math.abs(n);
+    const str = '$' + abs.toLocaleString('en-AU', {minimumFractionDigits:2, maximumFractionDigits:2});
+    return n < 0 ? '-' + str : str;
+  };
+
+  // ── Account detail view ──────────────────────────────────────────────────
+  if (_viewingAccountId) {
+    const acct = accountById(_viewingAccountId);
+    if (!acct) { _viewingAccountId = null; renderAccounts(); return; }
+    const balance = getAccountBalance(_viewingAccountId);
+    const txns = getAccountTransactions(_viewingAccountId);
+    const typeInfo = ACCOUNT_TYPES[acct.type] || ACCOUNT_TYPES.transaction;
+
+    // Unallocated calc for savings accounts
+    const linkedGoals = (state.savingsCategories||[]).filter(g => g.linkedAccountId === _viewingAccountId);
+    const allocatedTotal = linkedGoals.reduce((s,g) => s + totalSavedForCat(g.id), 0);
+    const unallocated = balance - allocatedTotal;
+
+    let html = '<div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">' +
+      '<button onclick="_viewingAccountId=null;renderAccounts()" style="background:none;border:none;cursor:pointer;color:var(--accent);font-size:14px;font-weight:600;font-family:var(--font);padding:0;display:flex;align-items:center;gap:4px">' +
+        '<svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M10 3L5 8l5 5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>Accounts' +
+      '</button>' +
+    '</div>';
+
+    html += '<div style="background:var(--surface);border-radius:var(--r);padding:16px;margin-bottom:14px">' +
+      '<div style="display:flex;align-items:center;gap:12px;margin-bottom:14px">' +
+        '<div style="width:48px;height:48px;border-radius:14px;background:' + acct.color + '22;display:flex;align-items:center;justify-content:center;font-size:26px">' + acct.icon + '</div>' +
+        '<div style="flex:1">' +
+          '<div style="font-size:18px;font-weight:700">' + acct.name + '</div>' +
+          '<div style="font-size:12px;color:var(--muted)">' + typeInfo.label + '</div>' +
+        '</div>' +
+        '<button onclick="openEditAccount(\'' + acct.id + '\')" style="background:var(--surface2);border:none;border-radius:8px;padding:7px 10px;font-size:12px;color:var(--muted);font-family:var(--font);cursor:pointer">Edit</button>' +
+      '</div>' +
+      '<div style="font-size:32px;font-weight:800;letter-spacing:-1px;color:' + (balance < 0 ? 'var(--red)' : 'var(--text)') + '">' + fmtB(balance) + '</div>' +
+      '<div style="font-size:12px;color:var(--muted);margin-top:2px">Current balance</div>' +
+      (linkedGoals.length > 0 ? '<div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--surface2)">' +
+        linkedGoals.map(g => {
+          const gb = totalSavedForCat(g.id);
+          return '<div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px"><span style="color:var(--muted)">' + g.icon + ' ' + g.name + '</span><span style="font-weight:600">' + fmtB(gb) + '</span></div>';
+        }).join('') +
+        (Math.abs(unallocated) > 0.01 ? '<div style="display:flex;justify-content:space-between;font-size:12px;margin-top:4px;padding-top:4px;border-top:1px solid var(--surface2)"><span style="color:var(--orange)">Unallocated</span><span style="font-weight:600;color:var(--orange)">' + fmtB(unallocated) + '</span></div>' : '') +
+      '</div>' : '') +
+    '</div>';
+
+    html += '<div style="display:flex;gap:8px;margin-bottom:14px">' +
+      '<button onclick="openAddIncome(\'' + acct.id + '\')" style="flex:1;background:rgba(52,199,89,0.1);color:#34C759;border:2px solid rgba(52,199,89,0.3);border-radius:10px;padding:10px;font-size:13px;font-weight:700;font-family:var(--font);cursor:pointer">+ Income</button>' +
+      '<button onclick="openAddTransfer(\'' + acct.id + '\')" style="flex:1;background:var(--accent-dim);color:var(--accent);border:none;border-radius:10px;padding:10px;font-size:13px;font-weight:700;font-family:var(--font);cursor:pointer">⇄ Transfer</button>' +
+    '</div>';
+
+    if (txns.length === 0) {
+      html += '<div class="empty"><div class="empty-icon">📭</div><div class="empty-text">No transactions yet</div><div class="empty-sub">Log income or make a transfer to get started</div></div>';
+    } else {
+      html += '<div class="section-label">Transaction history</div>';
+      html += '<div style="background:var(--surface);border-radius:var(--r);overflow:hidden">';
+      txns.forEach((t, i) => {
+        const isIn = t.direction === 'in';
+        const typeIcon = t.type === 'income' ? '💵' : t.type === 'transfer' ? '⇄' : t.type === 'saving' ? '💚' : '💳';
+        html += '<div style="display:flex;align-items:center;gap:12px;padding:11px 14px;' + (i>0?'border-top:1px solid var(--surface2)':'') + ';cursor:pointer" onclick="' +
+          (t.type==='income' ? 'openEditIncome(\'' + t.id + '\')' : t.type==='transfer' ? 'openEditTransfer(\'' + t.id + '\')' : '') + '">' +
+          '<div style="width:36px;height:36px;border-radius:10px;background:' + (isIn?'rgba(52,199,89,0.12)':'rgba(255,92,92,0.1)') + ';display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">' + typeIcon + '</div>' +
+          '<div style="flex:1;min-width:0">' +
+            '<div style="font-size:13px;font-weight:600">' + t.label + '</div>' +
+            '<div style="font-size:11px;color:var(--muted)">' + new Date(t.date+'T00:00:00').toLocaleDateString('en-AU',{weekday:'short',day:'numeric',month:'short',year:'numeric'}) + '</div>' +
+          '</div>' +
+          '<div style="font-size:13px;font-weight:700;color:' + (isIn?'#34C759':'var(--red)') + '">' + (isIn?'+':'-') + fmtB(t.amount) + '</div>' +
+        '</div>';
+      });
+      html += '</div>';
+    }
+
+    el.innerHTML = html;
+    return;
+  }
+
+  // ── Account list view ────────────────────────────────────────────────────
+  let html = tabHeader('Accounts', {
+    tabKey: 'accounts',
+    searchPlaceholder: 'Search accounts…',
+    onSearch: false,
+    actions: [{ svg: SVG_PLUS, onclick: 'openAddAccount()', title: 'Add account' }]
+  });
+
+  if (accts.length === 0) {
+    html += '<div class="empty"><div class="empty-icon">🏦</div><div class="empty-text">No accounts yet</div><div class="empty-sub">Tap + to add your first bank account</div></div>';
+    el.innerHTML = html;
+    return;
+  }
+
+  // Total net worth from accounts
+  const totalBalance = accts.reduce((s,a) => s + getAccountBalance(a.id), 0);
+  html += '<div style="background:var(--surface);border-radius:var(--r);padding:14px;margin-bottom:14px">' +
+    '<div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:4px">Total across all accounts</div>' +
+    '<div style="font-size:28px;font-weight:800;letter-spacing:-1px;color:' + (totalBalance<0?'var(--red)':'var(--text)') + '">' + fmtB(totalBalance) + '</div>' +
+  '</div>';
+
+  html += '<div style="display:flex;gap:8px;margin-bottom:16px">' +
+    '<button onclick="openAddIncome()" style="flex:1;background:rgba(52,199,89,0.1);color:#34C759;border:2px solid rgba(52,199,89,0.3);border-radius:10px;padding:10px;font-size:13px;font-weight:700;font-family:var(--font);cursor:pointer">+ Income</button>' +
+    '<button onclick="openAddTransfer()" style="flex:1;background:var(--accent-dim);color:var(--accent);border:none;border-radius:10px;padding:10px;font-size:13px;font-weight:700;font-family:var(--font);cursor:pointer">⇄ Transfer</button>' +
+  '</div>';
+
+  // Group by type
+  const typeOrder = ['transaction','savings','offset','credit'];
+  typeOrder.forEach(type => {
+    const group = accts.filter(a => a.type === type);
+    if (!group.length) return;
+    html += '<div class="section-label">' + ACCOUNT_TYPES[type].label + '</div>';
+    html += '<div style="background:var(--surface);border-radius:var(--r);overflow:hidden;margin-bottom:12px">';
+    group.forEach((acct, i) => {
+      const bal = getAccountBalance(acct.id);
+      html += '<div style="display:flex;align-items:center;gap:12px;padding:13px 14px;' + (i>0?'border-top:1px solid var(--surface2)':'') + ';cursor:pointer" onclick="_viewingAccountId=\'' + acct.id + '\';renderAccounts()">' +
+        '<div style="width:42px;height:42px;border-radius:12px;background:' + acct.color + '22;display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0">' + acct.icon + '</div>' +
+        '<div style="flex:1;min-width:0">' +
+          '<div style="font-size:15px;font-weight:600">' + acct.name + '</div>' +
+        '</div>' +
+        '<div style="text-align:right;flex-shrink:0">' +
+          '<div style="font-size:16px;font-weight:700;color:' + (bal<0?'var(--red)':'var(--text)') + '">' + fmtB(bal) + '</div>' +
+        '</div>' +
+        '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" style="flex-shrink:0;color:var(--muted)"><path d="M6 3l5 5-5 5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>' +
+      '</div>';
+    });
+    html += '</div>';
+  });
+
+  el.innerHTML = html;
+}
   const el = document.getElementById('content');
   const mg = state.mortgage || {};
   const sup = state.super || {};
@@ -12951,14 +13544,14 @@ document.addEventListener('visibilitychange', () => {
       // Day has changed — reload from cloud first to get fresh data, then apply recurring
       _lastRecurringCheckDate = currentDate;
       loadState().then(() => {
-        applyRecurringExpenses(); applyRecurringSavings();
+        applyRecurringExpenses(); applyRecurringSavings(); migrateOffsetToAccount();
         recordTodayOffsetSaving();
         renderContent();
       });
     } else {
       // Same day — just apply recurring on existing state (do NOT reload from cloud —
       // that would overwrite any unsaved in-memory changes)
-      applyRecurringExpenses(); applyRecurringSavings();
+      applyRecurringExpenses(); applyRecurringSavings(); migrateOffsetToAccount();
       renderContent();
     }
   }
