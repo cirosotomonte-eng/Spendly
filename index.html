@@ -36,7 +36,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '2.3.7-202604010816';
+  const APP_VER = '2.3.8-202604010856';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -1699,19 +1699,20 @@ async function applyUpdate() {
     <div class="modal-handle"></div>
     <div class="modal-title" id="transferModalTitle">Transfer</div>
     <label>Amount ($)</label>
-    <input type="number" inputmode="decimal" id="transferAmount" placeholder="0.00" step="0.01" min="0">
+    <input type="number" inputmode="decimal" id="transferAmount" placeholder="0.00" step="0.01" min="0" oninput="updateTransferGoalPicker()">
     <label>From account</label>
     <select id="transferFrom" onchange="updateTransferGoalPicker()"></select>
-    <label>To account</label>
+    <label>To account <span style="font-size:11px;color:var(--muted);font-weight:400">(optional — leave blank if sending out of your accounts)</span></label>
     <select id="transferTo" onchange="updateTransferGoalPicker()"></select>
     <div id="transferGoalWrap" style="display:none">
-      <label>Tag to savings goal (optional)</label>
+      <label id="transferGoalLabel">Tag to savings goal (optional)</label>
       <select id="transferGoal"></select>
+      <div id="transferGoalInfo" style="display:none;font-size:11px;color:var(--muted);margin-top:-8px;margin-bottom:14px;line-height:1.5"></div>
     </div>
     <label>Date</label>
     <input type="date" id="transferDate">
     <label>Note (optional)</label>
-    <input type="text" id="transferNote" placeholder="e.g. Monthly savings">
+    <input type="text" id="transferNote" placeholder="e.g. Monthly savings, Parents gift">
     <button class="btn-primary" id="transferSaveBtn" onclick="saveTransfer()">Save</button>
     <button class="btn-danger" id="transferDeleteBtn" onclick="deleteTransfer()" style="display:none">Delete</button>
     <button class="btn-ghost" onclick="closeModal('transferModal')">Cancel</button>
@@ -1938,9 +1939,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.3.7';
+const APP_VERSION = '2.3.8';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '01 Apr 2026 8:16 AM AEDT';
+const BUILD_TIME = '01 Apr 2026 8:56 AM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -7386,6 +7387,61 @@ function _populateSavingsAccountSelect(selectedId) {
     accts.map(a => '<option value="' + a.id + '"' + (a.id === selectedId ? ' selected' : '') + '>' + (a.icon||'🏦') + ' ' + a.name + '</option>').join('');
 }
 
+function openReallocate(fromGoalId) {
+  const fromGoal = savingsCatById(fromGoalId);
+  if (!fromGoal) return;
+  const goals = (state.savingsCategories||[]).filter(g => g.id !== fromGoalId);
+  if (goals.length === 0) { showToast('No other goals to reallocate to', 2000); return; }
+  const fromBal = totalSavedForCat(fromGoalId);
+  const fmtB = n => '$' + Math.abs(n).toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2});
+
+  const existing = document.getElementById('reallocateSheet');
+  if (existing) existing.remove();
+
+  const sheet = document.createElement('div');
+  sheet.id = 'reallocateSheet';
+  sheet.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;z-index:400;display:flex;align-items:flex-end;justify-content:center';
+
+  let goalOptions = goals.map(g =>
+    '<option value="' + g.id + '">' + (g.icon||'💰') + ' ' + g.name + ' (' + fmtB(totalSavedForCat(g.id)) + ')</option>'
+  ).join('');
+
+  sheet.innerHTML =
+    '<div onclick="document.getElementById(\'reallocateSheet\').remove()" style="position:absolute;inset:0;background:rgba(0,0,0,0.4)"></div>' +
+    '<div style="position:relative;background:var(--surface);border-radius:20px 20px 0 0;width:100%;max-width:600px;padding:20px 16px 40px;z-index:1">' +
+      '<div style="width:36px;height:4px;border-radius:2px;background:var(--border);margin:0 auto 16px"></div>' +
+      '<div style="font-size:16px;font-weight:700;margin-bottom:4px">Reallocate from ' + fromGoal.icon + ' ' + fromGoal.name + '</div>' +
+      '<div style="font-size:12px;color:var(--muted);margin-bottom:16px">Current balance: ' + fmtB(fromBal) + '</div>' +
+      '<label style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em">Amount ($)</label>' +
+      '<input type="number" inputmode="decimal" id="reallocAmt" placeholder="0.00" step="0.01" min="0" max="' + fromBal + '" style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:10px;color:var(--text);font-size:18px;font-family:var(--font);padding:12px 14px;outline:none;margin-bottom:14px;box-sizing:border-box">' +
+      '<label style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em">To goal</label>' +
+      '<select id="reallocToGoal" style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:10px;color:var(--text);font-size:14px;font-family:var(--font);padding:12px 14px;outline:none;margin-bottom:16px;box-sizing:border-box">' + goalOptions + '</select>' +
+      '<button onclick="confirmReallocate(\'' + fromGoalId + '\')" style="width:100%;background:var(--accent);color:#fff;border:none;border-radius:12px;padding:14px;font-size:15px;font-weight:700;font-family:var(--font);cursor:pointer;margin-bottom:8px">Reallocate</button>' +
+      '<button onclick="document.getElementById(\'reallocateSheet\').remove()" style="width:100%;background:none;border:none;color:var(--muted);padding:10px;font-size:14px;font-family:var(--font);cursor:pointer">Cancel</button>' +
+    '</div>';
+  document.body.appendChild(sheet);
+  setTimeout(() => document.getElementById('reallocAmt')?.focus(), 100);
+}
+
+function confirmReallocate(fromGoalId) {
+  const amount = parseFloat(document.getElementById('reallocAmt')?.value);
+  const toGoalId = document.getElementById('reallocToGoal')?.value;
+  if (!amount || amount <= 0 || !toGoalId) { showToast('Enter an amount and select a goal', 2000); return; }
+  const fromBal = totalSavedForCat(fromGoalId);
+  if (amount > fromBal) { showToast('Amount exceeds available balance', 2000); return; }
+  const fromGoal = savingsCatById(fromGoalId);
+  const toGoal = savingsCatById(toGoalId);
+  const date = todayStr();
+  if (!state.savingsDeposits) state.savingsDeposits = [];
+  // Withdraw from source goal
+  state.savingsDeposits.push({ id: uid(), catId: fromGoalId, targetId: fromGoalId, amount, date, note: 'Reallocated to ' + (toGoal?.name||'goal'), type: 'withdrawal' });
+  // Deposit to destination goal
+  state.savingsDeposits.push({ id: uid(), catId: toGoalId, targetId: toGoalId, amount, date, note: 'Reallocated from ' + (fromGoal?.name||'goal'), type: 'deposit' });
+  saveState();
+  document.getElementById('reallocateSheet')?.remove();
+  renderContent();
+  showToast('✅ Reallocated ' + '$' + amount.toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2}), 2000);
+}
 function openAddSavingsCat() {
   editingSavingsCatId = null;
   document.getElementById('savingsCatModalTitle').textContent = 'New savings goal';
@@ -8058,6 +8114,7 @@ function renderSavings() {
 
       html += '<div style="border-top:1px solid var(--surface2);padding:10px 14px;display:flex;gap:8px">' +
         '<button onclick="openAddDeposit(null,\''+cat.id+'\')" style="flex:1;background:var(--accent-dim);color:var(--accent);border:none;border-radius:8px;padding:10px;font-size:13px;font-weight:700;font-family:var(--font);cursor:pointer">+ Deposit / Withdraw</button>' +
+        ((state.savingsCategories||[]).length > 1 ? '<button onclick="openReallocate(\''+cat.id+'\')" style="background:var(--surface2);color:var(--muted);border:none;border-radius:8px;padding:10px 12px;font-size:12px;font-weight:600;font-family:var(--font);cursor:pointer" title="Move money to another goal">⇄</button>' : '') +
       '</div>';
       if (allDeps.length > 0) {
         html += '<div style="border-top:1px solid var(--surface2)">';
@@ -12265,7 +12322,7 @@ function getAccountBalance(accountId) {
     if (t.type === 'income' && t.accountId === accountId) bal += t.amount;
     if (t.type === 'transfer') {
       if (t.fromAccountId === accountId) bal -= t.amount;
-      if (t.toAccountId === accountId)   bal += t.amount;
+      if (t.toAccountId && t.toAccountId === accountId) bal += t.amount;
     }
   });
 
@@ -12297,10 +12354,11 @@ function getAccountTransactions(accountId) {
     }
     if (t.type === 'transfer') {
       if (t.fromAccountId === accountId) {
-        const toAcct = accountById(t.toAccountId);
-        rows.push({ id: t.id, date: t.date, label: (t.note || 'Transfer') + (toAcct ? ' → ' + toAcct.name : ''), amount: t.amount, direction: 'out', type: 'transfer', raw: t });
+        const toAcct = t.toAccountId ? accountById(t.toAccountId) : null;
+        const toLabel = toAcct ? ' → ' + toAcct.name : ' → External';
+        rows.push({ id: t.id, date: t.date, label: (t.note || 'Transfer') + toLabel, amount: t.amount, direction: 'out', type: 'transfer', raw: t });
       }
-      if (t.toAccountId === accountId) {
+      if (t.toAccountId && t.toAccountId === accountId) {
         const fromAcct = accountById(t.fromAccountId);
         rows.push({ id: t.id, date: t.date, label: (t.note || 'Transfer') + (fromAcct ? ' ← ' + fromAcct.name : ''), amount: t.amount, direction: 'in', type: 'transfer', raw: t });
       }
@@ -12481,21 +12539,52 @@ function deleteIncome() {
 }
 
 // ── Transfer CRUD ─────────────────────────────────────────────────────────────
+function populateTransferToSelect(selectedId) {
+  const sel = document.getElementById('transferTo');
+  if (!sel) return;
+  const accts = state.accounts || [];
+  sel.innerHTML = '<option value="">— Out to world (no account) —</option>' +
+    accts.map(a => '<option value="' + a.id + '"' + (a.id===selectedId?' selected':'') + '>' + (a.icon||'🏦') + ' ' + a.name + '</option>').join('');
+}
 function updateTransferGoalPicker() {
+  const fromId = document.getElementById('transferFrom')?.value;
   const toId = document.getElementById('transferTo')?.value;
   const wrap = document.getElementById('transferGoalWrap');
   const goalSel = document.getElementById('transferGoal');
+  const goalLabel = document.getElementById('transferGoalLabel');
+  const goalInfo = document.getElementById('transferGoalInfo');
   if (!wrap || !goalSel) return;
-  const toAcct = accountById(toId);
-  // Show goal picker if the destination account has savings goals linked to it
   const goals = state.savingsCategories || [];
-  const linkedGoals = goals.filter(g => g.linkedAccountId === toId);
-  // Also show all goals if destination is a savings-type account
-  const allGoals = toAcct && (toAcct.type === 'savings' || toAcct.type === 'offset') ? goals : linkedGoals;
-  if (allGoals.length === 0) { wrap.style.display = 'none'; return; }
+  const fromAcct = accountById(fromId);
+  const toAcct = toId ? accountById(toId) : null;
+  const isOutbound = !toId;
+  const isSameAccount = fromId && toId && fromId === toId;
+  let relevantGoals = [];
+  if (isOutbound || isSameAccount) {
+    relevantGoals = goals.filter(g => g.linkedAccountId === fromId);
+    if (relevantGoals.length === 0) relevantGoals = goals;
+  } else if (toAcct) {
+    const linkedToTo = goals.filter(g => g.linkedAccountId === toId);
+    relevantGoals = linkedToTo.length > 0 ? linkedToTo : (toAcct.type === 'savings' || toAcct.type === 'offset') ? goals : [];
+  }
+  if (relevantGoals.length === 0) { wrap.style.display = 'none'; return; }
   wrap.style.display = '';
-  goalSel.innerHTML = '<option value="">None (unallocated)</option>' +
-    allGoals.map(g => '<option value="' + g.id + '">' + (g.icon||'💰') + ' ' + g.name + '</option>').join('');
+  if (goalLabel) goalLabel.textContent = (isOutbound || isSameAccount) ? 'Which savings goal is this for? (optional)' : 'Tag to savings goal (optional)';
+  const amount = parseFloat(document.getElementById('transferAmount')?.value) || 0;
+  const currentVal = goalSel.value;
+  goalSel.innerHTML = '<option value="">None</option>' +
+    relevantGoals.map(g => '<option value="' + g.id + '"' + (g.id===currentVal?' selected':'') + '>' + (g.icon||'💰') + ' ' + g.name + '</option>').join('');
+  goalSel.onchange = updateTransferGoalPicker;
+  if (goalInfo && currentVal && amount > 0) {
+    const g = savingsCatById(currentVal);
+    if (g) {
+      const bal = totalSavedForCat(currentVal);
+      const newBal = (isOutbound || isSameAccount) ? bal - amount : bal + amount;
+      const fmtB = n => (n<0?'-':'') + '$' + Math.abs(n).toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2});
+      goalInfo.textContent = g.icon + ' ' + g.name + ': ' + fmtB(bal) + ' → ' + fmtB(newBal);
+      goalInfo.style.display = '';
+    }
+  } else if (goalInfo) { goalInfo.style.display = 'none'; }
 }
 
 function openAddTransfer(fromAccountId) {
@@ -12508,7 +12597,8 @@ function openAddTransfer(fromAccountId) {
   document.getElementById('transferDeleteBtn').style.display = 'none';
   const accts = state.accounts || [];
   populateAccountSelect('transferFrom', fromAccountId || accts[0]?.id);
-  populateAccountSelect('transferTo', accts[1]?.id || accts[0]?.id);
+  populateTransferToSelect('');
+  document.getElementById('transferGoalWrap').style.display = 'none';
   updateTransferGoalPicker();
   openModal('transferModal');
   setTimeout(() => document.getElementById('transferAmount').focus(), 350);
@@ -12525,7 +12615,7 @@ function openEditTransfer(id) {
   document.getElementById('transferSaveBtn').textContent = 'Update';
   document.getElementById('transferDeleteBtn').style.display = 'block';
   populateAccountSelect('transferFrom', t.fromAccountId);
-  populateAccountSelect('transferTo', t.toAccountId);
+  populateTransferToSelect(t.toAccountId || '');
   updateTransferGoalPicker();
   if (t.goalId) {
     const goalSel = document.getElementById('transferGoal');
@@ -12537,32 +12627,48 @@ function openEditTransfer(id) {
 function saveTransfer() {
   const amount = parseFloat(document.getElementById('transferAmount').value);
   const fromAccountId = document.getElementById('transferFrom').value;
-  const toAccountId = document.getElementById('transferTo').value;
+  const toAccountId = document.getElementById('transferTo').value || null; // optional
   const date = document.getElementById('transferDate').value;
   const note = document.getElementById('transferNote').value.trim();
   const goalId = document.getElementById('transferGoal')?.value || null;
-  if (!amount || !fromAccountId || !toAccountId || !date) return;
-  if (fromAccountId === toAccountId) { showToast('From and To accounts must be different', 2000); return; }
+  if (!amount || !fromAccountId || !date) { showToast('Please fill in amount, from account and date', 2000); return; }
+  if (toAccountId && fromAccountId === toAccountId) { showToast('From and To accounts must be different', 2000); return; }
+
+  const isOutbound = !toAccountId;
+  const isSameAccount = fromAccountId && toAccountId && fromAccountId === toAccountId;
+
   if (!state.accountTransactions) state.accountTransactions = [];
-  const rec = { id: _editingTransferId || uid(), type: 'transfer', fromAccountId, toAccountId, amount, date, note, goalId: goalId || undefined };
+  const rec = { id: _editingTransferId || uid(), type: 'transfer', fromAccountId, toAccountId: toAccountId || undefined, amount, date, note, goalId: goalId || undefined };
+
   if (_editingTransferId) {
     const idx = state.accountTransactions.findIndex(t => t.id === _editingTransferId);
     if (idx >= 0) {
-      // Remove old savings deposit if goal changed
       const old = state.accountTransactions[idx];
+      // Remove old savings deposit/withdrawal
       if (old.savingsDepositId) state.savingsDeposits = (state.savingsDeposits||[]).filter(d => d.id !== old.savingsDepositId);
+      if (old.savingsWithdrawalId) state.savingsDeposits = (state.savingsDeposits||[]).filter(d => d.id !== old.savingsWithdrawalId);
       state.accountTransactions[idx] = rec;
     }
   } else {
     state.accountTransactions.push(rec);
   }
-  // If tagged to a goal, create a savings deposit
+
+  if (!state.savingsDeposits) state.savingsDeposits = [];
+
   if (goalId) {
-    if (!state.savingsDeposits) state.savingsDeposits = [];
-    const depositId = uid();
-    rec.savingsDepositId = depositId;
-    state.savingsDeposits.push({ id: depositId, catId: goalId, targetId: goalId, amount, date, note: note || 'Transfer', type: 'deposit', transferId: rec.id });
+    if (isOutbound || isSameAccount) {
+      // Money leaving system or same-account reallocation → DEBIT goal
+      const withdrawalId = uid();
+      rec.savingsWithdrawalId = withdrawalId;
+      state.savingsDeposits.push({ id: withdrawalId, catId: goalId, targetId: goalId, amount, date, note: note || 'Transfer out', type: 'withdrawal', transferId: rec.id });
+    } else {
+      // Money arriving at destination → CREDIT goal
+      const depositId = uid();
+      rec.savingsDepositId = depositId;
+      state.savingsDeposits.push({ id: depositId, catId: goalId, targetId: goalId, amount, date, note: note || 'Transfer', type: 'deposit', transferId: rec.id });
+    }
   }
+
   saveState(); closeModal('transferModal'); renderContent();
   showToast('✅ Transfer saved', 2000);
 }
