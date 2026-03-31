@@ -36,7 +36,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '2.3.6-202603312144';
+  const APP_VER = '2.3.7-202604010816';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -1938,9 +1938,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.3.6';
+const APP_VERSION = '2.3.7';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '31 Mar 2026 10:44 PM AEDT';
+const BUILD_TIME = '01 Apr 2026 8:16 AM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -12663,6 +12663,63 @@ function renderAccounts() {
     const allocatedTotal = linkedGoals.reduce((s,g) => s + totalSavedForCat(g.id), 0);
     const unallocated = balance - allocatedTotal;
 
+    // ── Pending CC float (for non-CC accounts) ──────────────────────────────
+    // Find CC expenses that are unpaid — these represent money that will eventually
+    // leave this account when the CC bill is paid
+    let pendingCCHtml = '';
+    if (acct.type !== 'credit') {
+      // Get all CC accounts with outstanding balance
+      const ccAccts = (state.accounts||[]).filter(a => a.type === 'credit' && getAccountBalance(a.id) < 0);
+      if (ccAccts.length > 0) {
+        // Get all expenses paid via those CC accounts
+        const pendingExpenses = (state.expenses||[]).filter(e => {
+          if (!e.paymentAccountId) return false;
+          const payAcct = accountById(e.paymentAccountId);
+          return payAcct && payAcct.type === 'credit';
+        }).sort((a,b) => b.date.localeCompare(a.date));
+
+        if (pendingExpenses.length > 0) {
+          const pendingTotal = pendingExpenses.reduce((s,e) => s + e.amount, 0);
+          const effectiveBalance = balance - pendingTotal;
+
+          pendingCCHtml = '<div style="background:rgba(240,168,96,0.08);border:1.5px solid rgba(240,168,96,0.25);border-radius:var(--r);padding:14px;margin-bottom:14px">' +
+            '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">' +
+              '<div>' +
+                '<div style="font-size:13px;font-weight:700;color:var(--orange)">⏳ Pending CC charges</div>' +
+                '<div style="font-size:11px;color:var(--muted);margin-top:2px">Charged to CC — will deduct when you pay the bill</div>' +
+              '</div>' +
+              '<div style="text-align:right">' +
+                '<div style="font-size:16px;font-weight:700;color:var(--orange)">-' + fmtB(pendingTotal) + '</div>' +
+              '</div>' +
+            '</div>';
+
+          pendingExpenses.forEach((e, i) => {
+            const cat = catById(e.categoryId);
+            const payAcct = accountById(e.paymentAccountId);
+            const goal = e.linkedGoalId ? savingsCatById(e.linkedGoalId) : null;
+            pendingCCHtml += '<div style="display:flex;align-items:center;gap:10px;padding:8px 0;' + (i>0?'border-top:1px solid rgba(240,168,96,0.15)':'') + '">' +
+              '<div style="flex:1;min-width:0">' +
+                '<div style="font-size:13px;font-weight:500">' + (e.name || (cat ? cat.name : 'Expense')) + '</div>' +
+                '<div style="font-size:11px;color:var(--muted)">' +
+                  new Date(e.date+'T00:00:00').toLocaleDateString('en-AU',{day:'numeric',month:'short',year:'numeric'}) +
+                  (cat ? ' · ' + cat.icon + ' ' + cat.name : '') +
+                  (payAcct ? ' · ' + payAcct.name : '') +
+                  (goal ? ' · ' + goal.icon + ' ' + goal.name : '') +
+                '</div>' +
+              '</div>' +
+              '<div style="font-size:13px;font-weight:600;color:var(--orange);flex-shrink:0">-' + fmtB(e.amount) + '</div>' +
+            '</div>';
+          });
+
+          pendingCCHtml += '<div style="border-top:1px solid rgba(240,168,96,0.25);margin-top:10px;padding-top:10px;display:flex;justify-content:space-between;align-items:center">' +
+            '<div style="font-size:12px;color:var(--muted)">Effective available after CC payment</div>' +
+            '<div style="font-size:15px;font-weight:700;color:' + (effectiveBalance < 0 ? 'var(--red)' : 'var(--text)') + '">' + fmtB(effectiveBalance) + '</div>' +
+          '</div>' +
+          '</div>';
+        }
+      }
+    }
+
     let html = '<div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">' +
       '<button onclick="_viewingAccountId=null;renderAccounts()" style="background:none;border:none;cursor:pointer;color:var(--accent);font-size:14px;font-weight:600;font-family:var(--font);padding:0;display:flex;align-items:center;gap:4px">' +
         '<svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M10 3L5 8l5 5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>Accounts' +
@@ -12706,6 +12763,8 @@ function renderAccounts() {
         '<button onclick="openAddTransfer(\'' + acct.id + '\')" style="flex:1;background:var(--accent-dim);color:var(--accent);border:none;border-radius:10px;padding:10px;font-size:13px;font-weight:700;font-family:var(--font);cursor:pointer">⇄ Transfer</button>' +
       '</div>';
     }
+
+    html += pendingCCHtml;
 
     if (txns.length === 0) {
       html += '<div class="empty"><div class="empty-icon">📭</div><div class="empty-text">No transactions yet</div><div class="empty-sub">Log income or make a transfer to get started</div></div>';
