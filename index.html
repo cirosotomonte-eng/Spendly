@@ -36,7 +36,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '2.3.2-202603312031';
+  const APP_VER = '2.3.3-202603312043';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -1939,9 +1939,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.3.2';
+const APP_VERSION = '2.3.3';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '31 Mar 2026 8:31 PM AEDT';
+const BUILD_TIME = '31 Mar 2026 8:43 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -12180,6 +12180,7 @@ function openNetWorthAddSheet() {
 
 function renderNetWorth() {
 
+}
 // ── Accounts ──────────────────────────────────────────────────────────────────
 
 const ACCOUNT_TYPES = {
@@ -12532,7 +12533,6 @@ function populateExpPaymentAccounts() {
   });
 }
 
-let _expPaymentAccountId = null; // set when an account is selected
 
 function setExpPaymentAccount(accountId) {
   _expPaymentAccountId = accountId;
@@ -12691,6 +12691,7 @@ function renderAccounts() {
 
   el.innerHTML = html;
 }
+function renderNetWorth() {
   const el = document.getElementById('content');
   const mg = state.mortgage || {};
   const sup = state.super || {};
