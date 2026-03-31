@@ -36,7 +36,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '2.3.5-202603312106';
+  const APP_VER = '2.3.6-202603312144';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -1938,9 +1938,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.3.5';
+const APP_VERSION = '2.3.6';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '31 Mar 2026 9:06 PM AEDT';
+const BUILD_TIME = '31 Mar 2026 10:44 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -5829,21 +5829,38 @@ const EXP_PAYMENT_METHODS = {
 function populateExpPaymentSelect(selectedMethod, selectedAccountId) {
   const sel = document.getElementById('expPaymentSelect');
   if (!sel) return;
-  const accts = (state.accounts || []).filter(a => a.type !== 'credit');
-  let html = '<optgroup label="Standard">' +
-    '<option value="cc"' + (selectedMethod==='cc'?' selected':'') + '>💳 Credit Card</option>' +
-    '<option value="cash"' + (selectedMethod==='cash'?' selected':'') + '>💵 Cash</option>' +
+  const ccAccts = (state.accounts||[]).filter(a => a.type === 'credit');
+  const bankAccts = (state.accounts||[]).filter(a => a.type !== 'credit');
+
+  let html = '<optgroup label="Standard">';
+  // Only show generic CC option if no CC accounts exist
+  if (ccAccts.length === 0) {
+    html += '<option value="cc"' + (selectedMethod==='cc'?' selected':'') + '>💳 Credit Card</option>';
+  }
+  html += '<option value="cash"' + (selectedMethod==='cash'?' selected':'') + '>💵 Cash</option>' +
     '<option value="other"' + (selectedMethod==='other'?' selected':'') + '>💸 Other</option>' +
   '</optgroup>';
-  if (accts.length > 0) {
+
+  if (ccAccts.length > 0) {
+    html += '<optgroup label="Credit Cards">';
+    ccAccts.forEach(a => {
+      const val = 'acct:' + a.id;
+      const isSelected = selectedMethod === 'account' && selectedAccountId === a.id;
+      html += '<option value="' + val + '"' + (isSelected ? ' selected' : '') + '>💳 ' + a.name + '</option>';
+    });
+    html += '</optgroup>';
+  }
+
+  if (bankAccts.length > 0) {
     html += '<optgroup label="Bank Accounts">';
-    accts.forEach(a => {
+    bankAccts.forEach(a => {
       const val = 'acct:' + a.id;
       const isSelected = selectedMethod === 'account' && selectedAccountId === a.id;
       html += '<option value="' + val + '"' + (isSelected ? ' selected' : '') + '>' + (a.icon||'🏦') + ' ' + a.name + '</option>';
     });
     html += '</optgroup>';
   }
+
   sel.innerHTML = html;
 }
 
@@ -12240,6 +12257,7 @@ function accountById(id) { return (state.accounts||[]).find(a=>a.id===id); }
 function getAccountBalance(accountId) {
   const acct = accountById(accountId);
   if (!acct) return 0;
+  const isCreditCard = acct.type === 'credit';
   let bal = acct.openingBalance || 0;
   const txns = (state.accountTransactions||[]).filter(t => !t.deleted);
 
@@ -12251,9 +12269,14 @@ function getAccountBalance(accountId) {
     }
   });
 
-  // Expenses paid from this account
+  // Expenses paid via this account
+  // For CC: expenses increase what you owe (balance goes more negative)
+  // For regular accounts: expenses reduce the balance
   (state.expenses||[]).forEach(e => {
-    if (e.paymentAccountId === accountId) bal -= e.amount;
+    if (e.paymentAccountId === accountId) {
+      if (isCreditCard) bal -= e.amount; // CC: you owe more
+      else bal -= e.amount;              // Bank: money leaves
+    }
   });
 
   // Savings deposits sourced from this account
@@ -12552,7 +12575,24 @@ function deleteTransfer() {
   saveState(); closeModal('transferModal'); renderContent();
 }
 
-// ── Populate payment account select in expense modal ─────────────────────────
+function openCCPayment(ccAccountId) {
+  const ccAcct = accountById(ccAccountId);
+  if (!ccAcct) return;
+  const owed = Math.abs(getAccountBalance(ccAccountId));
+  // Pre-fill transfer modal: from first non-CC account, to CC account, amount = what's owed
+  const fromAcct = (state.accounts||[]).find(a => a.type !== 'credit');
+  _editingTransferId = null;
+  document.getElementById('transferModalTitle').textContent = 'Pay CC bill';
+  document.getElementById('transferAmount').value = owed.toFixed(2);
+  document.getElementById('transferDate').value = todayStr();
+  document.getElementById('transferNote').value = 'CC payment — ' + ccAcct.name;
+  document.getElementById('transferSaveBtn').textContent = 'Pay';
+  document.getElementById('transferDeleteBtn').style.display = 'none';
+  populateAccountSelect('transferFrom', fromAcct?.id);
+  populateAccountSelect('transferTo', ccAccountId);
+  document.getElementById('transferGoalWrap').style.display = 'none';
+  openModal('transferModal');
+}
 function populateExpPaymentAccounts() {
   // Called when expense modal opens — adds bank accounts to payment buttons
   const wrap = document.getElementById('expPaymentBtns');
@@ -12638,8 +12678,12 @@ function renderAccounts() {
         '</div>' +
         '<button onclick="openEditAccount(\'' + acct.id + '\')" style="background:var(--surface2);border:none;border-radius:8px;padding:7px 10px;font-size:12px;color:var(--muted);font-family:var(--font);cursor:pointer">Edit</button>' +
       '</div>' +
-      '<div style="font-size:32px;font-weight:800;letter-spacing:-1px;color:' + (balance < 0 ? 'var(--red)' : 'var(--text)') + '">' + fmtB(balance) + '</div>' +
-      '<div style="font-size:12px;color:var(--muted);margin-top:2px">Current balance</div>' +
+      (acct.type === 'credit'
+        ? '<div style="font-size:13px;color:var(--muted);margin-bottom:4px">You currently owe</div>' +
+          '<div style="font-size:32px;font-weight:800;letter-spacing:-1px;color:' + (balance < 0 ? 'var(--red)' : 'var(--accent)') + '">' + fmtB(Math.abs(balance)) + '</div>' +
+          '<div style="font-size:12px;color:var(--muted);margin-top:2px">' + (balance < 0 ? 'Unpaid charges since last payment' : '✓ All paid up') + '</div>'
+        : '<div style="font-size:32px;font-weight:800;letter-spacing:-1px;color:' + (balance < 0 ? 'var(--red)' : 'var(--text)') + '">' + fmtB(balance) + '</div>' +
+          '<div style="font-size:12px;color:var(--muted);margin-top:2px">Current balance</div>') +
       (linkedGoals.length > 0 ? '<div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--surface2)">' +
         linkedGoals.map(g => {
           const gb = totalSavedForCat(g.id);
@@ -12649,10 +12693,19 @@ function renderAccounts() {
       '</div>' : '') +
     '</div>';
 
-    html += '<div style="display:flex;gap:8px;margin-bottom:14px">' +
-      '<button onclick="openAddIncome(\'' + acct.id + '\')" style="flex:1;background:rgba(52,199,89,0.1);color:#34C759;border:2px solid rgba(52,199,89,0.3);border-radius:10px;padding:10px;font-size:13px;font-weight:700;font-family:var(--font);cursor:pointer">+ Income</button>' +
-      '<button onclick="openAddTransfer(\'' + acct.id + '\')" style="flex:1;background:var(--accent-dim);color:var(--accent);border:none;border-radius:10px;padding:10px;font-size:13px;font-weight:700;font-family:var(--font);cursor:pointer">⇄ Transfer</button>' +
-    '</div>';
+    // Action buttons — CC gets "Pay bill" instead of Income
+    if (acct.type === 'credit') {
+      html += '<div style="margin-bottom:14px">' +
+        '<button onclick="openCCPayment(\'' + acct.id + '\')" style="width:100%;background:' + (balance < 0 ? 'rgba(255,92,92,0.1)' : 'var(--accent-dim)') + ';color:' + (balance < 0 ? 'var(--red)' : 'var(--accent)') + ';border:2px solid ' + (balance < 0 ? 'rgba(255,92,92,0.3)' : 'var(--accent)') + ';border-radius:10px;padding:12px;font-size:14px;font-weight:700;font-family:var(--font);cursor:pointer">' +
+          (balance < 0 ? '💳 Pay CC bill — ' + fmtB(Math.abs(balance)) : '✓ Nothing owed') +
+        '</button>' +
+      '</div>';
+    } else {
+      html += '<div style="display:flex;gap:8px;margin-bottom:14px">' +
+        '<button onclick="openAddIncome(\'' + acct.id + '\')" style="flex:1;background:rgba(52,199,89,0.1);color:#34C759;border:2px solid rgba(52,199,89,0.3);border-radius:10px;padding:10px;font-size:13px;font-weight:700;font-family:var(--font);cursor:pointer">+ Income</button>' +
+        '<button onclick="openAddTransfer(\'' + acct.id + '\')" style="flex:1;background:var(--accent-dim);color:var(--accent);border:none;border-radius:10px;padding:10px;font-size:13px;font-weight:700;font-family:var(--font);cursor:pointer">⇄ Transfer</button>' +
+      '</div>';
+    }
 
     if (txns.length === 0) {
       html += '<div class="empty"><div class="empty-icon">📭</div><div class="empty-text">No transactions yet</div><div class="empty-sub">Log income or make a transfer to get started</div></div>';
@@ -12693,10 +12746,13 @@ function renderAccounts() {
     return;
   }
 
-  // Total net worth from accounts
-  const totalBalance = accts.reduce((s,a) => s + getAccountBalance(a.id), 0);
+  // Total: assets minus CC liabilities
+  const totalBalance = accts.reduce((s,a) => {
+    const bal = getAccountBalance(a.id);
+    return s + (a.type === 'credit' ? bal : bal); // CC is already negative, so adding it reduces total correctly
+  }, 0);
   html += '<div style="background:var(--surface);border-radius:var(--r);padding:14px;margin-bottom:14px">' +
-    '<div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:4px">Total across all accounts</div>' +
+    '<div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:4px">Net across all accounts</div>' +
     '<div style="font-size:28px;font-weight:800;letter-spacing:-1px;color:' + (totalBalance<0?'var(--red)':'var(--text)') + '">' + fmtB(totalBalance) + '</div>' +
   '</div>';
 
@@ -12718,9 +12774,14 @@ function renderAccounts() {
         '<div style="width:42px;height:42px;border-radius:12px;background:' + acct.color + '22;display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0">' + acct.icon + '</div>' +
         '<div style="flex:1;min-width:0">' +
           '<div style="font-size:15px;font-weight:600">' + acct.name + '</div>' +
+          (acct.type === 'credit' ? '<div style="font-size:11px;color:var(--muted)">Credit Card</div>' : '') +
         '</div>' +
         '<div style="text-align:right;flex-shrink:0">' +
-          '<div style="font-size:16px;font-weight:700;color:' + (bal<0?'var(--red)':'var(--text)') + '">' + fmtB(bal) + '</div>' +
+          (acct.type === 'credit'
+            ? (bal < 0
+                ? '<div style="font-size:13px;font-weight:700;color:var(--red)">' + fmtB(Math.abs(bal)) + ' owed</div>'
+                : '<div style="font-size:13px;font-weight:700;color:#34C759">All paid up</div>')
+            : '<div style="font-size:16px;font-weight:700;color:' + (bal<0?'var(--red)':'var(--text)') + '">' + fmtB(bal) + '</div>') +
         '</div>' +
         '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" style="flex-shrink:0;color:var(--muted)"><path d="M6 3l5 5-5 5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>' +
       '</div>';
