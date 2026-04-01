@@ -36,7 +36,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '2.3.10-202604011813';
+  const APP_VER = '2.3.11-202604011945';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -1952,9 +1952,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.3.10';
+const APP_VERSION = '2.3.11';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '01 Apr 2026 6:13 PM AEDT';
+const BUILD_TIME = '01 Apr 2026 7:45 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -3340,39 +3340,24 @@ function updateHeader() {
   // Reset badge
   if (cycleBadge) { cycleBadge.style.display = 'none'; cycleBadge.innerHTML = ''; }
 
-  if (offset !== 0 && metaEl && fillEl && metaLeft && metaRight) {
+  if (offset < 0 && metaEl && fillEl && metaLeft && metaRight) {
     const summary = getCycleSummary(offset);
     metaEl.style.display = '';
-    if (summary.type === 'future') {
-      const color = summary.pct >= 90 ? 'var(--red)' : summary.pct >= 70 ? 'var(--orange)' : '#34C759';
-      fillEl.style.width = Math.min(summary.pct, 100) + '%';
-      fillEl.style.background = color;
-      metaLeft.textContent = summary.pct + '% committed';
-      metaRight.style.color = summary.free < 0 ? 'var(--red)' : summary.free < (budget * 0.15) ? 'var(--orange)' : '#34C759';
-      metaRight.textContent = (summary.free < 0 ? '-' : '') + fmt(Math.abs(summary.free)) + ' free';
-      // Badge under date
-      if (cycleBadge) {
-        cycleBadge.style.display = 'block';
-        cycleBadge.innerHTML = '<span style="font-size:10px;background:' + (summary.free < 0 ? 'rgba(255,92,92,0.12)' : summary.pct >= 70 ? 'rgba(240,168,96,0.12)' : 'rgba(52,199,89,0.12)') + ';color:' + color + ';border-radius:6px;padding:2px 8px;font-weight:700">' +
-          (summary.free < 0 ? '⚠️ Over-committed' : fmt(summary.free) + ' discretionary') + '</span>';
-      }
-    } else if (summary.type === 'past') {
-      const over = summary.diff < 0;
-      const pct = summary.budget > 0 ? Math.min(Math.round((summary.spent / summary.budget) * 100), 100) : 0;
-      fillEl.style.width = pct + '%';
-      fillEl.style.background = over ? 'var(--red)' : 'var(--accent)';
-      metaLeft.textContent = fmt(summary.spent) + ' spent of ' + fmt(summary.budget);
-      metaRight.style.color = over ? 'var(--red)' : '#34C759';
-      metaRight.textContent = over ? fmt(Math.abs(summary.diff)) + ' over' : fmt(summary.diff) + ' saved';
-      // Badge under date
-      if (cycleBadge) {
-        cycleBadge.style.display = 'block';
-        cycleBadge.innerHTML = '<span style="font-size:10px;background:' + (over ? 'rgba(255,92,92,0.12)' : 'rgba(52,199,89,0.12)') + ';color:' + (over ? 'var(--red)' : '#34C759') + ';border-radius:6px;padding:2px 8px;font-weight:700">' +
-          (over ? '⚠️ ' + fmt(Math.abs(summary.diff)) + ' over budget' : '✓ ' + fmt(summary.diff) + ' under budget') + '</span>';
-      }
+    const over = summary.diff < 0;
+    const pct = summary.budget > 0 ? Math.min(Math.round((summary.spent / summary.budget) * 100), 100) : 0;
+    fillEl.style.width = pct + '%';
+    fillEl.style.background = over ? 'var(--red)' : 'var(--accent)';
+    metaLeft.textContent = fmt(summary.spent) + ' spent of ' + fmt(summary.budget);
+    metaRight.style.color = over ? 'var(--red)' : '#34C759';
+    metaRight.textContent = over ? fmt(Math.abs(summary.diff)) + ' over' : fmt(summary.diff) + ' saved';
+    if (cycleBadge) {
+      cycleBadge.style.display = 'block';
+      cycleBadge.innerHTML = '<span style="font-size:10px;background:' + (over ? 'rgba(255,92,92,0.12)' : 'rgba(52,199,89,0.12)') + ';color:' + (over ? 'var(--red)' : '#34C759') + ';border-radius:6px;padding:2px 8px;font-weight:700">' +
+        (over ? '⚠️ ' + fmt(Math.abs(summary.diff)) + ' over budget' : '✓ ' + fmt(summary.diff) + ' under budget') + '</span>';
     }
   } else if (metaEl) {
     metaEl.style.display = 'none';
+    if (cycleBadge) { cycleBadge.style.display = 'none'; cycleBadge.innerHTML = ''; }
   }
 
   // Totals
