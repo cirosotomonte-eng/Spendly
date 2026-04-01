@@ -36,7 +36,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '2.3.15-202604012028';
+  const APP_VER = '2.3.16-202604012043';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -1660,9 +1660,61 @@ async function applyUpdate() {
       <div id="recSavingActiveCheck" onclick="toggleRecSavingActive()" style="width:22px;height:22px;border-radius:6px;background:var(--accent);border:2px solid var(--accent);display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:13px;color:#fff;flex-shrink:0">&#10003;</div>
       <span style="font-size:13px">Active</span>
     </div>
+    <label>Deduct from account (optional)</label>
+    <select id="recSavingSourceAccount" style="margin-bottom:14px">
+      <option value="">None — goal only</option>
+    </select>
     <button class="btn-primary" id="recSavingSaveBtn" onclick="saveRecurringSaving()">Save</button>
     <button class="btn-danger" id="recSavingDeleteBtn" onclick="deleteRecurringSaving()" style="display:none">Delete</button>
     <button class="btn-ghost" onclick="closeModal('recurringSavingModal')">Cancel</button>
+  </div>
+</div>
+
+<!-- Recurring income modal -->
+<div class="modal-overlay" id="recurringIncomeModal">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title" id="recIncomeModalTitle">New recurring income</div>
+    <label>Description</label>
+    <input type="text" id="recIncomeName" placeholder="e.g. Salary, Freelance">
+    <label>Amount ($)</label>
+    <input type="number" inputmode="decimal" id="recIncomeAmount" placeholder="0.00" step="0.01" min="0">
+    <label>Into account</label>
+    <select id="recIncomeAccount"></select>
+    <label>Frequency</label>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px">
+      <button type="button" onclick="setRecIncomeFreq('weekly')"     id="recIncomeFreqWeekly"     style="padding:10px;border-radius:10px;border:2px solid var(--border);background:var(--surface2);color:var(--muted);font-weight:600;font-family:var(--font);cursor:pointer;font-size:13px">Weekly</button>
+      <button type="button" onclick="setRecIncomeFreq('fortnightly')" id="recIncomeFreqFortnightly" style="padding:10px;border-radius:10px;border:2px solid var(--border);background:var(--surface2);color:var(--muted);font-weight:600;font-family:var(--font);cursor:pointer;font-size:13px">Fortnightly</button>
+      <button type="button" onclick="setRecIncomeFreq('monthly')"    id="recIncomeFreqMonthly"    style="padding:10px;border-radius:10px;border:2px solid var(--accent);background:var(--accent-dim);color:var(--accent);font-weight:700;font-family:var(--font);cursor:pointer;font-size:13px">Monthly</button>
+      <button type="button" onclick="setRecIncomeFreq('yearly')"     id="recIncomeFreqYearly"     style="padding:10px;border-radius:10px;border:2px solid var(--border);background:var(--surface2);color:var(--muted);font-weight:600;font-family:var(--font);cursor:pointer;font-size:13px">Yearly</button>
+    </div>
+    <div id="recIncomeWeeklySection" style="display:none;margin-bottom:14px">
+      <label>Day of week</label>
+      <div style="display:flex;gap:6px;flex-wrap:wrap" id="recIncomeWeekdayBtns">
+        <button type="button" onclick="setRecIncomeWeekday(1)" id="recIncomeWd1" class="rec-wd-btn">Mon</button>
+        <button type="button" onclick="setRecIncomeWeekday(2)" id="recIncomeWd2" class="rec-wd-btn">Tue</button>
+        <button type="button" onclick="setRecIncomeWeekday(3)" id="recIncomeWd3" class="rec-wd-btn">Wed</button>
+        <button type="button" onclick="setRecIncomeWeekday(4)" id="recIncomeWd4" class="rec-wd-btn">Thu</button>
+        <button type="button" onclick="setRecIncomeWeekday(5)" id="recIncomeWd5" class="rec-wd-btn">Fri</button>
+        <button type="button" onclick="setRecIncomeWeekday(6)" id="recIncomeWd6" class="rec-wd-btn">Sat</button>
+        <button type="button" onclick="setRecIncomeWeekday(0)" id="recIncomeWd0" class="rec-wd-btn">Sun</button>
+      </div>
+    </div>
+    <div id="recIncomeFortnightlySection" style="display:none;margin-bottom:14px">
+      <label>Next pay date</label>
+      <input type="date" id="recIncomeFortnightlyDate">
+    </div>
+    <div id="recIncomeMonthlySection" style="margin-bottom:14px">
+      <label>Day of month</label>
+      <input type="number" inputmode="numeric" id="recIncomeMonthDay" placeholder="e.g. 14" min="1" max="28">
+    </div>
+    <div id="recIncomeYearlySection" style="display:none;margin-bottom:14px">
+      <label>Next date</label>
+      <input type="date" id="recIncomeYearlyDate">
+    </div>
+    <button class="btn-primary" id="recIncomeSaveBtn" onclick="saveRecurringIncome()">Save</button>
+    <button class="btn-danger" id="recIncomeDeleteBtn" onclick="deleteRecurringIncome()" style="display:none">Delete</button>
+    <button class="btn-ghost" onclick="closeModal('recurringIncomeModal')">Cancel</button>
   </div>
 </div>
 
@@ -1957,9 +2009,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.3.15';
+const APP_VERSION = '2.3.16';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '01 Apr 2026 8:28 PM AEDT';
+const BUILD_TIME = '01 Apr 2026 8:43 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -2231,7 +2283,7 @@ async function signOut() {
   try { localStorage.removeItem('spendly_backup'); } catch(e) {}
   try { sessionStorage.clear(); } catch(e) {}
   // Reset state and show auth screen
-  state = { currentTab:'expenses', viewingCycleOffset:0, budget:0, cycleDay:1, appName:'', categories:[], expenses:[], recurringExpenses:[], recurringSavings:[], savingsCategories:[], savingsSubcategories:[], savingsDeposits:[], recyclingTrips:[], mortgage:{}, taxCategories:[], taxTransactions:[], giftCards:[], portfolio:[], netWorth:[], notes:[], accounts:[], accountTransactions:[], setupDone:false };
+  state = { currentTab:'expenses', viewingCycleOffset:0, budget:0, cycleDay:1, appName:'', categories:[], expenses:[], recurringExpenses:[], recurringSavings:[], recurringIncome:[], savingsCategories:[], savingsSubcategories:[], savingsDeposits:[], recyclingTrips:[], mortgage:{}, taxCategories:[], taxTransactions:[], giftCards:[], portfolio:[], netWorth:[], notes:[], accounts:[], accountTransactions:[], setupDone:false };
   showAuthScreen();
   document.getElementById('app').style.visibility = 'hidden';
 }
@@ -10725,6 +10777,7 @@ function openAddRecurringSaving() {
   document.getElementById('recSavingYearlyDate').value = '';
   setRecSavingFreq('weekly');
   setRecSavingWeekday(1);
+  _populateRecSavingSourceAccount('');
   openModal('recurringSavingModal');
   setTimeout(() => document.getElementById('recSavingName').focus(), 350);
 }
@@ -10753,16 +10806,23 @@ function openEditRecurringSaving(id) {
   else if (rec.frequency === 'yearly') document.getElementById('recSavingYearlyDate').value = rec.nextDate || '';
   setRecSavingFreq(rec.frequency || 'weekly');
   setRecSavingWeekday(recSavingWeekdayState);
+  _populateRecSavingSourceAccount(rec.sourceAccountId || '');
   updateRecSavingGoalInfo();
   updateRecSavingPreview();
   openModal('recurringSavingModal');
 }
 
+function _populateRecSavingSourceAccount(selectedId) {
+  const sel = document.getElementById('recSavingSourceAccount');
+  if (!sel) return;
+  const accts = (state.accounts||[]).filter(a => a.type !== 'credit');
+  sel.innerHTML = '<option value="">None — goal only</option>' +
+    accts.map(a => '<option value="' + a.id + '"' + (a.id===selectedId?' selected':'') + '>' + (a.icon||'🏦') + ' ' + a.name + '</option>').join('');
+}
+
+
 function saveRecurringSaving() {
   const name = document.getElementById('recSavingName').value.trim();
-  const amount = parseFloat(document.getElementById('recSavingAmount').value);
-  const savingsGoalId = document.getElementById('recSavingGoal').value;
-  if (!name || !amount || !savingsGoalId) { showToast('Please fill in all required fields', 2000); return; }
   if (!state.recurringSavings) state.recurringSavings = [];
   const rec = {
     id: editingRecurringSavingId || uid(),
@@ -10776,6 +10836,7 @@ function saveRecurringSaving() {
             : recSavingFreqState === 'quarterly' ? document.getElementById('recSavingQuarterlyDate').value
             : recSavingFreqState === 'yearly' ? document.getElementById('recSavingYearlyDate').value
             : undefined,
+    sourceAccountId: document.getElementById('recSavingSourceAccount').value || undefined,
   };
   if (editingRecurringSavingId) {
     const idx = state.recurringSavings.findIndex(r=>r.id===editingRecurringSavingId);
@@ -10819,8 +10880,9 @@ function applyRecurringSavings() {
     if (alreadyExists) return;
 
     if (!state.savingsDeposits) state.savingsDeposits = [];
+    const depositId = uid();
     state.savingsDeposits.push({
-      id: uid(),
+      id: depositId,
       catId: r.savingsGoalId,
       targetId: r.savingsGoalId,
       amount: r.amount,
@@ -10828,7 +10890,25 @@ function applyRecurringSavings() {
       note: r.name,
       type: 'deposit',
       recurringId: r.id,
+      sourceAccountId: r.sourceAccountId || undefined,
     });
+
+    // If a source account is set, also log an account transaction (debit)
+    if (r.sourceAccountId) {
+      if (!state.accountTransactions) state.accountTransactions = [];
+      state.accountTransactions.push({
+        id: uid(),
+        type: 'transfer',
+        fromAccountId: r.sourceAccountId,
+        toAccountId: undefined,
+        amount: r.amount,
+        date: todayDateStr,
+        note: r.name + ' (recurring saving)',
+        recurringId: r.id,
+        savingsDepositId: depositId,
+      });
+    }
+
     added = true;
   });
 
@@ -10836,6 +10916,176 @@ function applyRecurringSavings() {
 }
 
 // Upcoming recurring savings in current cycle (for display in savings tab)
+// ── Recurring Income ──────────────────────────────────────────────────────────
+let _editingRecurringIncomeId = null;
+let _recIncomeFreq = 'monthly';
+let _recIncomeWeekday = 1;
+
+function setRecIncomeFreq(freq) {
+  _recIncomeFreq = freq;
+  ['weekly','fortnightly','monthly','yearly'].forEach(f => {
+    const btn = document.getElementById('recIncomeFreq' + f.charAt(0).toUpperCase() + f.slice(1));
+    if (!btn) return;
+    const active = f === freq;
+    btn.style.border = active ? '2px solid var(--accent)' : '2px solid var(--border)';
+    btn.style.background = active ? 'var(--accent-dim)' : 'var(--surface2)';
+    btn.style.color = active ? 'var(--accent)' : 'var(--muted)';
+    btn.style.fontWeight = active ? '700' : '600';
+  });
+  document.getElementById('recIncomeWeeklySection').style.display      = freq === 'weekly'      ? '' : 'none';
+  document.getElementById('recIncomeFortnightlySection').style.display  = freq === 'fortnightly' ? '' : 'none';
+  document.getElementById('recIncomeMonthlySection').style.display      = freq === 'monthly'     ? '' : 'none';
+  document.getElementById('recIncomeYearlySection').style.display       = freq === 'yearly'      ? '' : 'none';
+}
+
+function setRecIncomeWeekday(day) {
+  _recIncomeWeekday = day;
+  [0,1,2,3,4,5,6].forEach(d => {
+    const btn = document.getElementById('recIncomeWd' + d);
+    if (!btn) return;
+    btn.classList.toggle('active', d === day);
+  });
+}
+
+function openAddRecurringIncome(accountId) {
+  _editingRecurringIncomeId = null;
+  document.getElementById('recIncomeModalTitle').textContent = 'New recurring income';
+  document.getElementById('recIncomeName').value = '';
+  document.getElementById('recIncomeAmount').value = '';
+  document.getElementById('recIncomeMonthDay').value = '';
+  document.getElementById('recIncomeFortnightlyDate').value = '';
+  document.getElementById('recIncomeYearlyDate').value = '';
+  document.getElementById('recIncomeSaveBtn').textContent = 'Save';
+  document.getElementById('recIncomeDeleteBtn').style.display = 'none';
+  populateAccountSelect('recIncomeAccount', accountId || (state.accounts||[])[0]?.id);
+  setRecIncomeFreq('monthly');
+  setRecIncomeWeekday(1);
+  openModal('recurringIncomeModal');
+  setTimeout(() => document.getElementById('recIncomeName').focus(), 350);
+}
+
+function openEditRecurringIncome(id) {
+  const rec = (state.recurringIncome||[]).find(r => r.id === id);
+  if (!rec) return;
+  _editingRecurringIncomeId = id;
+  _recIncomeFreq = rec.frequency || 'monthly';
+  _recIncomeWeekday = rec.weekday !== undefined ? rec.weekday : 1;
+  document.getElementById('recIncomeModalTitle').textContent = 'Edit recurring income';
+  document.getElementById('recIncomeName').value = rec.name || '';
+  document.getElementById('recIncomeAmount').value = rec.amount || '';
+  document.getElementById('recIncomeMonthDay').value = rec.monthDay || '';
+  document.getElementById('recIncomeFortnightlyDate').value = rec.nextDate || '';
+  document.getElementById('recIncomeYearlyDate').value = rec.nextDate || '';
+  document.getElementById('recIncomeSaveBtn').textContent = 'Update';
+  document.getElementById('recIncomeDeleteBtn').style.display = 'block';
+  populateAccountSelect('recIncomeAccount', rec.accountId);
+  setRecIncomeFreq(_recIncomeFreq);
+  setRecIncomeWeekday(_recIncomeWeekday);
+  openModal('recurringIncomeModal');
+}
+
+function saveRecurringIncome() {
+  const name = document.getElementById('recIncomeName').value.trim();
+  const amount = parseFloat(document.getElementById('recIncomeAmount').value);
+  const accountId = document.getElementById('recIncomeAccount').value;
+  if (!name || !amount || !accountId) { showToast('Please fill in all fields', 2000); return; }
+  if (!state.recurringIncome) state.recurringIncome = [];
+  const rec = {
+    id: _editingRecurringIncomeId || uid(),
+    name, amount, accountId,
+    frequency: _recIncomeFreq,
+    weekday: _recIncomeFreq === 'weekly' ? _recIncomeWeekday : undefined,
+    monthDay: _recIncomeFreq === 'monthly' ? parseInt(document.getElementById('recIncomeMonthDay').value) || undefined : undefined,
+    nextDate: _recIncomeFreq === 'fortnightly' ? document.getElementById('recIncomeFortnightlyDate').value
+            : _recIncomeFreq === 'yearly' ? document.getElementById('recIncomeYearlyDate').value
+            : undefined,
+    active: true,
+  };
+  if (_editingRecurringIncomeId) {
+    const idx = state.recurringIncome.findIndex(r => r.id === _editingRecurringIncomeId);
+    if (idx >= 0) state.recurringIncome[idx] = rec;
+  } else {
+    state.recurringIncome.push(rec);
+  }
+  saveState();
+  closeModal('recurringIncomeModal');
+  renderContent();
+  showToast('💵 Recurring income saved', 2000);
+}
+
+function deleteRecurringIncome() {
+  if (!_editingRecurringIncomeId) return;
+  if (!confirm('Delete this recurring income?')) return;
+  state.recurringIncome = (state.recurringIncome||[]).filter(r => r.id !== _editingRecurringIncomeId);
+  saveState();
+  closeModal('recurringIncomeModal');
+  renderContent();
+}
+
+// Returns next due date for a recurring income entry
+function getRecIncomeNextDate(r) {
+  const today = new Date(); today.setHours(0,0,0,0);
+  if (r.frequency === 'weekly') {
+    const target = r.weekday !== undefined ? r.weekday : 1;
+    const d = new Date(today);
+    const diff = (target - d.getDay() + 7) % 7;
+    d.setDate(d.getDate() + (diff === 0 ? 7 : diff));
+    return d;
+  }
+  if (r.frequency === 'fortnightly' && r.nextDate) {
+    let d = new Date(r.nextDate + 'T00:00:00');
+    while (d < today) d.setDate(d.getDate() + 14);
+    return d;
+  }
+  if (r.frequency === 'monthly' && r.monthDay) {
+    const d = new Date(today.getFullYear(), today.getMonth(), r.monthDay);
+    if (d < today) d.setMonth(d.getMonth() + 1);
+    return d;
+  }
+  if (r.frequency === 'yearly' && r.nextDate) {
+    let d = new Date(r.nextDate + 'T00:00:00');
+    while (d < today) d.setFullYear(d.getFullYear() + 1);
+    return d;
+  }
+  return null;
+}
+
+// Auto-apply recurring income on due dates
+function applyRecurringIncome() {
+  const recs = (state.recurringIncome||[]).filter(r => r.active !== false);
+  if (!recs.length) return;
+  const today = new Date(); today.setHours(0,0,0,0);
+  const todayDateStr = todayStr();
+  let added = false;
+
+  recs.forEach(r => {
+    const next = getRecIncomeNextDate(r);
+    if (!next) return;
+    next.setHours(0,0,0,0);
+    if (next.getTime() !== today.getTime()) return;
+
+    // Guard: already logged today
+    const alreadyExists = (state.accountTransactions||[]).some(t =>
+      t.recurringIncomeId === r.id && t.date === todayDateStr
+    );
+    if (alreadyExists) return;
+
+    if (!state.accountTransactions) state.accountTransactions = [];
+    state.accountTransactions.push({
+      id: uid(),
+      type: 'income',
+      accountId: r.accountId,
+      amount: r.amount,
+      date: todayDateStr,
+      description: r.name,
+      recurringIncomeId: r.id,
+    });
+    added = true;
+  });
+
+  if (added) saveState();
+}
+
 function getUpcomingRecurringSavings() {
   const recs = (state.recurringSavings||[]).filter(r=>r.active!==false);
   const { cycleStart, cycleEnd } = getCycleRange(0);
@@ -11012,7 +11262,7 @@ function openRecurringList() {
 function repairMissingRecurringExpenses() {
   // Always reset the lock for manual runs — user explicitly requested this
   _applyRecurringRunning = false;
-  applyRecurringExpenses(); applyRecurringSavings(); migrateOffsetToAccount();
+  applyRecurringExpenses(); applyRecurringSavings(); applyRecurringIncome(); migrateOffsetToAccount();
 }
 
 let _applyRecurringRunning = false;
@@ -13098,6 +13348,33 @@ function renderAccounts() {
       '</div>';
     }
 
+    // ── Upcoming recurring income for this account ───────────────────────────
+    let recIncomeHtml = '';
+    if (acct.type !== 'credit') {
+      const upcomingIncome = (state.recurringIncome||[]).filter(r => r.active !== false && r.accountId === _viewingAccountId);
+      if (upcomingIncome.length > 0) {
+        recIncomeHtml = '<div style="background:rgba(52,199,89,0.06);border:1.5px solid rgba(52,199,89,0.2);border-radius:var(--r);padding:14px;margin-bottom:14px">' +
+          '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">' +
+            '<div style="font-size:13px;font-weight:700;color:#34C759">🔁 Recurring income</div>' +
+            '<button onclick="openAddRecurringIncome(\'' + _viewingAccountId + '\')" style="background:none;border:none;color:#34C759;font-size:12px;font-weight:600;font-family:var(--font);cursor:pointer">+ Add</button>' +
+          '</div>';
+        upcomingIncome.forEach((r, i) => {
+          const next = getRecIncomeNextDate(r);
+          const nextStr = next ? next.toLocaleDateString('en-AU',{day:'numeric',month:'short'}) : '—';
+          const freqLabel = r.frequency === 'monthly' ? 'Monthly · ' : r.frequency === 'weekly' ? 'Weekly · ' : r.frequency === 'fortnightly' ? 'Fortnightly · ' : '';
+          recIncomeHtml += '<div style="display:flex;justify-content:space-between;align-items:center;' + (i>0?'border-top:1px solid rgba(52,199,89,0.12);padding-top:8px;margin-top:8px':'') + '" onclick="openEditRecurringIncome(\'' + r.id + '\')">' +
+            '<div>' +
+              '<div style="font-size:13px;font-weight:500">' + r.name + '</div>' +
+              '<div style="font-size:11px;color:var(--muted)">' + freqLabel + 'Next: ' + nextStr + '</div>' +
+            '</div>' +
+            '<div style="font-size:13px;font-weight:700;color:#34C759">+' + fmtB(r.amount) + '</div>' +
+          '</div>';
+        });
+        recIncomeHtml += '</div>';
+      }
+    }
+
+    html += recIncomeHtml;
     html += pendingCCHtml;
 
     if (txns.length === 0) {
@@ -13152,6 +13429,7 @@ function renderAccounts() {
   html += '<div style="display:flex;gap:8px;margin-bottom:16px">' +
     '<button onclick="openAddIncome()" style="flex:1;background:rgba(52,199,89,0.1);color:#34C759;border:2px solid rgba(52,199,89,0.3);border-radius:10px;padding:10px;font-size:13px;font-weight:700;font-family:var(--font);cursor:pointer">+ Income</button>' +
     '<button onclick="openAddTransfer()" style="flex:1;background:var(--accent-dim);color:var(--accent);border:none;border-radius:10px;padding:10px;font-size:13px;font-weight:700;font-family:var(--font);cursor:pointer">⇄ Transfer</button>' +
+    '<button onclick="openAddRecurringIncome()" style="flex:1;background:var(--surface2);color:var(--muted);border:none;border-radius:10px;padding:10px;font-size:12px;font-weight:600;font-family:var(--font);cursor:pointer" title="Set up recurring income">🔁 Recurring</button>' +
   '</div>';
 
   // Group by type
@@ -14061,14 +14339,14 @@ document.addEventListener('visibilitychange', () => {
       // Day has changed — reload from cloud first to get fresh data, then apply recurring
       _lastRecurringCheckDate = currentDate;
       loadState().then(() => {
-        applyRecurringExpenses(); applyRecurringSavings(); migrateOffsetToAccount();
+        applyRecurringExpenses(); applyRecurringSavings(); applyRecurringIncome(); migrateOffsetToAccount();
         recordTodayOffsetSaving();
         renderContent();
       });
     } else {
       // Same day — just apply recurring on existing state (do NOT reload from cloud —
       // that would overwrite any unsaved in-memory changes)
-      applyRecurringExpenses(); applyRecurringSavings(); migrateOffsetToAccount();
+      applyRecurringExpenses(); applyRecurringSavings(); applyRecurringIncome(); migrateOffsetToAccount();
       renderContent();
     }
   }
