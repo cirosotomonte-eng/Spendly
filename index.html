@@ -36,7 +36,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '2.3.14-202604012008';
+  const APP_VER = '2.3.15-202604012028';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -1957,9 +1957,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.3.14';
+const APP_VERSION = '2.3.15';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '01 Apr 2026 8:08 PM AEDT';
+const BUILD_TIME = '01 Apr 2026 8:28 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -2693,6 +2693,78 @@ function isCurrentCycle() { return (state.viewingCycleOffset || 0) === 0; }
 function isFutureCycle() { return (state.viewingCycleOffset || 0) > 0; }
 
 // Returns projected summary for any cycle offset
+// Returns a map of { goalId: projectedBalance } after simulating all recurring
+// transactions from today through all cycles up to (but not including) targetOffset.
+// Only recurring savings (credits) and recurring expense goal deductions are included.
+// Manual deposits are excluded — projection is based on committed recurrings only.
+function getProjectedGoalBalances(targetOffset) {
+  // Start with today's actual goal balances
+  const balances = {};
+  (state.savingsCategories||[]).forEach(g => {
+    balances[g.id] = totalSavedForCat(g.id);
+  });
+
+  if (targetOffset <= 1) return balances; // cycle 1 uses today's balances as-is
+
+  const recs = (state.recurringExpenses||[]).filter(r => r.active !== false);
+  const savRecs = (state.recurringSavings||[]).filter(r => r.active !== false);
+
+  const advance = (r, d) => {
+    const next = new Date(d);
+    if (r.frequency === 'weekly') next.setDate(next.getDate() + 7);
+    else if (r.frequency === 'xweeks') next.setDate(next.getDate() + (r.xweeksNum||2)*7);
+    else if (r.frequency === 'monthly') next.setMonth(next.getMonth() + 1);
+    else if (r.frequency === 'quarterly') next.setMonth(next.getMonth() + 3);
+    else if (r.frequency === 'yearly') next.setFullYear(next.getFullYear() + 1);
+    next.setHours(0,0,0,0);
+    return next;
+  };
+
+  // Simulate each cycle from 1 up to targetOffset - 1
+  for (let o = 1; o < targetOffset; o++) {
+    const { cycleStart, cycleEnd } = getCycleRange(o);
+
+    // Credit: recurring savings fire → goal balance increases
+    savRecs.forEach(r => {
+      if (!r.savingsGoalId) return;
+      let d = getRecNextDate(r);
+      if (!d) return;
+      d.setHours(0,0,0,0);
+      const visited = new Set();
+      while (d < cycleStart) { const n = advance(r,d); if (n.getTime()===d.getTime()) return; d=n; }
+      while (d <= cycleEnd) {
+        const key = dateToStr(d);
+        if (visited.has(key)) break;
+        visited.add(key);
+        balances[r.savingsGoalId] = (balances[r.savingsGoalId] || 0) + r.amount;
+        const n = advance(r,d); if (n.getTime()===d.getTime()) break; d=n;
+      }
+    });
+
+    // Debit: recurring expenses linked to a goal → goal balance decreases
+    recs.forEach(r => {
+      const linkedGoalId = r.linkedGoalId || getLinkedGoalIds(catById(r.categoryId))[0] || null;
+      if (!linkedGoalId) return;
+      let d = getRecNextDate(r);
+      if (!d) return;
+      d.setHours(0,0,0,0);
+      const visited = new Set();
+      while (d < cycleStart) { const n = advance(r,d); if (n.getTime()===d.getTime()) return; d=n; }
+      while (d <= cycleEnd) {
+        const key = dateToStr(d);
+        if (visited.has(key)) break;
+        visited.add(key);
+        const bal = balances[linkedGoalId] || 0;
+        const covered = Math.min(bal, r.amount);
+        balances[linkedGoalId] = Math.max(bal - covered, 0);
+        const n = advance(r,d); if (n.getTime()===d.getTime()) break; d=n;
+      }
+    });
+  }
+
+  return balances;
+}
+
 function getCycleSummary(offset) {
   const { cycleStart, cycleEnd } = getCycleRange(offset);
   const budget = state.budget || 0;
@@ -2724,6 +2796,9 @@ function getCycleSummary(offset) {
       return next;
     };
 
+    // Get projected goal balances at the start of this cycle
+    const projectedGoalBals = getProjectedGoalBalances(offset);
+
     recs.forEach(r => {
       let d = getRecNextDate(r);
       if (!d) return;
@@ -2738,12 +2813,14 @@ function getCycleSummary(offset) {
         const key = dateToStr(d);
         if (visited.has(key)) break;
         visited.add(key);
-        // Use budget impact (subtract goal-covered portion) to match renderFutureCycle
         const linkedGoalId = r.linkedGoalId || getLinkedGoalIds(catById(r.categoryId))[0] || null;
         let impact = r.amount;
         if (linkedGoalId) {
-          const goalBalance = totalSavedForCat(linkedGoalId);
-          impact = Math.max(r.amount - Math.min(goalBalance, r.amount), 0);
+          const goalBalance = projectedGoalBals[linkedGoalId] || 0;
+          const covered = Math.min(goalBalance, r.amount);
+          impact = Math.max(r.amount - covered, 0);
+          // Deduct from projected balance so multiple expenses in same cycle drain it correctly
+          projectedGoalBals[linkedGoalId] = Math.max(goalBalance - covered, 0);
         }
         committed += impact;
         const next = advance(r, d);
@@ -3987,23 +4064,27 @@ function renderFutureCycle(el) {
   const recurring = (state.recurringExpenses || []).filter(r => r.active !== false);
   const projected = [];
 
+  // Use projected goal balances (accounts for recurring savings firing in prior cycles)
+  const projectedGoalBals = getProjectedGoalBalances(offset);
+
   recurring.forEach(r => {
     let checkDate = new Date(cycleStart);
     while (checkDate <= cycleEnd) {
       const dateStr = dateToStr(checkDate);
       if (isRecurringDueOn(r, dateStr)) {
         const cat = catById(r.categoryId) || { name:'Unknown', icon:'❓', color:'#888' };
-        // Calculate real budget impact — goal-covered portion doesn't hit budget
         const linkedGoalId = r.linkedGoalId || getLinkedGoalIds(catById(r.categoryId))[0] || null;
         const txType = r.transactionType || 'expense';
         let budgetImpact = r.amount;
         let goalCoveredAmount = 0;
         if (txType === 'expense' && linkedGoalId) {
-          const goalBalance = totalSavedForCat(linkedGoalId);
+          const goalBalance = projectedGoalBals[linkedGoalId] || 0;
           goalCoveredAmount = Math.min(goalBalance, r.amount);
           budgetImpact = r.amount - goalCoveredAmount;
+          // Drain the projected balance so subsequent expenses in this cycle see reduced balance
+          projectedGoalBals[linkedGoalId] = Math.max(goalBalance - goalCoveredAmount, 0);
         } else if (txType === 'saving') {
-          budgetImpact = r.amount; // saving always hits budget
+          budgetImpact = r.amount;
         }
         projected.push({ r, cat, date: dateStr, dateObj: new Date(checkDate), kind: 'expense', budgetImpact, goalCoveredAmount, linkedGoalId, txType });
       }
