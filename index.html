@@ -36,7 +36,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '2.3.11-202604011945';
+  const APP_VER = '2.3.12-202604011956';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -1052,6 +1052,11 @@ async function applyUpdate() {
     <label>Country</label>
     <input type="text" id="setCountry2" placeholder="e.g. Australia">
     <div id="setTimezoneDisplay2" style="font-size:11px;color:var(--muted);margin-top:-8px;margin-bottom:14px"></div>
+    <label>Future cycles to browse</label>
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+      <input type="number" inputmode="numeric" id="setMaxFutureCycles" placeholder="6" min="1" max="24" style="width:80px">
+      <span style="font-size:12px;color:var(--muted);line-height:1.4">How many cycles ahead you can navigate. Default is 6.</span>
+    </div>
     <button class="btn-primary" onclick="saveBudgetSettings()">Save</button>
     <button class="btn-ghost" onclick="closeModal('settingsBudgetModal')">Cancel</button>
   </div>
@@ -1952,9 +1957,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.3.11';
+const APP_VERSION = '2.3.12';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '01 Apr 2026 7:45 PM AEDT';
+const BUILD_TIME = '01 Apr 2026 7:56 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -3328,7 +3333,7 @@ function updateHeader() {
   const opts = { day:'numeric', month:'short' };
   document.getElementById('cycleLabel').textContent =
     cycleStart.toLocaleDateString('en-AU', opts) + ' – ' + cycleEnd.toLocaleDateString('en-AU', opts);
-  document.getElementById('nextCycleBtn').disabled = (state.viewingCycleOffset || 0) >= 3;
+  document.getElementById('nextCycleBtn').disabled = (state.viewingCycleOffset || 0) >= (state.maxFutureCycles || 6);
 
   const metaEl = document.getElementById('cycleNavMeta');
   const fillEl = document.getElementById('cycleNavBar_fill');
@@ -5536,6 +5541,7 @@ function openSettingsSheet(sheet) {
     const tz = state.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone;
     const tzEl = document.getElementById('setTimezoneDisplay2');
     if (tzEl) tzEl.textContent = '🌏 Detected timezone: ' + tz;
+    document.getElementById('setMaxFutureCycles').value = state.maxFutureCycles || 6;
     // Set cycle type buttons
     settingsSetCycleType(state.cycleType || 'monthly');
     openModal('settingsBudgetModal');
@@ -5571,6 +5577,7 @@ function saveBudgetSettings() {
   state.city = city;
   state.country = country;
   state.timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  state.maxFutureCycles = Math.min(Math.max(parseInt(document.getElementById('setMaxFutureCycles').value) || 6, 1), 24);
   state.setupDone = true;
   saveState();
   closeModal('settingsBudgetModal');
