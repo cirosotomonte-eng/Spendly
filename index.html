@@ -36,7 +36,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '2.3.9-202604011755';
+  const APP_VER = '2.3.10-202604011813';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -1952,9 +1952,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.3.9';
+const APP_VERSION = '2.3.10';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '01 Apr 2026 5:55 PM AEDT';
+const BUILD_TIME = '01 Apr 2026 6:13 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -2720,11 +2720,9 @@ function getCycleSummary(offset) {
     };
 
     recs.forEach(r => {
-      // Find first occurrence in this future cycle
       let d = getRecNextDate(r);
       if (!d) return;
       d.setHours(0,0,0,0);
-      // Fast-forward to the target cycle range
       const visited = new Set();
       while (d < cycleStart) {
         const next = advance(r, d);
@@ -2735,7 +2733,14 @@ function getCycleSummary(offset) {
         const key = dateToStr(d);
         if (visited.has(key)) break;
         visited.add(key);
-        committed += r.amount;
+        // Use budget impact (subtract goal-covered portion) to match renderFutureCycle
+        const linkedGoalId = r.linkedGoalId || getLinkedGoalIds(catById(r.categoryId))[0] || null;
+        let impact = r.amount;
+        if (linkedGoalId) {
+          const goalBalance = totalSavedForCat(linkedGoalId);
+          impact = Math.max(r.amount - Math.min(goalBalance, r.amount), 0);
+        }
+        committed += impact;
         const next = advance(r, d);
         if (next.getTime() === d.getTime()) break;
         d = next;
@@ -3392,9 +3397,14 @@ function updateHeader() {
   const remainEl = document.getElementById('totalRemain');
   const remainLabelEl = remainEl ? remainEl.previousElementSibling : null;
   if (isFutureCycle()) {
-    // Don't show current-cycle left-to-spend for a future cycle — it's misleading
-    if (remainEl) { remainEl.textContent = '—'; remainEl.style.color = 'var(--muted)'; }
-    if (remainLabelEl) remainLabelEl.innerHTML = '<span style="font-size:10px;color:var(--muted)">Viewing future cycle</span>';
+    // Show projected free amount for future cycles
+    const summary = getCycleSummary(state.viewingCycleOffset || 0);
+    if (remainEl && summary) {
+      const free = summary.free;
+      remainEl.textContent = (free < 0 ? '-' : '') + fmt(Math.abs(free));
+      remainEl.style.color = free < 0 ? 'var(--red)' : free < budget * 0.15 ? 'var(--orange)' : 'var(--text)';
+    }
+    if (remainLabelEl) remainLabelEl.innerHTML = '<span style="font-size:10px;color:var(--muted)">Projected free · future cycle</span>';
   } else if (budget > 0) {
     remainEl.textContent = (remain < 0 ? '-' : '') + fmt(Math.abs(remain));
     remainEl.style.color = remain < 0 ? 'var(--red)' : remain < budget * 0.15 ? 'var(--orange)' : 'var(--text)';
@@ -4063,7 +4073,7 @@ function renderFutureCycle(el) {
       '</div>' +
       '<div>' +
         '<div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:3px">Budget left after</div>' +
-        '<div style="font-size:22px;font-weight:800;color:' + (budget - totalProjected >= 0 ? 'var(--accent)' : 'var(--red)') + '">' + fmt(budget - totalProjected) + '</div>' +
+        '<div style="font-size:22px;font-weight:800;color:' + (budget - totalProjected >= 0 ? 'var(--accent)' : 'var(--red)') + '">' + (budget - totalProjected < 0 ? '-' : '') + fmt(Math.abs(budget - totalProjected)) + '</div>' +
         '<div style="font-size:11px;color:var(--muted)">of ' + fmt(budget) + ' budget</div>' +
       '</div>' +
     '</div>' +
