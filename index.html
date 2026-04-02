@@ -36,7 +36,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '2.3.16-202604012043';
+  const APP_VER = '2.3.17-202604030748';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -1585,6 +1585,8 @@ async function applyUpdate() {
       <div style="font-size:11px;color:var(--muted);margin-top:-8px">Will repeat every year on this date</div>
     </div>
     <div id="recPreview" style="font-size:12px;color:var(--muted);margin-bottom:14px;min-height:16px;background:var(--surface2);border-radius:8px;padding:8px 10px;display:none"></div>
+    <label>Payment method</label>
+    <select id="recPaymentSelect" onchange="onRecPaymentSelectChange()" style="margin-bottom:14px"></select>
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
       <div id="recActiveCheck" onclick="toggleRecActive()" style="width:22px;height:22px;border-radius:6px;background:var(--accent);border:2px solid var(--accent);display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:13px;color:#fff;flex-shrink:0">✓</div>
       <span style="font-size:13px">Active</span>
@@ -2009,9 +2011,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.3.16';
+const APP_VERSION = '2.3.17';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '01 Apr 2026 8:43 PM AEDT';
+const BUILD_TIME = '03 Apr 2026 7:48 AM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -2283,7 +2285,7 @@ async function signOut() {
   try { localStorage.removeItem('spendly_backup'); } catch(e) {}
   try { sessionStorage.clear(); } catch(e) {}
   // Reset state and show auth screen
-  state = { currentTab:'expenses', viewingCycleOffset:0, budget:0, cycleDay:1, appName:'', categories:[], expenses:[], recurringExpenses:[], recurringSavings:[], recurringIncome:[], savingsCategories:[], savingsSubcategories:[], savingsDeposits:[], recyclingTrips:[], mortgage:{}, taxCategories:[], taxTransactions:[], giftCards:[], portfolio:[], netWorth:[], notes:[], accounts:[], accountTransactions:[], setupDone:false };
+  state = { currentTab:'expenses', viewingCycleOffset:0, budget:0, cycleDay:1, appName:'', categories:[], expenses:[], recurringExpenses:[], recurringSavings:[], recurringIncome:[], recurringSkips:[], savingsCategories:[], savingsSubcategories:[], savingsDeposits:[], recyclingTrips:[], mortgage:{}, taxCategories:[], taxTransactions:[], giftCards:[], portfolio:[], netWorth:[], notes:[], accounts:[], accountTransactions:[], setupDone:false };
   showAuthScreen();
   document.getElementById('app').style.visibility = 'hidden';
 }
@@ -6756,6 +6758,20 @@ function quickDeleteExpense(id) {
 }
 function deleteExpense() {
   const exp = state.expenses.find(e=>e.id===state.editingExpenseId);
+  // If this was auto-fired from a recurring rule, offer skip vs stop options
+  if (exp && exp.recurringId) {
+    const rec = (state.recurringExpenses||[]).find(r => r.id === exp.recurringId);
+    if (rec) {
+      closeModal('expenseModal');
+      showRecurringSkipSheet(exp, rec);
+      return;
+    }
+  }
+  _doDeleteExpense(exp);
+}
+
+function _doDeleteExpense(exp) {
+  if (!exp) exp = state.expenses.find(e=>e.id===state.editingExpenseId);
   if (exp) {
     if (exp.linkedDepositId) state.savingsDeposits = (state.savingsDeposits||[]).filter(d=>d.id!==exp.linkedDepositId);
     if (exp.linkedWithdrawalId) state.savingsDeposits = (state.savingsDeposits||[]).filter(d=>d.id!==exp.linkedWithdrawalId);
@@ -6767,6 +6783,49 @@ function deleteExpense() {
   closeModal('expenseModal');
   updateHeader();
   renderContent();
+}
+
+function showRecurringSkipSheet(exp, rec) {
+  const existing = document.getElementById('recurringSkipSheet');
+  if (existing) existing.remove();
+  const sheet = document.createElement('div');
+  sheet.id = 'recurringSkipSheet';
+  sheet.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;z-index:400;display:flex;align-items:flex-end;justify-content:center';
+  sheet.innerHTML =
+    '<div onclick="document.getElementById(\'recurringSkipSheet\').remove()" style="position:absolute;inset:0;background:rgba(0,0,0,0.4)"></div>' +
+    '<div style="position:relative;background:var(--surface);border-radius:20px 20px 0 0;width:100%;max-width:600px;padding:20px 16px 40px;z-index:1">' +
+      '<div style="width:36px;height:4px;border-radius:2px;background:var(--border);margin:0 auto 16px"></div>' +
+      '<div style="font-size:16px;font-weight:700;margin-bottom:4px">Delete recurring transaction?</div>' +
+      '<div style="font-size:12px;color:var(--muted);margin-bottom:16px">' + rec.name + ' · ' + fmt(rec.amount) + '</div>' +
+      '<label style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em">Reason (optional)</label>' +
+      '<input type="text" id="skipNoteInput" placeholder="e.g. Covered by gift card, Already paid, Wrong amount…" style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:10px;color:var(--text);font-size:14px;font-family:var(--font);padding:11px 14px;outline:none;margin-bottom:16px;box-sizing:border-box">' +
+      '<button onclick="confirmRecurringSkip(\'' + exp.id + '\',\'' + rec.id + '\',\'' + exp.date + '\')" style="width:100%;background:var(--surface2);color:var(--text);border:none;border-radius:12px;padding:14px 16px;font-size:15px;font-weight:600;font-family:var(--font);cursor:pointer;text-align:left;margin-bottom:8px;display:flex;align-items:center;gap:12px"><span style="font-size:20px">⏭️</span><div><div>Skip this occurrence</div><div style="font-size:12px;color:var(--muted);font-weight:400">Removes today\'s transaction. Recurring will fire again next time.</div></div></button>' +
+      '<button onclick="document.getElementById(\'recurringSkipSheet\').remove();openEditRecurring(\'' + rec.id + '\')" style="width:100%;background:rgba(255,92,92,0.08);border:1px solid rgba(255,92,92,0.2);border-radius:12px;padding:14px 16px;font-size:15px;font-weight:600;font-family:var(--font);cursor:pointer;text-align:left;margin-bottom:8px;display:flex;align-items:center;gap:12px;color:var(--red)"><span style="font-size:20px">🛑</span><div><div>Stop recurring</div><div style="font-size:12px;color:rgba(255,92,92,0.7);font-weight:400">Open the recurring rule to pause or delete it.</div></div></button>' +
+      '<button onclick="document.getElementById(\'recurringSkipSheet\').remove()" style="width:100%;background:none;border:none;color:var(--muted);padding:10px;font-size:14px;font-family:var(--font);cursor:pointer">Cancel</button>' +
+    '</div>';
+  document.body.appendChild(sheet);
+  setTimeout(() => document.getElementById('skipNoteInput')?.focus(), 100);
+}
+
+function confirmRecurringSkip(expId, recurringId, date) {
+  const note = document.getElementById('skipNoteInput')?.value.trim() || '';
+  // Record the skip so applyRecurringExpenses won't re-fire today
+  if (!state.recurringSkips) state.recurringSkips = [];
+  state.recurringSkips.push({ id: uid(), recurringId, date, note: note || undefined, skippedAt: new Date().toISOString() });
+  // Delete the expense
+  const exp = state.expenses.find(e => e.id === expId);
+  if (exp) {
+    if (exp.linkedDepositId) state.savingsDeposits = (state.savingsDeposits||[]).filter(d=>d.id!==exp.linkedDepositId);
+    if (exp.linkedWithdrawalId) state.savingsDeposits = (state.savingsDeposits||[]).filter(d=>d.id!==exp.linkedWithdrawalId);
+    state.offsetTransactions = (state.offsetTransactions||[]).filter(t=>t.linkedExpenseId!==exp.id);
+    state.taxTransactions = (state.taxTransactions||[]).filter(t=>t.linkedExpenseId!==exp.id);
+  }
+  state.expenses = state.expenses.filter(e => e.id !== expId);
+  saveState();
+  document.getElementById('recurringSkipSheet')?.remove();
+  updateHeader();
+  renderContent();
+  showToast('⏭️ Occurrence skipped' + (note ? ' · ' + note : ''), 2500);
 }
 
 // ── Backup / Restore ──────────────────────────────────────────────────────────
@@ -10496,6 +10555,38 @@ function selectRecGoal(goalId) {
   checkRecChanged();
 }
 
+function _populateRecPaymentSelect(method, accountId) {
+  const sel = document.getElementById('recPaymentSelect');
+  if (!sel) return;
+  const ccAccts = (state.accounts||[]).filter(a => a.type === 'credit');
+  const bankAccts = (state.accounts||[]).filter(a => a.type !== 'credit');
+  let html = '<optgroup label="Standard">';
+  if (ccAccts.length === 0) html += '<option value="cc"' + (method==='cc'?' selected':'') + '>💳 Credit Card</option>';
+  html += '<option value="cash"' + (method==='cash'?' selected':'') + '>💵 Cash</option>' +
+    '<option value="other"' + (method==='other'?' selected':'') + '>💸 Other</option></optgroup>';
+  if (ccAccts.length > 0) {
+    html += '<optgroup label="Credit Cards">';
+    ccAccts.forEach(a => { const v='acct:'+a.id; html += '<option value="'+v+'"'+(method==='account'&&accountId===a.id?' selected':'')+'>💳 '+a.name+'</option>'; });
+    html += '</optgroup>';
+  }
+  if (bankAccts.length > 0) {
+    html += '<optgroup label="Bank Accounts">';
+    bankAccts.forEach(a => { const v='acct:'+a.id; html += '<option value="'+v+'"'+(method==='account'&&accountId===a.id?' selected':'')+'>'+( a.icon||'🏦')+' '+a.name+'</option>'; });
+    html += '</optgroup>';
+  }
+  sel.innerHTML = html;
+}
+
+let _recPaymentMethod = 'cc';
+let _recPaymentAccountId = null;
+
+function onRecPaymentSelectChange() {
+  const val = document.getElementById('recPaymentSelect')?.value;
+  if (!val) return;
+  if (val.startsWith('acct:')) { _recPaymentMethod = 'account'; _recPaymentAccountId = val.replace('acct:',''); }
+  else { _recPaymentMethod = val; _recPaymentAccountId = null; }
+}
+
 function openAddRecurring() {
   editingRecurringId = null; recActiveState = true; recOffsetState = false;
   recOriginalSnapshot = null;
@@ -10525,6 +10616,8 @@ function openAddRecurring() {
   document.getElementById('recMonthDay').value = '';
   document.getElementById('recQuarterlyDate').value = '';
   closeModal('recurringListModal');
+  _recPaymentMethod = 'cc'; _recPaymentAccountId = null;
+  _populateRecPaymentSelect('cc', null);
   openModal('recurringModal');
   setTimeout(()=>document.getElementById('recName').focus(),350);
 }
@@ -10571,6 +10664,10 @@ function openEditRecurring(id) {
     document.getElementById('recYearlyDate').value = rec.nextDate || '';
   }
   updateRecPreview();
+  // Restore payment method
+  _recPaymentMethod = rec.paymentMethod || 'cc';
+  _recPaymentAccountId = rec.paymentAccountId || null;
+  _populateRecPaymentSelect(_recPaymentMethod, _recPaymentAccountId);
   // Capture snapshot AFTER all fields are set, disable Update until change detected
   recOriginalSnapshot = getRecCurrentSnapshot();
   const saveBtn = document.getElementById('recSaveBtn');
@@ -10614,6 +10711,8 @@ function saveRecurring() {
              : (recFreqState === 'yearly') ? document.getElementById('recYearlyDate').value
              : undefined,
     lastAdded: editingRecurringId ? (state.recurringExpenses.find(r=>r.id===editingRecurringId)||{}).lastAdded || '' : '',
+    paymentMethod: _recPaymentMethod || 'cc',
+    paymentAccountId: _recPaymentAccountId || undefined,
   };
   if (editingRecurringId) {
     const idx = state.recurringExpenses.findIndex(r=>r.id===editingRecurringId);
@@ -11288,14 +11387,15 @@ function applyRecurringExpenses() {
     next.setHours(0,0,0,0);
     if (next.getTime() !== today.getTime()) return;
 
-    // Skip if expense already exists for today — this is the only guard we need
+    // Skip if expense already exists for today OR a skip was recorded for today
     const alreadyExists = (state.expenses||[]).some(e =>
       e.categoryId === r.categoryId &&
       e.date === todayDateStr &&
       e.amount === r.amount &&
       e.name === r.name
     );
-    if (alreadyExists) { r.lastAdded = todayDateStr; return; }
+    const wasSkipped = (state.recurringSkips||[]).some(s => s.recurringId === r.id && s.date === todayDateStr);
+    if (alreadyExists || wasSkipped) { r.lastAdded = todayDateStr; return; }
 
     // Add the expense dated today
     const expId = uid();
@@ -11332,6 +11432,9 @@ function applyRecurringExpenses() {
       linkedDepositId,
       linkedWithdrawalId,
       goalCoveredAmount,
+      paymentMethod: r.paymentMethod || 'cc',
+      paymentAccountId: r.paymentAccountId || undefined,
+      recurringId: r.id,
     });
     r.lastAdded = todayDateStr;
     added = true;
