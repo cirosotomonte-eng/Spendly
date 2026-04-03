@@ -36,7 +36,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '2.3.17-202604030748';
+  const APP_VER = '2.3.18-202604031240';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -2011,9 +2011,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.3.17';
+const APP_VERSION = '2.3.18';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '03 Apr 2026 7:48 AM AEDT';
+const BUILD_TIME = '03 Apr 2026 12:40 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -10420,6 +10420,8 @@ function getRecCurrentSnapshot() {
     xweeksDate: document.getElementById('recXweeksDate').value || null,
     quarterlyDate: document.getElementById('recQuarterlyDate').value || null,
     yearlyDate: document.getElementById('recYearlyDate').value || null,
+    paymentMethod: _recPaymentMethod || 'cc',
+    paymentAccountId: _recPaymentAccountId || null,
   };
 }
 
@@ -10439,7 +10441,9 @@ function checkRecChanged() {
     curr.xweeksNum !== orig.xweeksNum ||
     curr.xweeksDate !== orig.xweeksDate ||
     curr.quarterlyDate !== orig.quarterlyDate ||
-    curr.yearlyDate !== orig.yearlyDate;
+    curr.yearlyDate !== orig.yearlyDate ||
+    curr.paymentMethod !== orig.paymentMethod ||
+    curr.paymentAccountId !== orig.paymentAccountId;
   const btn = document.getElementById('recSaveBtn');
   if (btn) {
     btn.disabled = !changed;
@@ -10585,6 +10589,7 @@ function onRecPaymentSelectChange() {
   if (!val) return;
   if (val.startsWith('acct:')) { _recPaymentMethod = 'account'; _recPaymentAccountId = val.replace('acct:',''); }
   else { _recPaymentMethod = val; _recPaymentAccountId = null; }
+  checkRecChanged();
 }
 
 function openAddRecurring() {
