@@ -36,7 +36,7 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '2.3.18-202604031240';
+  const APP_VER = '2.3.19-202604081542';
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -2011,9 +2011,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.3.18';
+const APP_VERSION = '2.3.19';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '03 Apr 2026 12:40 PM AEDT';
+const BUILD_TIME = '08 Apr 2026 3:42 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -2285,7 +2285,7 @@ async function signOut() {
   try { localStorage.removeItem('spendly_backup'); } catch(e) {}
   try { sessionStorage.clear(); } catch(e) {}
   // Reset state and show auth screen
-  state = { currentTab:'expenses', viewingCycleOffset:0, budget:0, cycleDay:1, appName:'', categories:[], expenses:[], recurringExpenses:[], recurringSavings:[], recurringIncome:[], recurringSkips:[], savingsCategories:[], savingsSubcategories:[], savingsDeposits:[], recyclingTrips:[], mortgage:{}, taxCategories:[], taxTransactions:[], giftCards:[], portfolio:[], netWorth:[], notes:[], accounts:[], accountTransactions:[], setupDone:false };
+  state = { currentTab:'expenses', viewingCycleOffset:0, budget:0, cycleDay:1, appName:'', categories:[], expenses:[], recurringExpenses:[], recurringSavings:[], recurringIncome:[], recurringSkips:[], savingsCategories:[], savingsSubcategories:[], savingsDeposits:[], recyclingTrips:[], mortgage:{}, taxCategories:[], taxTransactions:[], giftCards:[], portfolio:[], netWorth:[], notes:[], accounts:[], accountTransactions:[], lastActiveDate:'', setupDone:false };
   showAuthScreen();
   document.getElementById('app').style.visibility = 'hidden';
 }
@@ -10969,51 +10969,42 @@ function applyRecurringSavings() {
   if (!recs.length) return;
   const today = new Date(); today.setHours(0,0,0,0);
   const todayDateStr = todayStr();
+  const lastActive = state.lastActiveDate ? new Date(state.lastActiveDate + 'T00:00:00') : new Date(today);
+  lastActive.setHours(0,0,0,0);
+  const daysSince = Math.round((today - lastActive) / 86400000);
+  const catchUpDays = Math.min(Math.max(daysSince, 0), 60);
+  const datesToProcess = [];
+  for (let i = catchUpDays; i >= 0; i--) {
+    const d = new Date(today); d.setDate(today.getDate() - i); d.setHours(0,0,0,0);
+    datesToProcess.push(d);
+  }
   let added = false;
 
   recs.forEach(r => {
-    const next = getRecNextDate(r);
-    if (!next) return;
-    next.setHours(0,0,0,0);
-    if (next.getTime() !== today.getTime()) return;
-
-    // Guard: already deposited today for this recurring
-    const alreadyExists = (state.savingsDeposits||[]).some(d =>
-      d.recurringId === r.id && d.date === todayDateStr
-    );
-    if (alreadyExists) return;
-
-    if (!state.savingsDeposits) state.savingsDeposits = [];
-    const depositId = uid();
-    state.savingsDeposits.push({
-      id: depositId,
-      catId: r.savingsGoalId,
-      targetId: r.savingsGoalId,
-      amount: r.amount,
-      date: todayDateStr,
-      note: r.name,
-      type: 'deposit',
-      recurringId: r.id,
-      sourceAccountId: r.sourceAccountId || undefined,
-    });
-
-    // If a source account is set, also log an account transaction (debit)
-    if (r.sourceAccountId) {
-      if (!state.accountTransactions) state.accountTransactions = [];
-      state.accountTransactions.push({
-        id: uid(),
-        type: 'transfer',
-        fromAccountId: r.sourceAccountId,
-        toAccountId: undefined,
-        amount: r.amount,
-        date: todayDateStr,
-        note: r.name + ' (recurring saving)',
-        recurringId: r.id,
-        savingsDepositId: depositId,
+    datesToProcess.forEach(checkDate => {
+      const checkDateStr = dateToStr(checkDate);
+      if (!isRecurringDueOn(r, checkDateStr)) return;
+      const alreadyExists = (state.savingsDeposits||[]).some(d =>
+        d.recurringId === r.id && d.date === checkDateStr
+      );
+      if (alreadyExists) return;
+      if (!state.savingsDeposits) state.savingsDeposits = [];
+      const depositId = uid();
+      state.savingsDeposits.push({
+        id: depositId, catId: r.savingsGoalId, targetId: r.savingsGoalId,
+        amount: r.amount, date: checkDateStr, note: r.name, type: 'deposit',
+        recurringId: r.id, sourceAccountId: r.sourceAccountId || undefined,
       });
-    }
-
-    added = true;
+      if (r.sourceAccountId) {
+        if (!state.accountTransactions) state.accountTransactions = [];
+        state.accountTransactions.push({
+          id: uid(), type: 'transfer', fromAccountId: r.sourceAccountId,
+          toAccountId: undefined, amount: r.amount, date: checkDateStr,
+          note: r.name + ' (recurring saving)', recurringId: r.id, savingsDepositId: depositId,
+        });
+      }
+      added = true;
+    });
   });
 
   if (added) saveState();
@@ -11160,31 +11151,40 @@ function applyRecurringIncome() {
   if (!recs.length) return;
   const today = new Date(); today.setHours(0,0,0,0);
   const todayDateStr = todayStr();
+  const lastActive = state.lastActiveDate ? new Date(state.lastActiveDate + 'T00:00:00') : new Date(today);
+  lastActive.setHours(0,0,0,0);
+  const daysSince = Math.round((today - lastActive) / 86400000);
+  const catchUpDays = Math.min(Math.max(daysSince, 0), 60);
+  const datesToProcess = [];
+  for (let i = catchUpDays; i >= 0; i--) {
+    const d = new Date(today); d.setDate(today.getDate() - i); d.setHours(0,0,0,0);
+    datesToProcess.push(d);
+  }
   let added = false;
 
   recs.forEach(r => {
-    const next = getRecIncomeNextDate(r);
-    if (!next) return;
-    next.setHours(0,0,0,0);
-    if (next.getTime() !== today.getTime()) return;
-
-    // Guard: already logged today
-    const alreadyExists = (state.accountTransactions||[]).some(t =>
-      t.recurringIncomeId === r.id && t.date === todayDateStr
-    );
-    if (alreadyExists) return;
-
-    if (!state.accountTransactions) state.accountTransactions = [];
-    state.accountTransactions.push({
-      id: uid(),
-      type: 'income',
-      accountId: r.accountId,
-      amount: r.amount,
-      date: todayDateStr,
-      description: r.name,
-      recurringIncomeId: r.id,
+    datesToProcess.forEach(checkDate => {
+      const checkDateStr = dateToStr(checkDate);
+      // Use isRecurringDueOn for weekly/monthly, otherwise check via getRecIncomeNextDate
+      const next = getRecIncomeNextDate(r);
+      if (!next) return;
+      // For monthly/weekly we can use isRecurringDueOn; for fortnightly/yearly check date match
+      const isDue = (r.frequency === 'weekly' || r.frequency === 'monthly')
+        ? isRecurringDueOn(r, checkDateStr)
+        : next.getTime() === checkDate.getTime();
+      if (!isDue) return;
+      const alreadyExists = (state.accountTransactions||[]).some(t =>
+        t.recurringIncomeId === r.id && t.date === checkDateStr
+      );
+      if (alreadyExists) return;
+      if (!state.accountTransactions) state.accountTransactions = [];
+      state.accountTransactions.push({
+        id: uid(), type: 'income', accountId: r.accountId,
+        amount: r.amount, date: checkDateStr,
+        description: r.name, recurringIncomeId: r.id,
+      });
+      added = true;
     });
-    added = true;
   });
 
   if (added) saveState();
@@ -11373,7 +11373,6 @@ let _applyRecurringRunning = false;
 let _applyRecurringLastRun = 0;
 function applyRecurringExpenses() {
   // Only block if called within the same 500ms window — prevents double-fire on init
-  // but never blocks a legitimate call after state has fully loaded
   const now = Date.now();
   if (_applyRecurringRunning && (now - _applyRecurringLastRun) < 500) return;
   _applyRecurringRunning = true;
@@ -11381,98 +11380,133 @@ function applyRecurringExpenses() {
   try {
   const recs = (state.recurringExpenses||[]).filter(r=>r.active!==false);
   if (!recs.length) return;
+
   const today = new Date(); today.setHours(0,0,0,0);
   const todayDateStr = todayStr();
+
+  // Build catch-up date range — from day after last active date up to today
+  // Cap at 60 days to avoid runaway on first install
+  const lastActive = state.lastActiveDate ? new Date(state.lastActiveDate + 'T00:00:00') : new Date(today);
+  lastActive.setHours(0,0,0,0);
+  const msPerDay = 86400000;
+  const daysSince = Math.round((today - lastActive) / msPerDay);
+  const catchUpDays = Math.min(Math.max(daysSince, 0), 60);
+
+  // Build array of dates to process: missed days first (oldest to newest), then today
+  const datesToProcess = [];
+  for (let i = catchUpDays; i >= 0; i--) {
+    const d = new Date(today);
+    d.setDate(today.getDate() - i);
+    d.setHours(0,0,0,0);
+    datesToProcess.push(d);
+  }
+
+  // Update lastActiveDate to today
+  state.lastActiveDate = todayDateStr;
+
   let added = false;
   const autoOffsetFired = [];
 
   recs.forEach(r => {
-    const next = getRecNextDate(r, false); // false = don't advance past today based on lastAdded
-    if (!next) return;
-    next.setHours(0,0,0,0);
-    if (next.getTime() !== today.getTime()) return;
+    datesToProcess.forEach(checkDate => {
+      const checkDateStr = dateToStr(checkDate);
 
-    // Skip if expense already exists for today OR a skip was recorded for today
-    const alreadyExists = (state.expenses||[]).some(e =>
-      e.categoryId === r.categoryId &&
-      e.date === todayDateStr &&
-      e.amount === r.amount &&
-      e.name === r.name
-    );
-    const wasSkipped = (state.recurringSkips||[]).some(s => s.recurringId === r.id && s.date === todayDateStr);
-    if (alreadyExists || wasSkipped) { r.lastAdded = todayDateStr; return; }
+      // Check if this recurring was due on this date
+      const next = getRecNextDate(r, false);
+      if (!next) return;
+      next.setHours(0,0,0,0);
 
-    // Add the expense dated today
-    const expId = uid();
-    const txType = r.transactionType || 'expense';
-    const cat = catById(r.categoryId);
-    // Use the goal stored on the recurring record, or fall back to first linked goal on category
-    const linkedGoalId = r.linkedGoalId || (cat ? getLinkedGoalIds(cat)[0] : null) || null;
-    let linkedDepositId = null;
-    let linkedWithdrawalId = null;
-    let goalCoveredAmount = 0;
+      // For catch-up: check if recurring was due on checkDate specifically
+      if (!isRecurringDueOn(r, checkDateStr)) return;
 
-    if (!state.savingsDeposits) state.savingsDeposits = [];
-
-    if (txType === 'saving' && linkedGoalId) {
-      linkedDepositId = uid();
-      state.savingsDeposits.push({ id:linkedDepositId, catId:linkedGoalId, targetId:linkedGoalId, amount:r.amount, date:todayDateStr, note:r.name||'Saving deposit', type:'deposit', linkedExpenseId:expId });
-    } else if (txType === 'expense' && linkedGoalId) {
-      const balance = totalSavedForCat(linkedGoalId);
-      goalCoveredAmount = Math.min(balance, r.amount);
-      if (goalCoveredAmount > 0) {
-        linkedWithdrawalId = uid();
-        state.savingsDeposits.push({ id:linkedWithdrawalId, catId:linkedGoalId, targetId:linkedGoalId, amount:goalCoveredAmount, date:todayDateStr, note:r.name||'Expense withdrawal', type:'bill-payment', linkedExpenseId:expId });
-      }
-    }
-
-    state.expenses.push({
-      id: expId,
-      amount: r.amount,
-      name: r.name,
-      categoryId: r.categoryId,
-      date: todayDateStr,
-      transactionType: txType,
-      linkedGoalId: linkedGoalId || undefined,
-      linkedDepositId,
-      linkedWithdrawalId,
-      goalCoveredAmount,
-      paymentMethod: r.paymentMethod || 'cc',
-      paymentAccountId: r.paymentAccountId || undefined,
-      recurringId: r.id,
-    });
-    r.lastAdded = todayDateStr;
-    added = true;
-
-    // Auto offset withdrawal — use category setting, fall back to per-recurring setting
-    const recCat = catById(r.categoryId);
-    const shouldAutoOffset = (recCat && recCat.autoOffset) || r.autoOffset;
-    if (shouldAutoOffset) {
-      if (!state.offsetTransactions) state.offsetTransactions = [];
-      const offsetExists = (state.offsetTransactions||[]).some(t =>
-        t.date === todayDateStr && t.amount === r.amount && t.note === r.name + ' (auto)'
+      // Skip if expense already exists for this date
+      const alreadyExists = (state.expenses||[]).some(e =>
+        e.recurringId === r.id && e.date === checkDateStr
+      ) || (state.expenses||[]).some(e =>
+        e.categoryId === r.categoryId &&
+        e.date === checkDateStr &&
+        e.amount === r.amount &&
+        e.name === r.name
       );
-      if (!offsetExists) {
-        state.offsetTransactions.push({
-          id: uid(), type: 'withdrawal', amount: r.amount,
-          date: todayDateStr, note: r.name + ' (auto)', linkedExpenseId: expId,
-        });
-        autoOffsetFired.push({ name: r.name, amount: r.amount });
+      const wasSkipped = (state.recurringSkips||[]).some(s => s.recurringId === r.id && s.date === checkDateStr);
+      if (alreadyExists || wasSkipped) { r.lastAdded = checkDateStr; return; }
+
+      // Add the expense dated at checkDate (preserves actual date for history accuracy)
+      const expId = uid();
+      const txType = r.transactionType || 'expense';
+      const cat = catById(r.categoryId);
+      const linkedGoalId = r.linkedGoalId || (cat ? getLinkedGoalIds(cat)[0] : null) || null;
+      let linkedDepositId = null;
+      let linkedWithdrawalId = null;
+      let goalCoveredAmount = 0;
+
+      if (!state.savingsDeposits) state.savingsDeposits = [];
+
+      if (txType === 'saving' && linkedGoalId) {
+        linkedDepositId = uid();
+        state.savingsDeposits.push({ id:linkedDepositId, catId:linkedGoalId, targetId:linkedGoalId, amount:r.amount, date:checkDateStr, note:r.name||'Saving deposit', type:'deposit', linkedExpenseId:expId });
+      } else if (txType === 'expense' && linkedGoalId) {
+        const balance = totalSavedForCat(linkedGoalId);
+        goalCoveredAmount = Math.min(balance, r.amount);
+        if (goalCoveredAmount > 0) {
+          linkedWithdrawalId = uid();
+          state.savingsDeposits.push({ id:linkedWithdrawalId, catId:linkedGoalId, targetId:linkedGoalId, amount:goalCoveredAmount, date:checkDateStr, note:r.name||'Expense withdrawal', type:'bill-payment', linkedExpenseId:expId });
+        }
       }
-    }
+
+      state.expenses.push({
+        id: expId,
+        amount: r.amount,
+        name: r.name,
+        categoryId: r.categoryId,
+        date: checkDateStr,
+        transactionType: txType,
+        linkedGoalId: linkedGoalId || undefined,
+        linkedDepositId,
+        linkedWithdrawalId,
+        goalCoveredAmount,
+        paymentMethod: r.paymentMethod || 'cc',
+        paymentAccountId: r.paymentAccountId || undefined,
+        recurringId: r.id,
+        ...(checkDateStr !== todayDateStr ? { catchUp: true } : {}),
+      });
+      r.lastAdded = checkDateStr;
+      added = true;
+
+      // Auto offset withdrawal — only for today's date to avoid retroactive offset entries
+      if (checkDateStr === todayDateStr) {
+        const recCat = catById(r.categoryId);
+        const shouldAutoOffset = (recCat && recCat.autoOffset) || r.autoOffset;
+        if (shouldAutoOffset) {
+          if (!state.offsetTransactions) state.offsetTransactions = [];
+          const offsetExists = (state.offsetTransactions||[]).some(t =>
+            t.date === checkDateStr && t.amount === r.amount && t.note === r.name + ' (auto)'
+          );
+          if (!offsetExists) {
+            state.offsetTransactions.push({
+              id: uid(), type: 'withdrawal', amount: r.amount,
+              date: checkDateStr, note: r.name + ' (auto)', linkedExpenseId: expId,
+            });
+            autoOffsetFired.push({ name: r.name, amount: r.amount });
+          }
+        }
+      }
+    });
   });
 
   if (added) {
     saveState();
     renderContent();
     updateHeader();
-    const addedNames = recs.filter(r => {
-      const next = getRecNextDate(r, false); if (!next) return false;
-      next.setHours(0,0,0,0);
-      return next.getTime() === (new Date().setHours(0,0,0,0)) && r.lastAdded === todayDateStr;
-    }).map(r => r.name);
+    const todayAdded = state.expenses.filter(e => e.recurringId && e.date === todayDateStr && !e.catchUp);
+    const catchUpAdded = state.expenses.filter(e => e.recurringId && e.catchUp);
     setTimeout(() => {
-      showToast('✅ ' + addedNames.length + ' recurring expense' + (addedNames.length !== 1 ? 's' : '') + ' logged for today', 3500);
+      if (todayAdded.length > 0) {
+        showToast('✅ ' + todayAdded.length + ' recurring expense' + (todayAdded.length !== 1 ? 's' : '') + ' logged for today', 3500);
+      }
+      if (catchUpAdded.length > 0) {
+        showToast('📅 ' + catchUpAdded.length + ' missed recurring transaction' + (catchUpAdded.length !== 1 ? 's' : '') + ' caught up from previous days', 4500);
+      }
     }, 600);
     if (autoOffsetFired.length > 0) {
       setTimeout(() => {
