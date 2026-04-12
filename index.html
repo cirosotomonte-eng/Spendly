@@ -2011,9 +2011,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.3.20';
+const APP_VERSION = '2.3.21';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '12 Apr 2026 1:15 PM AEDT';
+const BUILD_TIME = '12 Apr 2026 1:18 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -2221,6 +2221,7 @@ async function handleAuthSubmit() {
     updateHeader();
     renderContent();
     initVersionDisplay();
+    try { sessionStorage.setItem('spendly_pin_bypassed', '1'); } catch(e) {}
     if (!initWelcome()) { showApp(); initLock(); }
     repairMissingRecurringExpenses();
     recordTodayOffsetSaving();
@@ -7382,6 +7383,8 @@ async function offerBiometric() {
 }
 
 async function initLock() {
+  // Skip PIN if user just authenticated via password this session
+  try { if (sessionStorage.getItem('spendly_pin_bypassed') === '1') return; } catch(e) {}
   const hasPin = !!localStorage.getItem(LOCK_KEY);
   const skipped = !!localStorage.getItem(LOCK_SKIPPED);
   if (!hasPin && !skipped) {
