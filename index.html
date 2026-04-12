@@ -2011,9 +2011,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.3.21';
+const APP_VERSION = '2.3.22';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '12 Apr 2026 1:18 PM AEDT';
+const BUILD_TIME = '12 Apr 2026 1:39 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -2034,6 +2034,7 @@ let state = {
   city: '',
   country: 'Australia',
   budget: 0,
+  budgetHistory: [],  // [{ amount, from }] sorted ascending by date
   cycleDay: 1,
   cycleType: 'monthly',  // 'monthly' | 'weekly' | 'fortnightly'
   cycleAnchorDate: '',   // anchor date for weekly/fortnightly cycles (YYYY-MM-DD)
@@ -2223,7 +2224,7 @@ async function handleAuthSubmit() {
     initVersionDisplay();
     try { sessionStorage.setItem('spendly_pin_bypassed', '1'); } catch(e) {}
     if (!initWelcome()) { showApp(); initLock(); }
-    repairMissingRecurringExpenses();
+    migrateBudgetHistory(); repairMissingRecurringExpenses();
     recordTodayOffsetSaving();
     setTimeout(checkCycleComplete, 2000);
     setTimeout(checkExpiryAlerts, 1500);
@@ -2646,6 +2647,39 @@ function todayStr() {
 function dateToStr(d) {
   return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
 }
+
+// ── Budget history resolver ──────────────────────────────────────────────────
+// Returns the budget amount that was active on a given date (YYYY-MM-DD string).
+// Falls back to state.budget if history is empty (migration safe).
+function getBudgetForDate(dateStr) {
+  const history = state.budgetHistory;
+  if (!history || history.length === 0) return state.budget || 0;
+  // Sort ascending, find last entry whose from <= dateStr
+  const sorted = [...history].sort((a,b) => a.from.localeCompare(b.from));
+  let result = sorted[0].amount;
+  for (const entry of sorted) {
+    if (entry.from <= dateStr) result = entry.amount;
+    else break;
+  }
+  return result;
+}
+
+// Called whenever state.budget is updated — records the change with today's date.
+function recordBudgetHistory(newAmount) {
+  if (!newAmount || newAmount <= 0) return;
+  if (!state.budgetHistory) state.budgetHistory = [];
+  const today = todayStr();
+  // Update existing entry for today if present, else append
+  const existing = state.budgetHistory.find(e => e.from === today);
+  if (existing) {
+    existing.amount = newAmount;
+  } else {
+    state.budgetHistory.push({ amount: newAmount, from: today });
+  }
+  // Keep sorted
+  state.budgetHistory.sort((a,b) => a.from.localeCompare(b.from));
+}
+
 function catById(id) { return state.categories.find(c => c.id === id); }
 function uid() { return Date.now() + Math.random().toString(36).slice(2,6); }
 
@@ -2822,7 +2856,7 @@ function getProjectedGoalBalances(targetOffset) {
 
 function getCycleSummary(offset) {
   const { cycleStart, cycleEnd } = getCycleRange(offset);
-  const budget = state.budget || 0;
+  const budget = getBudgetForDate(dateToStr(cycleStart));
 
   if (offset < 0) {
     // Past cycle — sum actual logged expenses
@@ -3452,7 +3486,8 @@ function updateHeader() {
     }
   }
   const committed = total + upcomingTotal;
-  const budget = state.budget;
+  const { cycleStart: _budgetCycleStart } = getCycleRange();
+  const budget = getBudgetForDate(dateToStr(_budgetCycleStart));
   const remain = budget - committed;
   const daysLeft = getDaysLeft();
   const dailyLimit = daysLeft > 0 ? remain / daysLeft : 0;
@@ -4167,7 +4202,7 @@ function renderFutureCycle(el) {
   const totalSavings = projected.filter(p=>p.kind==='saving').reduce((s,p) => s + p.budgetImpact, 0);
   const totalProjected = totalExpenses + totalSavings;
   const totalGrossCovered = projected.filter(p=>p.kind==='expense').reduce((s,p) => s + (p.goalCoveredAmount||0), 0);
-  const budget = state.budget || 0;
+  const budget = getBudgetForDate(dateToStr(cycleStart));
   const pct = budget > 0 ? Math.min((totalProjected / budget) * 100, 100) : 0;
 
   let html = '';
@@ -5257,7 +5292,7 @@ function renderAnalyticsHeatmap() {
 function renderAnalyticsForecast() {
   const ab = document.getElementById('anBody');
   const recurring = (state.recurringExpenses || []).filter(r => r.active !== false);
-  const budget = state.budget || 0;
+  // budget resolved per-cycle inside the loop using getBudgetForDate
 
   if (recurring.length === 0) {
     ab.innerHTML = '<div class="empty" style="padding:40px 0"><div class="empty-icon">🔮</div><div class="empty-text">No recurring expenses set up</div><div class="empty-sub">Add recurring expenses to see your 12-month forecast</div></div>';
@@ -5269,6 +5304,7 @@ function renderAnalyticsForecast() {
   const forecastCycles = [];
   for (let i = 1; i <= NUM; i++) {
     const { cycleStart, cycleEnd } = getCycleRange(i);
+    const budget = getBudgetForDate(dateToStr(cycleStart));
     let committed = 0;
     const byCat = {};
     let checkDate = new Date(cycleStart);
@@ -5740,7 +5776,7 @@ function saveBudgetSettings() {
     if (btn && btn.classList.contains('active')) cycleType = t;
   });
   state.appName = name;
-  state.budget = budget;
+  state.budget = budget; recordBudgetHistory(budget);
   state.cycleType = cycleType;
   if (cycleType === 'monthly') {
     const cycleDay = parseInt(document.getElementById('setCycleDay2').value) || 1;
@@ -5863,7 +5899,7 @@ function saveSettings() {
   const city = document.getElementById('setCity').value.trim();
   const country = document.getElementById('setCountry').value.trim();
   if (name) state.appName = name;
-  if (budget > 0) state.budget = budget;
+  if (budget > 0) { state.budget = budget; recordBudgetHistory(budget); }
   if (cd >= 1 && cd <= 28) state.cycleDay = cd;
   if (city) state.city = city;
   if (country) state.country = country;
@@ -7021,7 +7057,7 @@ function wbCheckCycle() {
 function wbSubmitCycle() {
   const budget = parseFloat(document.getElementById('wbBudget').value);
   if (!budget) return;
-  state.budget = budget;
+  state.budget = budget; recordBudgetHistory(budget);
   state.cycleType = _wbCycleType;
   if (_wbCycleType === 'monthly') {
     const cd = parseInt(document.getElementById('wbCycleDay').value);
@@ -11402,6 +11438,17 @@ function openRecurringList() {
     }).join('') + '</div>';
   }
   openModal('recurringListModal');
+}
+
+// ── Budget history migration ─────────────────────────────────────────────────
+// Seeds budgetHistory from state.budget if it has never been recorded.
+function migrateBudgetHistory() {
+  if (!state.budgetHistory) state.budgetHistory = [];
+  if (state.budgetHistory.length === 0 && state.budget > 0) {
+    // Use a far-past date so it is always the baseline for every cycle
+    state.budgetHistory.push({ amount: state.budget, from: '2000-01-01' });
+    saveState();
+  }
 }
 
 function repairMissingRecurringExpenses() {
