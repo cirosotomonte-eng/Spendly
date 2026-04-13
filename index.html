@@ -2011,9 +2011,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.3.22';
+const APP_VERSION = '2.3.23';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '12 Apr 2026 1:39 PM AEDT';
+const BUILD_TIME = '13 Apr 2026 7:58 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -5532,7 +5532,7 @@ function renderGoals() {
   }
 
   ['fixed','variable'].forEach(type => {
-    const cats = state.categories.filter(c => c.type === type && (!query || c.name.toLowerCase().includes(query))).slice().sort((a,b) => a.name.localeCompare(b.name));
+    const cats = state.categories.filter(c => c.type === type && getLinkedGoalIds(c).length === 0 && (!query || c.name.toLowerCase().includes(query))).slice().sort((a,b) => a.name.localeCompare(b.name));
     if (cats.length === 0) return;
     const gBudget = cats.reduce((s,c)=>s+(c.budgetLimit||0),0);
     const gSpent  = cats.reduce((s,c)=>s+(bycat[c.id]||0),0);
@@ -5586,6 +5586,51 @@ function renderGoals() {
       '<span style="' + (gLeft<0?'color:var(--red)':'') + '">' + (gLeft<0?'-':'') + fmt(Math.abs(gLeft)) + '</span>' +
     '</div></div>';
   });
+  // ── Savings section ──────────────────────────────────────────────────────
+  const savingsCats = state.categories.filter(c => getLinkedGoalIds(c).length > 0 && (!query || c.name.toLowerCase().includes(query))).slice().sort((a,b) => a.name.localeCompare(b.name));
+  if (savingsCats.length > 0) {
+    // Build this-cycle recurring savings map: goalId → amount due this cycle
+    const cycleRecSavingsMap = {};
+    const { cycleStart: _sCs, cycleEnd: _sCe } = getCycleRange();
+    (state.recurringSavings||[]).filter(r=>r.active!==false).forEach(r => {
+      let d = new Date(_sCs);
+      while (d <= _sCe) {
+        if (isRecurringDueOn(r, dateToStr(d))) cycleRecSavingsMap[r.savingsGoalId] = (cycleRecSavingsMap[r.savingsGoalId]||0) + r.amount;
+        d.setDate(d.getDate()+1);
+      }
+    });
+    // Build covered map: goalId → amount of expenses covered by that goal this cycle
+    const coveredMap = {};
+    cycleExpenses().forEach(e => {
+      if (e.linkedGoalId && e.goalCoveredAmount > 0) coveredMap[e.linkedGoalId] = (coveredMap[e.linkedGoalId]||0) + e.goalCoveredAmount;
+    });
+    html += '<div class="section-label">Savings</div>';
+    html += '<div class="goals-table">';
+    html += '<div style="display:grid;grid-template-columns:1fr 80px 80px 80px;padding:8px 14px;border-bottom:1px solid var(--surface2)">';
+    html += '<span style="font-size:10px;color:var(--muted);letter-spacing:0.06em;text-transform:uppercase">Category</span>';
+    html += '<span style="font-size:10px;color:var(--muted);letter-spacing:0.06em;text-transform:uppercase;text-align:right">Goal Bal</span>';
+    html += '<span style="font-size:10px;color:var(--muted);letter-spacing:0.06em;text-transform:uppercase;text-align:right">This Cycle</span>';
+    html += '<span style="font-size:10px;color:var(--muted);letter-spacing:0.06em;text-transform:uppercase;text-align:right">Covered</span>';
+    html += '</div>';
+    savingsCats.forEach(cat => {
+      const linkedGoalIds = getLinkedGoalIds(cat);
+      const goalBalance = linkedGoalIds.reduce((s, gid) => s + totalSavedForCat(gid), 0);
+      const thisCycle   = linkedGoalIds.reduce((s, gid) => s + (cycleRecSavingsMap[gid]||0), 0);
+      const covered     = linkedGoalIds.reduce((s, gid) => s + (coveredMap[gid]||0), 0);
+      const goals = linkedGoalIds.map(gid => savingsCatById(gid)).filter(Boolean);
+      const goalNames = goals.map(g => g.icon + ' ' + g.name).join(', ');
+      html += '<div class="goal-row" onclick="openEditCategory(\'' + cat.id + '\')">'
+        + '<div class="goal-cat">' + cat.icon + ' ' + cat.name
+          + '<div style="font-size:10px;color:var(--muted);font-weight:400;margin-top:2px">' + goalNames + '</div>'  
+        + '</div>'
+        + '<div class="goal-num" style="color:#34C759;font-weight:600">' + fmt(goalBalance) + '</div>'
+        + '<div class="goal-num" style="color:' + (thisCycle>0?'#34C759':'var(--muted)') + ';font-weight:' + (thisCycle>0?'600':'400') + '">' + (thisCycle>0?fmt(thisCycle):'2014') + '</div>'
+        + '<div class="goal-num" style="color:' + (covered>0?'#34C759':'var(--muted)') + ';font-weight:' + (covered>0?'600':'400') + '">' + (covered>0?fmt(covered):'2014') + '</div>'
+        + '</div>';
+    });
+    html += '</div>';
+  }
+
   el.innerHTML = html;
 }
 
