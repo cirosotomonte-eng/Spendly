@@ -2011,9 +2011,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.3.23';
+const APP_VERSION = '2.3.24';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '13 Apr 2026 7:58 PM AEDT';
+const BUILD_TIME = '13 Apr 2026 8:06 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -5612,6 +5612,7 @@ function renderGoals() {
     html += '<span style="font-size:10px;color:var(--muted);letter-spacing:0.06em;text-transform:uppercase;text-align:right">This Cycle</span>';
     html += '<span style="font-size:10px;color:var(--muted);letter-spacing:0.06em;text-transform:uppercase;text-align:right">Covered</span>';
     html += '</div>';
+    let totalGoalBal = 0, totalThisCycle = 0, totalCovered = 0;
     savingsCats.forEach(cat => {
       const linkedGoalIds = getLinkedGoalIds(cat);
       const goalBalance = linkedGoalIds.reduce((s, gid) => s + totalSavedForCat(gid), 0);
@@ -5619,16 +5620,25 @@ function renderGoals() {
       const covered     = linkedGoalIds.reduce((s, gid) => s + (coveredMap[gid]||0), 0);
       const goals = linkedGoalIds.map(gid => savingsCatById(gid)).filter(Boolean);
       const goalNames = goals.map(g => g.icon + ' ' + g.name).join(', ');
+      totalGoalBal   += goalBalance;
+      totalThisCycle += thisCycle;
+      totalCovered   += covered;
       html += '<div class="goal-row" onclick="openEditCategory(\'' + cat.id + '\')">'
         + '<div class="goal-cat">' + cat.icon + ' ' + cat.name
-          + '<div style="font-size:10px;color:var(--muted);font-weight:400;margin-top:2px">' + goalNames + '</div>'  
+          + '<div style="font-size:10px;color:var(--muted);font-weight:400;margin-top:2px">' + goalNames + '</div>'
         + '</div>'
         + '<div class="goal-num" style="color:#34C759;font-weight:600">' + fmt(goalBalance) + '</div>'
-        + '<div class="goal-num" style="color:' + (thisCycle>0?'#34C759':'var(--muted)') + ';font-weight:' + (thisCycle>0?'600':'400') + '">' + (thisCycle>0?fmt(thisCycle):'2014') + '</div>'
-        + '<div class="goal-num" style="color:' + (covered>0?'#34C759':'var(--muted)') + ';font-weight:' + (covered>0?'600':'400') + '">' + (covered>0?fmt(covered):'2014') + '</div>'
+        + '<div class="goal-num" style="color:' + (thisCycle>0?'#34C759':'var(--muted)') + ';font-weight:' + (thisCycle>0?'600':'400') + '">' + (thisCycle>0?fmt(thisCycle):'\u2014') + '</div>'
+        + '<div class="goal-num" style="color:' + (covered>0?'#34C759':'var(--muted)') + ';font-weight:' + (covered>0?'600':'400') + '">' + (covered>0?fmt(covered):'\u2014') + '</div>'
         + '</div>';
     });
-    html += '</div>';
+    html += '<div class="goals-subtotal">'
+      + '<span>Total</span>'
+      + '<span style="color:#34C759">' + fmt(totalGoalBal) + '</span>'
+      + '<span style="color:#34C759">' + fmt(totalThisCycle) + '</span>'
+      + '<span style="color:' + (totalCovered>0?'#34C759':'var(--muted)') + '">' + (totalCovered>0?fmt(totalCovered):'\u2014') + '</span>'
+      + '</div>'
+    + '</div>';
   }
 
   el.innerHTML = html;
