@@ -2011,9 +2011,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.3.28';
+const APP_VERSION = '2.3.29';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '13 Apr 2026 9:24 PM AEDT';
+const BUILD_TIME = '13 Apr 2026 9:55 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -4634,7 +4634,13 @@ function renderExpenseResults(resultsEl) {
   const hasPaymentFilter = _expPaymentFilter.size > 0;
   if (hasPaymentFilter) {
     expenses = expenses.filter(e => {
-      if (!e.paymentMethod) return false; // untagged expenses don't appear in any method filter
+      if (!e.paymentMethod) return false;
+      // For account-specific payments, resolve to cc or bank based on account type
+      if (e.paymentMethod === 'account' && e.paymentAccountId) {
+        const acct = accountById(e.paymentAccountId);
+        const resolvedMethod = acct ? (acct.type === 'credit' ? 'cc' : 'bank') : 'other';
+        return _expPaymentFilter.has(resolvedMethod);
+      }
       return _expPaymentFilter.has(e.paymentMethod);
     });
   }
