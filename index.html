@@ -2011,9 +2011,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.3.27';
+const APP_VERSION = '2.3.28';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '13 Apr 2026 8:56 PM AEDT';
+const BUILD_TIME = '13 Apr 2026 9:24 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -4859,7 +4859,9 @@ function renderAnalyticsOverview() {
 
   const fixedTotal = expenses.filter(e => { const c=catById(e.categoryId); return c&&c.type==='fixed'; }).reduce((s,e)=>s+budgetAmount(e),0);
   const varTotal   = expenses.filter(e => { const c=catById(e.categoryId); return c&&c.type==='variable'; }).reduce((s,e)=>s+budgetAmount(e),0);
-  const totalBudget = state.categories.reduce((s,c) => s+(c.budgetLimit||0), 0);
+  const overallBudget = getBudgetForDate(dateToStr(cycleStart));
+  const cycleSavingsTotal = getFiredRecurringSavingsTotal();
+  const totalBudget = overallBudget > 0 ? Math.max(0, overallBudget - cycleSavingsTotal) : state.categories.reduce((s,c) => s+(c.budgetLimit||0), 0);
 
   // Pace projection — always current cycle
   const today = new Date(); today.setHours(0,0,0,0);
@@ -4915,7 +4917,7 @@ function renderAnalyticsOverview() {
         '</div>' +
         (totalBudget > 0 ?
         '<div style="text-align:right">' +
-          '<div style="font-size:11px;color:var(--muted);margin-bottom:2px">Budget</div>' +
+          '<div style="font-size:11px;color:var(--muted);margin-bottom:2px">Discretionary budget</div>' +
           '<div style="font-size:18px;font-weight:700">' + fmt(totalBudget) + '</div>' +
         '</div>' : '') +
       '</div>' +
@@ -5504,7 +5506,7 @@ function renderGoals() {
     '<div style="font-size:16px;font-weight:700;letter-spacing:-0.3px;color:' + (catSumOverBudget ? 'var(--orange)' : 'var(--text)') + '">' + fmt(totalBudget) + '</div>' +
     budgetTooltipHtml +
     '</div>' +
-    '<div style="background:var(--surface);border-radius:var(--r);padding:11px 12px"><div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:4px">Spent</div><div style="font-size:16px;font-weight:700;letter-spacing:-0.3px;color:' + tSpentColor + '">' + fmt(totalSpent) + '</div></div>' +
+    '<div style="background:var(--surface);border-radius:var(--r);padding:11px 12px"><div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:4px;display:flex;align-items:center;gap:3px">Spent<span style="position:relative;display:inline-flex;align-items:center"><i class="spendly-tip-icon" onclick="event.stopPropagation();showTip(\'tip-budget-spent\')">i</i><div class="spendly-tip-box" id="tip-budget-spent" style="left:0;transform:none;width:230px">This is only what you\'ve spent from your budget. Expenses fully covered by savings goals are excluded — they don\'t touch your budget.</div></span></div><div style="font-size:16px;font-weight:700;letter-spacing:-0.3px;color:' + tSpentColor + '">' + fmt(totalSpent) + '</div></div>' +
     '<div style="background:var(--surface);border-radius:var(--r);padding:11px 12px"><div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:4px;display:flex;align-items:center;gap:2px">Left<span style="position:relative;display:inline-flex;align-items:center;vertical-align:middle;margin-left:3px"><i class="spendly-tip-icon" onclick="event.stopPropagation();showTip(\'tip-budget-left\')" style="cursor:pointer">i</i><div class="spendly-tip-box" id="tip-budget-left" style="right:0;left:auto;transform:none;width:240px">The sum of what\'s left in each category budget. Your actual free cash (Left to spend) may be lower due to upcoming savings commitments.</div></span></div><div style="font-size:16px;font-weight:700;letter-spacing:-0.3px;color:' + tLeftColor + '">' + (totalLeft<0?'-':'') + fmt(Math.abs(totalLeft)) + '</div></div>' +
   '</div>';
 
