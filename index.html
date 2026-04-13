@@ -2011,9 +2011,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.3.30';
+const APP_VERSION = '2.3.31';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '13 Apr 2026 10:06 PM AEDT';
+const BUILD_TIME = '13 Apr 2026 10:18 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -5681,14 +5681,13 @@ function renderGoals() {
         '</div>' +
         '<div class="goal-num" style="color:var(--muted)">' + (budget>0?fmt(budget):'—') + '</div>' +
         '<div class="goal-num" style="' + spentStyle + '">' + fmt(spent) + '</div>' +
-        '<div style="display:flex;align-items:center;justify-content:flex-end;gap:8px">' +
+        '<div style="display:flex;align-items:center;justify-content:flex-end;gap:6px">' +
           '<div class="goal-num" style="' + leftStyle + '">' + (budget>0?(left<0?'-':'')+fmt(Math.abs(left)):'—') + '</div>' +
-          '<span onclick="event.stopPropagation();openEditCategory(\'' + cat.id + '\')" style="font-size:13px;color:var(--muted);padding:2px 4px;border-radius:4px" title="Edit category">✏️</span>' +
-          '<span style="font-size:11px;color:var(--muted);width:12px;text-align:center">' + (isExpanded ? '▲' : '▼') + '</span>' +
+          '<span style="font-size:10px;color:var(--muted);width:10px;text-align:center">' + (isExpanded ? '▲' : '▼') + '</span>' +
         '</div>' +
       '</div>' +
       '<div style="height:3px;background:var(--surface2);margin:0 14px 0px"><div style="width:' + pct + '%;height:100%;background:' + barColor + ';transition:width 0.3s"></div></div>' +
-      (isExpanded ? '<div style="background:var(--surface2);border-bottom:1px solid var(--border)">' + buildCatTransactionRows(cat, expenses) + '</div>' : '');
+      (isExpanded ? '<div style="background:var(--surface2);border-bottom:1px solid var(--border)">' + buildCatTransactionRows(cat, expenses) + '<div style="padding:8px 14px 10px;text-align:right"><button onclick="event.stopPropagation();openEditCategory(\'' + cat.id + '\')" style="font-size:11px;color:var(--muted);background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:4px 10px;font-family:var(--font);cursor:pointer">✏️ Edit category</button></div></div>' : '');
     });
     html += '<div class="goals-subtotal">' +
       '<span>Total</span>' +
@@ -5741,13 +5740,12 @@ function renderGoals() {
         + '</div>'
         + '<div class="goal-num" style="color:#34C759;font-weight:600">' + fmt(goalBalance) + '</div>'
         + '<div class="goal-num" style="color:' + (thisCycle>0?'#34C759':'var(--muted)') + ';font-weight:' + (thisCycle>0?'600':'400') + '">' + (thisCycle>0?fmt(thisCycle):'\u2014') + '</div>'
-        + '<div style="display:flex;align-items:center;justify-content:flex-end;gap:8px">'
+        + '<div style="display:flex;align-items:center;justify-content:flex-end;gap:6px">'
           + '<div class="goal-num" style="color:' + (covered>0?'#34C759':'var(--muted)') + ';font-weight:' + (covered>0?'600':'400') + '">' + (covered>0?fmt(covered):'\u2014') + '</div>'
-          + '<span onclick="event.stopPropagation();openEditCategory(\'' + cat.id + '\')" style="font-size:13px;color:var(--muted);padding:2px 4px;border-radius:4px" title="Edit category">✏️</span>'
-          + '<span style="font-size:11px;color:var(--muted);width:12px;text-align:center">' + (isExpSav ? '▲' : '▼') + '</span>'
+          + '<span style="font-size:10px;color:var(--muted);width:10px;text-align:center">' + (isExpSav ? '▲' : '▼') + '</span>'
         + '</div>'
         + '</div>'
-        + (isExpSav ? '<div style="background:var(--surface2);border-bottom:1px solid var(--border)">' + buildSavingsCatTransactionRows(cat, cycleExpenses()) + '</div>' : '');
+        + (isExpSav ? '<div style="background:var(--surface2);border-bottom:1px solid var(--border)">' + buildSavingsCatTransactionRows(cat, cycleExpenses()) + '<div style="padding:8px 14px 10px;text-align:right"><button onclick="event.stopPropagation();openEditCategory(\'' + cat.id + '\')" style="font-size:11px;color:var(--muted);background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:4px 10px;font-family:var(--font);cursor:pointer">✏️ Edit category</button></div></div>' : '');
     });
     html += '<div class="goals-subtotal">'
       + '<span>Total</span>'
