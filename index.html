@@ -2011,9 +2011,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.3.25';
+const APP_VERSION = '2.3.27';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '13 Apr 2026 8:38 PM AEDT';
+const BUILD_TIME = '13 Apr 2026 8:56 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -3466,8 +3466,8 @@ function updateHeader() {
   let upcomingTotal = 0;
   if (isCurrentCycle()) {
     upcomingTotal = getUpcomingRecurring().reduce((s,e) => s + e.amount, 0);
-    // Include ALL recurring savings this cycle: already fired + still upcoming
-    upcomingTotal += getFiredRecurringSavingsTotal() + getUpcomingRecurringSavings().reduce((s,u) => s + u.r.amount, 0);
+    // Include ALL recurring savings scheduled this cycle (full schedule, not deposit-based)
+    upcomingTotal += getFiredRecurringSavingsTotal();
   } else if (isFutureCycle()) {
     // Project all recurring expenses due within this future cycle
     const { cycleStart, cycleEnd } = getCycleRange();
@@ -5455,9 +5455,13 @@ function renderGoals() {
     // They are accounted for in the overall "left to spend" but not per-category
   }
 
-  const firedRecSavingsTotal = isCurrentCycle() ? getFiredRecurringSavingsTotal() : 0;
+  // Full cycle savings: schedule-based total vs just upcoming
   const upcomingRecSavingsOnly = isCurrentCycle() ? getUpcomingRecurringSavings().reduce((s,u) => s + u.r.amount, 0) : 0;
-  const upcomingRecSavingsTotal = firedRecSavingsTotal + upcomingRecSavingsOnly;
+  const upcomingRecSavingsTotal = isCurrentCycle() ? getFiredRecurringSavingsTotal() : 0;
+  const firedRecSavingsTotal = upcomingRecSavingsTotal - upcomingRecSavingsOnly;
+
+
+
 
   if (state.categories.length === 0) {
     el.innerHTML = '<div class="empty"><div class="empty-icon">🎯</div><div class="empty-text">No categories yet</div><div class="empty-sub">Tap + to create your first category</div></div>';
@@ -11324,17 +11328,25 @@ function applyRecurringIncome() {
   if (added) saveState();
 }
 
-// Returns the total of recurring savings deposits already fired within the current cycle.
+// Returns the total of ALL recurring savings scheduled within the current cycle,
+// by iterating the schedule — fired, today, or upcoming. Used for Left to Spend.
 function getFiredRecurringSavingsTotal() {
   const { cycleStart, cycleEnd } = getCycleRange(0);
-  return (state.savingsDeposits||[])
-    .filter(d => {
-      if (!d.recurringId) return false;
-      if (d.type === 'withdrawal' || d.type === 'bill-payment') return false;
-      const dt = new Date(d.date + 'T00:00:00');
-      return dt >= cycleStart && dt <= cycleEnd;
-    })
-    .reduce((s, d) => s + d.amount, 0);
+  const recs = (state.recurringSavings||[]).filter(r => r.active !== false);
+  let total = 0;
+  recs.forEach(r => {
+    let d = new Date(cycleStart);
+    d.setHours(0,0,0,0);
+    const visited = new Set();
+    while (d <= cycleEnd) {
+      const key = dateToStr(d);
+      if (visited.has(key)) break;
+      visited.add(key);
+      if (isRecurringDueOn(r, key)) total += r.amount;
+      d.setDate(d.getDate() + 1);
+    }
+  });
+  return total;
 }
 
 function getUpcomingRecurringSavings() {
