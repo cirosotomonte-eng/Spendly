@@ -2011,9 +2011,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.3.29';
+const APP_VERSION = '2.3.30';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '13 Apr 2026 9:55 PM AEDT';
+const BUILD_TIME = '13 Apr 2026 10:06 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -4325,6 +4325,7 @@ function renderFutureCycle(el) {
 
 // ── Expenses tab ──────────────────────────────────────────────────────────────
 let expenseSearchQuery = '';
+let _budgetExpandedCats = new Set(); // category IDs with accordion open
 let _expPaymentFilter = new Set(); // empty = show all
 let _searchDebounce = null;
 function debounceSearch(val) {
@@ -5451,6 +5452,95 @@ document.addEventListener('click', () => {
   document.querySelectorAll('[id^="tip-budget-warn-"]').forEach(el => { el.style.display = 'none'; });
 });
 
+function toggleBudgetCat(catId) {
+  if (_budgetExpandedCats.has(catId)) {
+    _budgetExpandedCats.delete(catId);
+  } else {
+    _budgetExpandedCats.add(catId);
+  }
+  renderGoals();
+}
+
+function buildCatTransactionRows(cat, cycleExps) {
+  const catExps = cycleExps.filter(e => e.categoryId === cat.id)
+    .slice().sort((a,b) => b.date.localeCompare(a.date));
+  if (catExps.length === 0) {
+    return '<div style="padding:8px 14px 10px;font-size:11px;color:var(--muted);font-style:italic">No transactions this cycle</div>';
+  }
+  return catExps.map(e => {
+    const amt = budgetAmount(e);
+    const isCovered = e.goalCoveredAmount > 0 && e.goalCoveredAmount >= e.amount;
+    const isSplit = e.goalCoveredAmount > 0 && e.goalCoveredAmount < e.amount;
+    const d = new Date(e.date + 'T00:00:00');
+    const dateLabel = d.toLocaleDateString('en-AU', {day:'numeric', month:'short'});
+    const amtColor = isCovered ? 'var(--muted)' : 'var(--red)';
+    let sub = '';
+    if (isCovered) sub = '<span style="font-size:9px;color:#34C759;margin-left:4px">💚 covered</span>';
+    else if (isSplit) sub = '<span style="font-size:9px;color:#f0a860;margin-left:4px">split</span>';
+    return '<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 14px;border-top:1px solid var(--surface2)">' +
+      '<div style="flex:1;min-width:0">' +
+        '<div style="font-size:12px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + (e.name || cat.name) + sub + '</div>' +
+        '<div style="font-size:10px;color:var(--muted)">' + dateLabel + '</div>' +
+      '</div>' +
+      '<div style="font-size:12px;font-weight:600;color:' + amtColor + ';margin-left:12px;white-space:nowrap">-' + fmt(amt) + '</div>' +
+    '</div>';
+  }).join('');
+}
+
+function buildSavingsCatTransactionRows(cat, cycleExps) {
+  const linkedGoalIds = getLinkedGoalIds(cat);
+  const { cycleStart, cycleEnd } = getCycleRange();
+  // Deposits & withdrawals for linked goals this cycle
+  const deposits = (state.savingsDeposits||[]).filter(d => {
+    if (!linkedGoalIds.includes(d.catId)) return false;
+    const dt = new Date(d.date + 'T00:00:00');
+    return dt >= cycleStart && dt <= cycleEnd;
+  }).slice().sort((a,b) => b.date.localeCompare(a.date));
+  // Expenses covered/partially covered by linked goals this cycle
+  const coveredExps = cycleExps.filter(e =>
+    e.linkedGoalId && linkedGoalIds.includes(e.linkedGoalId) && e.goalCoveredAmount > 0
+  ).slice().sort((a,b) => b.date.localeCompare(a.date));
+
+  if (deposits.length === 0 && coveredExps.length === 0) {
+    return '<div style="padding:8px 14px 10px;font-size:11px;color:var(--muted);font-style:italic">No activity this cycle</div>';
+  }
+  let rows = '';
+  // Deposits / withdrawals
+  deposits.forEach(d => {
+    const isOut = d.type === 'withdrawal' || d.type === 'bill-payment';
+    const dt = new Date(d.date + 'T00:00:00');
+    const dateLabel = dt.toLocaleDateString('en-AU', {day:'numeric', month:'short'});
+    const goal = savingsCatById(d.catId);
+    rows += '<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 14px;border-top:1px solid var(--surface2)">' +
+      '<div style="flex:1;min-width:0">' +
+        '<div style="font-size:12px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' +
+          (d.note || (isOut ? 'Withdrawal' : 'Deposit')) +
+          '<span style="font-size:9px;background:var(--surface2);color:var(--muted);border-radius:4px;padding:1px 5px;margin-left:5px;font-weight:600">' + (isOut ? 'OUT' : 'IN') + '</span>' +
+        '</div>' +
+        '<div style="font-size:10px;color:var(--muted)">' + dateLabel + (goal ? ' · ' + goal.icon + ' ' + goal.name : '') + '</div>' +
+      '</div>' +
+      '<div style="font-size:12px;font-weight:600;color:' + (isOut ? 'var(--red)' : '#34C759') + ';margin-left:12px;white-space:nowrap">' + (isOut ? '-' : '+') + fmt(d.amount) + '</div>' +
+    '</div>';
+  });
+  // Covered expenses
+  coveredExps.forEach(e => {
+    const isSplit = e.goalCoveredAmount < e.amount;
+    const dt = new Date(e.date + 'T00:00:00');
+    const dateLabel = dt.toLocaleDateString('en-AU', {day:'numeric', month:'short'});
+    rows += '<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 14px;border-top:1px solid var(--surface2)">' +
+      '<div style="flex:1;min-width:0">' +
+        '<div style="font-size:12px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' +
+          (e.name || cat.name) +
+          '<span style="font-size:9px;background:rgba(52,199,89,0.15);color:#34C759;border-radius:4px;padding:1px 5px;margin-left:5px;font-weight:600">' + (isSplit ? 'SPLIT' : 'COVERED') + '</span>' +
+        '</div>' +
+        '<div style="font-size:10px;color:var(--muted)">' + dateLabel + (isSplit ? ' · ' + fmt(e.goalCoveredAmount) + ' from goal' : '') + '</div>' +
+      '</div>' +
+      '<div style="font-size:12px;font-weight:600;color:var(--muted);margin-left:12px;white-space:nowrap">-' + fmt(e.amount) + '</div>' +
+    '</div>';
+  });
+  return rows;
+}
+
 function renderGoals() {
   const el = document.getElementById('content');
   const expenses = cycleExpenses();
@@ -5584,14 +5674,21 @@ function renderGoals() {
       const leftStyle  = left < 0 ? 'color:var(--red);font-weight:600' : left < budget*0.1 && budget > 0 ? 'color:var(--orange)' : '';
       const pct = budget > 0 ? Math.min((spent/budget)*100,100) : 0;
       const barColor = over ? 'var(--red)' : pct>80 ? 'var(--orange)' : cat.color;
-      html += '<div class="goal-row" onclick="openEditCategory(\'' + cat.id + '\')">' +
+      const isExpanded = _budgetExpandedCats.has(cat.id);
+      html += '<div class="goal-row" onclick="toggleBudgetCat(\'' + cat.id + '\')" style="cursor:pointer">' +
         '<div class="goal-cat">' + cat.icon + ' ' + cat.name +
           (catRecSavings[cat.id] ? '<div style="font-size:10px;color:#34C759;font-weight:400;margin-top:2px">💚 ' + fmt(catRecSavings[cat.id]) + ' saving this cycle</div>' : '') +
         '</div>' +
         '<div class="goal-num" style="color:var(--muted)">' + (budget>0?fmt(budget):'—') + '</div>' +
         '<div class="goal-num" style="' + spentStyle + '">' + fmt(spent) + '</div>' +
-        '<div class="goal-num" style="' + leftStyle + '">' + (budget>0?(left<0?'-':'')+fmt(Math.abs(left)):'—') + '</div></div>' +
-        '<div style="height:3px;background:var(--surface2);margin:0 14px ' + (cats.indexOf(cat)<cats.length-1?'0':'4') + 'px"><div style="width:' + pct + '%;height:100%;background:' + barColor + ';transition:width 0.3s"></div></div>';
+        '<div style="display:flex;align-items:center;justify-content:flex-end;gap:8px">' +
+          '<div class="goal-num" style="' + leftStyle + '">' + (budget>0?(left<0?'-':'')+fmt(Math.abs(left)):'—') + '</div>' +
+          '<span onclick="event.stopPropagation();openEditCategory(\'' + cat.id + '\')" style="font-size:13px;color:var(--muted);padding:2px 4px;border-radius:4px" title="Edit category">✏️</span>' +
+          '<span style="font-size:11px;color:var(--muted);width:12px;text-align:center">' + (isExpanded ? '▲' : '▼') + '</span>' +
+        '</div>' +
+      '</div>' +
+      '<div style="height:3px;background:var(--surface2);margin:0 14px 0px"><div style="width:' + pct + '%;height:100%;background:' + barColor + ';transition:width 0.3s"></div></div>' +
+      (isExpanded ? '<div style="background:var(--surface2);border-bottom:1px solid var(--border)">' + buildCatTransactionRows(cat, expenses) + '</div>' : '');
     });
     html += '<div class="goals-subtotal">' +
       '<span>Total</span>' +
@@ -5637,14 +5734,20 @@ function renderGoals() {
       totalGoalBal   += goalBalance;
       totalThisCycle += thisCycle;
       totalCovered   += covered;
-      html += '<div class="goal-row" onclick="openEditCategory(\'' + cat.id + '\')">'
+      const isExpSav = _budgetExpandedCats.has(cat.id);
+      html += '<div class="goal-row" onclick="toggleBudgetCat(\'' + cat.id + '\')" style="cursor:pointer">'
         + '<div class="goal-cat">' + cat.icon + ' ' + cat.name
           + '<div style="font-size:10px;color:var(--muted);font-weight:400;margin-top:2px">' + goalNames + '</div>'
         + '</div>'
         + '<div class="goal-num" style="color:#34C759;font-weight:600">' + fmt(goalBalance) + '</div>'
         + '<div class="goal-num" style="color:' + (thisCycle>0?'#34C759':'var(--muted)') + ';font-weight:' + (thisCycle>0?'600':'400') + '">' + (thisCycle>0?fmt(thisCycle):'\u2014') + '</div>'
-        + '<div class="goal-num" style="color:' + (covered>0?'#34C759':'var(--muted)') + ';font-weight:' + (covered>0?'600':'400') + '">' + (covered>0?fmt(covered):'\u2014') + '</div>'
-        + '</div>';
+        + '<div style="display:flex;align-items:center;justify-content:flex-end;gap:8px">'
+          + '<div class="goal-num" style="color:' + (covered>0?'#34C759':'var(--muted)') + ';font-weight:' + (covered>0?'600':'400') + '">' + (covered>0?fmt(covered):'\u2014') + '</div>'
+          + '<span onclick="event.stopPropagation();openEditCategory(\'' + cat.id + '\')" style="font-size:13px;color:var(--muted);padding:2px 4px;border-radius:4px" title="Edit category">✏️</span>'
+          + '<span style="font-size:11px;color:var(--muted);width:12px;text-align:center">' + (isExpSav ? '▲' : '▼') + '</span>'
+        + '</div>'
+        + '</div>'
+        + (isExpSav ? '<div style="background:var(--surface2);border-bottom:1px solid var(--border)">' + buildSavingsCatTransactionRows(cat, cycleExpenses()) + '</div>' : '');
     });
     html += '<div class="goals-subtotal">'
       + '<span>Total</span>'
