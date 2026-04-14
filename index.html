@@ -2011,9 +2011,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.3.35';
+const APP_VERSION = '2.3.36';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '14 Apr 2026 6:07 PM AEDT';
+const BUILD_TIME = '14 Apr 2026 9:27 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -3487,7 +3487,9 @@ function updateHeader() {
   }
   const committed = total + upcomingTotal;
   const { cycleStart: _budgetCycleStart } = getCycleRange();
-  const budget = getBudgetForDate(dateToStr(_budgetCycleStart));
+  // Use today's date if mid-cycle so budget changes take effect immediately
+  const _budgetResolveDate = todayStr() > dateToStr(_budgetCycleStart) ? todayStr() : dateToStr(_budgetCycleStart);
+  const budget = getBudgetForDate(_budgetResolveDate);
   const remain = budget - committed;
   const daysLeft = getDaysLeft();
   const dailyLimit = daysLeft > 0 ? remain / daysLeft : 0;
@@ -4866,7 +4868,7 @@ function renderAnalyticsOverview() {
 
   const fixedTotal = expenses.filter(e => { const c=catById(e.categoryId); return c&&c.type==='fixed'; }).reduce((s,e)=>s+budgetAmount(e),0);
   const varTotal   = expenses.filter(e => { const c=catById(e.categoryId); return c&&c.type==='variable'; }).reduce((s,e)=>s+budgetAmount(e),0);
-  const overallBudget = getBudgetForDate(dateToStr(cycleStart));
+  const overallBudget = getBudgetForDate(todayStr() > dateToStr(cycleStart) ? todayStr() : dateToStr(cycleStart));
   const cycleSavingsTotal = getFiredRecurringSavingsTotal();
   const totalBudget = overallBudget > 0 ? Math.max(0, overallBudget - cycleSavingsTotal) : state.categories.reduce((s,c) => s+(c.budgetLimit||0), 0);
 
@@ -5580,7 +5582,7 @@ function renderGoals() {
   const tLeftColor  = totalLeft < 0 ? 'var(--red)' : 'var(--text)';
   const tSpentColor = totalSpent > totalBudget && totalBudget > 0 ? 'var(--red)' : 'var(--text)';
 
-  const overallBudget = state.budget || 0;
+  const overallBudget = getBudgetForDate(todayStr()) || state.budget || 0;
   const cycleLabel = ({ monthly: 'monthly', fortnightly: 'fortnightly', weekly: 'weekly' })[state.cycleType || 'monthly'];
   const catSumOverBudget = overallBudget > 0 && totalBudget > overallBudget + 0.01;
   const catBudgetTipId = 'tip-catbudget-total';
