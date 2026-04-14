@@ -2011,9 +2011,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.3.34';
+const APP_VERSION = '2.3.35';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '14 Apr 2026 3:43 PM AEDT';
+const BUILD_TIME = '14 Apr 2026 6:07 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -6839,7 +6839,7 @@ function openAddExpense() {
   setTxType('expense');
   populateCatSelect();
   openModal('expenseModal');
-  setTimeout(()=>document.getElementById('expAmount').focus(), 350);
+  setTimeout(()=>{ const f=document.getElementById('expAmount'); if(f){ f.focus(); f.click(); } }, 500);
 }
 
 function openEditExpense(id) {
