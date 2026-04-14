@@ -2013,9 +2013,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.3.38';
+const APP_VERSION = '2.3.39';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '14 Apr 2026 9:49 PM AEDT';
+const BUILD_TIME = '14 Apr 2026 10:14 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -5591,7 +5591,7 @@ function renderGoals() {
   const budgetWarnIcon = catSumOverBudget
     ? ' <span style="position:relative;display:inline-flex;align-items:center;vertical-align:middle">' +
         '<span onclick="event.stopPropagation();showTip(\'' + catBudgetTipId + '\')" style="cursor:pointer;font-size:13px;line-height:1">⚠️</span>' +
-        '<div class="spendly-tip-box" id="' + catBudgetTipId + '" style="left:0;transform:none;width:230px;border-color:var(--orange)">' +
+        '<div class="spendly-tip-box" id="' + catBudgetTipId + '" style="left:0;right:auto;transform:none;width:230px;max-width:calc(100vw - 30px);border-color:var(--orange)">' +
           'Your category budgets (<strong style="color:var(--text)">' + fmt(totalBudget) + '</strong>) exceed your ' + cycleLabel + ' budget (<strong style="color:var(--text)">' + fmt(overallBudget) + '</strong>) by <strong style="color:var(--red)">' + fmt(totalBudget - overallBudget) + '</strong>. You may not be able to afford all categories this cycle.' +
         '</div>' +
       '</span>'
@@ -5600,7 +5600,7 @@ function renderGoals() {
   const budgetInfoTipId = 'tip-catbudget-info';
   const budgetInfoIcon = '<span style="position:relative;display:inline-flex;align-items:center;vertical-align:middle;margin-left:3px">' +
     '<i class="spendly-tip-icon" onclick="event.stopPropagation();showTip(\'' + budgetInfoTipId + '\')" style="cursor:pointer">i</i>' +
-    '<div class="spendly-tip-box" id="' + budgetInfoTipId + '" style="right:0;left:auto;transform:none;width:230px">This is the sum of all your category budgets. It should match your ' + cycleLabel + ' budget to make sure every dollar is accounted for.</div>' +
+    '<div class="spendly-tip-box" id="' + budgetInfoTipId + '" style="left:0;right:auto;transform:none;width:230px;max-width:calc(100vw - 30px)">This is the sum of all your category budgets. It should match your ' + cycleLabel + ' budget to make sure every dollar is accounted for.</div>' +
   '</span>';
 
   const query = (_tabSearch['budget'] || '').toLowerCase().trim();
