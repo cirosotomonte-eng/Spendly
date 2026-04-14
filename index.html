@@ -2011,9 +2011,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.3.33';
+const APP_VERSION = '2.3.34';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '14 Apr 2026 3:33 PM AEDT';
+const BUILD_TIME = '14 Apr 2026 3:43 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -5605,27 +5605,33 @@ function renderGoals() {
     onSearch: true,
     actions: [{ svg: SVG_PLUS, onclick: 'openAddCategory()', title: 'Add category' }]
   });
-  html += '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:8px 0 14px">' +
-    '<div style="background:var(--surface);border-radius:var(--r);padding:11px 12px"><div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:4px;display:flex;align-items:center;gap:2px">Budget' + budgetInfoIcon + budgetWarnIcon + '</div>' +
-    '<div style="font-size:16px;font-weight:700;letter-spacing:-0.3px;color:' + (catSumOverBudget ? 'var(--orange)' : 'var(--text)') + '">' + fmt(totalBudget) + '</div>' +
+  const freeToSpend = overallBudget > 0 ? overallBudget - totalSpent - upcomingRecSavingsTotal : totalLeft - upcomingRecSavingsTotal;
+  const freeColor = freeToSpend < 0 ? 'var(--red)' : freeToSpend < overallBudget * 0.1 ? 'var(--orange)' : 'var(--text)';
+  html += '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin:8px 0 14px">' +
+    // Budget
+    '<div style="background:var(--surface);border-radius:var(--r);padding:9px 10px"><div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:3px;display:flex;align-items:center;gap:2px">Budget' + budgetInfoIcon + budgetWarnIcon + '</div>' +
+    '<div style="font-size:14px;font-weight:700;letter-spacing:-0.3px;color:' + (catSumOverBudget ? 'var(--orange)' : 'var(--text)') + '">' + fmt(overallBudget||totalBudget) + '</div>' +
     budgetTooltipHtml +
     '</div>' +
-    '<div style="background:var(--surface);border-radius:var(--r);padding:11px 12px"><div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:4px;display:flex;align-items:center;gap:3px">Spent<span style="position:relative;display:inline-flex;align-items:center"><i class="spendly-tip-icon" onclick="event.stopPropagation();showTip(\'tip-budget-spent\')">i</i><div class="spendly-tip-box" id="tip-budget-spent" style="left:0;transform:none;width:230px">This is only what you\'ve spent from your budget. Expenses fully covered by savings goals are excluded — they don\'t touch your budget.</div></span></div><div style="font-size:16px;font-weight:700;letter-spacing:-0.3px;color:' + tSpentColor + '">' + fmt(totalSpent) + '</div></div>' +
-    '<div style="background:var(--surface);border-radius:var(--r);padding:11px 12px"><div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:4px;display:flex;align-items:center;gap:2px">Left<span style="position:relative;display:inline-flex;align-items:center;vertical-align:middle;margin-left:3px"><i class="spendly-tip-icon" onclick="event.stopPropagation();showTip(\'tip-budget-left\')" style="cursor:pointer">i</i><div class="spendly-tip-box" id="tip-budget-left" style="right:0;left:auto;transform:none;width:240px">The sum of what\'s left in each category budget. Your actual free cash (Left to spend) may be lower due to upcoming savings commitments.</div></span></div><div style="font-size:16px;font-weight:700;letter-spacing:-0.3px;color:' + tLeftColor + '">' + (totalLeft<0?'-':'') + fmt(Math.abs(totalLeft)) + '</div></div>' +
+    // Spent
+    '<div style="background:var(--surface);border-radius:var(--r);padding:9px 10px"><div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:3px;display:flex;align-items:center;gap:2px">Spent<span style="position:relative;display:inline-flex;align-items:center"><i class="spendly-tip-icon" onclick="event.stopPropagation();showTip(\'tip-budget-spent\')">i</i><div class="spendly-tip-box" id="tip-budget-spent" style="left:0;transform:none;width:220px">Only what you\'ve spent from your budget. Expenses fully covered by savings goals are excluded.</div></span></div>' +
+    '<div style="font-size:14px;font-weight:700;letter-spacing:-0.3px;color:' + tSpentColor + '">' + fmt(totalSpent) + '</div></div>' +
+    // Savings committed
+    '<div style="background:var(--surface);border-radius:var(--r);padding:9px 10px"><div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:3px;display:flex;align-items:center;gap:2px">Saved<span style="position:relative;display:inline-flex;align-items:center"><i class="spendly-tip-icon" onclick="event.stopPropagation();showTip(\'tip-budget-saved\')">i</i><div class="spendly-tip-box" id="tip-budget-saved" style="right:0;left:auto;transform:none;width:220px">All recurring savings committed this cycle — both already fired and still upcoming.</div></span></div>' +
+    '<div style="font-size:14px;font-weight:700;letter-spacing:-0.3px;color:#34C759">' + fmt(upcomingRecSavingsTotal) + '</div></div>' +
+    // Free to spend
+    '<div style="background:var(--surface);border-radius:var(--r);padding:9px 10px"><div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:3px;display:flex;align-items:center;gap:2px">Free<span style="position:relative;display:inline-flex;align-items:center"><i class="spendly-tip-icon" onclick="event.stopPropagation();showTip(\'tip-budget-free\')">i</i><div class="spendly-tip-box" id="tip-budget-free" style="right:0;left:auto;transform:none;width:220px">Your real spending headroom: Budget minus what you\'ve spent and all savings committed this cycle.</div></span></div>' +
+    '<div style="font-size:14px;font-weight:700;letter-spacing:-0.3px;color:' + freeColor + '">' + (freeToSpend<0?'-':'') + fmt(Math.abs(freeToSpend)) + '</div></div>' +
   '</div>';
 
   // ── Upcoming savings gap notice ────────────────────────────────────────────
   // "Left" above is category-based (doesn't include upcoming savings deposits).
   // Show a notice when recurring savings will eat into the remaining budget.
-  if (upcomingRecSavingsTotal > 0 && isCurrentCycle()) {
-    const reallyLeft = totalLeft - upcomingRecSavingsTotal;
-    const tipId = 'tip-savings-gap';
-    html += '<div style="background:rgba(52,199,89,0.08);border:1.5px solid rgba(52,199,89,0.25);border-radius:12px;padding:11px 14px;margin-bottom:14px;font-size:12px;line-height:1.6;color:var(--muted)">' +
-      '<div style="font-weight:700;color:var(--text);margin-bottom:3px">💚 ' + fmt(upcomingRecSavingsTotal) + ' in upcoming savings this cycle</div>' +
-      'Your category totals show <strong style="color:var(--text)">' + fmt(totalLeft) + '</strong> left, but ' +
-      fmt(upcomingRecSavingsTotal) + ' is already committed to recurring savings. ' +
-      'Your real spending headroom is <strong style="color:' + (reallyLeft < 0 ? 'var(--red)' : reallyLeft < totalLeft * 0.2 ? 'var(--orange)' : '#34C759') + '">' +
-      (reallyLeft < 0 ? '-' : '') + fmt(Math.abs(reallyLeft)) + '</strong>.' +
+  if (upcomingRecSavingsTotal > 0 && isCurrentCycle() && firedRecSavingsTotal > 0) {
+    html += '<div style="background:rgba(52,199,89,0.08);border:1.5px solid rgba(52,199,89,0.25);border-radius:12px;padding:9px 14px;margin-bottom:14px;font-size:11px;line-height:1.6;color:var(--muted)">' +
+      '💚 <strong style="color:var(--text)">' + fmt(upcomingRecSavingsTotal) + '</strong> savings this cycle · ' +
+      '<span style="color:#34C759">' + fmt(firedRecSavingsTotal) + ' fired</span>' +
+      (upcomingRecSavingsOnly > 0 ? ' · <span style="color:var(--muted)">' + fmt(upcomingRecSavingsOnly) + ' upcoming</span>' : '') +
     '</div>';
   }
 
