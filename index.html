@@ -2013,9 +2013,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.3.41';
+const APP_VERSION = '2.3.42';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '15 Apr 2026 9:16 AM AEDT';
+const BUILD_TIME = '15 Apr 2026 5:41 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -6418,6 +6418,14 @@ function populateExpPaymentSelect(selectedMethod, selectedAccountId) {
   if (!sel) return;
   const ccAccts = (state.accounts||[]).filter(a => a.type === 'credit');
   const bankAccts = (state.accounts||[]).filter(a => a.type !== 'credit');
+
+  // If defaulting to generic 'cc' but specific CC accounts exist, pre-select the first one
+  if (selectedMethod === 'cc' && ccAccts.length > 0 && !selectedAccountId) {
+    selectedMethod = 'account';
+    selectedAccountId = ccAccts[0].id;
+    _expPaymentMethod = 'account';
+    _expPaymentAccountId = ccAccts[0].id;
+  }
 
   let html = '<optgroup label="Standard">';
   // Only show generic CC option if no CC accounts exist
