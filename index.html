@@ -2013,9 +2013,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.3.43';
+const APP_VERSION = '2.3.44';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '16 Apr 2026 9:11 AM AEDT';
+const BUILD_TIME = '16 Apr 2026 9:21 AM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -9831,6 +9831,9 @@ function renderMortgage() {
       '</div>' +
       '<div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--surface2);font-size:11px;color:var(--muted)">' +
         'Paying ' + fmtF(c.weeklyOverpayment) + ' extra per week · ' + fmtD(c.weeklyOverpayment * 52) + '/year extra' +
+        '<div style="margin-top:6px;padding-top:6px;border-top:1px solid var(--surface2);font-size:11px;color:var(--muted)">' +
+          '🆚 vs min ' + fmtD(c.minPmt) + '/wk · no offset — saves <strong style="color:var(--accent)">' + fmtD(c.interestSaved) + '</strong> interest · <strong style="color:var(--accent)">' + timeSavedStr + '</strong> sooner' +
+        '</div>' +
         '<div style="margin-top:6px;padding-top:6px;border-top:1px solid var(--surface2);font-size:10px;color:var(--muted)">⚡ Includes your <strong style="color:var(--text)">' + fmtD(getOffsetBalance()) + ' offset balance</strong> — interest calculated on net balance (loan − offset)</div>' +
       '</div>' +
     '</div>';
@@ -10015,33 +10018,6 @@ function renderMortgage() {
       '<div style="display:flex;align-items:center;gap:5px"><div style="width:16px;height:2px;background:#f0a860;flex-shrink:0"></div><span style="color:var(--muted)">Your ' + fmtD(proj.actualPmt) + '/wk, no offset</span></div>' +
       '<div style="display:flex;align-items:center;gap:5px"><div style="width:16px;height:2px;background:#4F8EF7;flex-shrink:0"></div><span style="color:var(--muted)">Your ' + fmtD(proj.actualPmt) + '/wk + offset ✨</span></div>' +
     '</div>';
-
-    // ── Interest snowball ─────────────────────────────────────────────────────
-    html += '<div style="font-size:11px;font-weight:600;color:var(--text);margin-bottom:6px;display:flex;align-items:center">Interest saved — your situation vs minimum' +
-      '<span class="spendly-tip">' +
-        '<i class="spendly-tip-icon" data-tip="tip-snowball" onclick="event.stopPropagation();showTip(this.dataset.tip)">i</i>' +
-        '<div class="spendly-tip-box" id="tip-snowball">Shows how much less interest you pay over 5, 10 and 20 years compared to minimum repayments with no offset. Unlike the overpayment card above, these are fixed time windows — not the full loan life — so the 20-year figure will be lower if your loan runs past 20 years.</div>' +
-      '</span>' +
-    '</div>';
-    html += '<div style="background:var(--surface2);border-radius:8px;padding:9px 12px;margin-bottom:10px;font-size:11px;line-height:1.7">' +
-      '<div style="display:flex;justify-content:space-between">' +
-        '<span style="color:var(--muted)">❌ Worst case (baseline)</span>' +
-        '<span style="font-weight:600">Min ' + fmtD(proj.minPmt) + '/wk · no offset</span>' +
-      '</div>' +
-      '<div style="display:flex;justify-content:space-between">' +
-        '<span style="color:var(--muted)">✅ Your situation</span>' +
-        '<span style="font-weight:600;color:var(--accent)">Your ' + fmtD(proj.actualPmt) + '/wk + ' + fmtD(proj.baseOffset) + ' offset</span>' +
-      '</div>' +
-    '</div>';
-    html += '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:16px">';
-    proj.snowball.forEach(s => {
-      html += '<div style="background:var(--surface2);border-radius:10px;padding:10px;text-align:center">' +
-        '<div style="font-size:10px;color:var(--muted);margin-bottom:4px">' + s.years + ' years</div>' +
-        '<div style="font-size:14px;font-weight:700;color:var(--accent)">$' + Math.round(s.saved).toLocaleString('en-AU') + '</div>' +
-        '<div style="font-size:9px;color:var(--muted)">less interest</div>' +
-      '</div>';
-    });
-    html += '</div>';
 
     // ── What-if input ─────────────────────────────────────────────────────────
     html += '<div style="border-top:1px solid var(--surface2);padding-top:14px">';
