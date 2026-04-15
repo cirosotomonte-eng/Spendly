@@ -2013,9 +2013,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.3.42';
+const APP_VERSION = '2.3.43';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '15 Apr 2026 5:41 PM AEDT';
+const BUILD_TIME = '16 Apr 2026 9:11 AM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -9042,6 +9042,17 @@ function startConfetti() {
 let editingMortgageExtraId = null;
 
 // Calculates estimated current balance from a known anchor point
+// Returns the current minimum weekly repayment — uses the latest rate history entry
+// if it has a minWeeklyRepayment recorded, otherwise falls back to mg.minimumRepayment.
+function getCurrentMinRepayment() {
+  const mg = state.mortgage || {};
+  const history = (mg.rateHistory || []).slice().sort((a,b) => b.fromDate.localeCompare(a.fromDate));
+  for (const entry of history) {
+    if (entry.minWeeklyRepayment > 0) return entry.minWeeklyRepayment;
+  }
+  return mg.minimumRepayment || 0;
+}
+
 function getEstimatedBalance() {
   const mg = state.mortgage || {};
   const anchorBalance = mg.currentBalance || 0;
@@ -9102,7 +9113,7 @@ function mortgageCalc() {
   const annualRate = mg.interestRate / 100;
   const weeklyRate = annualRate / 52;
   const totalWeeks = mg.termYears * 52;
-  const minPmt = mg.minimumRepayment > 0 ? mg.minimumRepayment
+  const minPmt = getCurrentMinRepayment() > 0 ? getCurrentMinRepayment()
     : (principal * weeklyRate / (1 - Math.pow(1 + weeklyRate, -totalWeeks)));
   const actualPmt = mg.weeklyRepayment > 0 ? mg.weeklyRepayment : minPmt;
   const offset = getOffsetBalance();
@@ -9625,7 +9636,7 @@ function mortgageProjectionData(extraOffsetAmt) {
   const weeklyRate = annualRate / 52;
   if (weeklyRate <= 0) return null;
   const totalWeeks = mg.termYears * 52;
-  const minPmt = mg.minimumRepayment > 0 ? mg.minimumRepayment
+  const minPmt = getCurrentMinRepayment() > 0 ? getCurrentMinRepayment()
     : (startBalance * weeklyRate / (1 - Math.pow(1 + weeklyRate, -totalWeeks)));
   const actualPmt = (mg.weeklyRepayment > 0 ? mg.weeklyRepayment : minPmt);
   // Safety: if payment doesn't cover interest, can't project
@@ -9798,7 +9809,7 @@ function renderMortgage() {
       '<div style="font-size:12px;font-weight:700;margin-bottom:10px;display:flex;align-items:center">💡 Your overpayment is working hard' +
         '<span class="spendly-tip">' +
           '<i class="spendly-tip-icon" data-tip="tip-overpayment" onclick="event.stopPropagation();showTip(this.dataset.tip)">i</i>' +
-          '<div class="spendly-tip-box" id="tip-overpayment">Compares minimum $' + Math.round(mg.minimumRepayment||0) + '/wk with no offset vs your $' + Math.round(mg.weeklyRepayment||0) + '/wk + offset, run to full loan payoff. Shows the total benefit over the entire life of your loan.</div>' +
+          '<div class="spendly-tip-box" id="tip-overpayment">Compares minimum $' + Math.round(getCurrentMinRepayment()||0) + '/wk with no offset vs your $' + Math.round(mg.weeklyRepayment||0) + '/wk + offset, run to full loan payoff. Shows the total benefit over the entire life of your loan.</div>' +
         '</span>' +
       '</div>' +
       '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">' +
