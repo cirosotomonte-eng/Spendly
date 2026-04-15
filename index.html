@@ -176,8 +176,8 @@ async function applyUpdate() {
   #cycleStats { margin: 8px 20px 12px; }
 
   /* Bottom nav */
-  .bottom-nav { position:fixed;bottom:calc(env(safe-area-inset-bottom,16px) + 12px);left:50%;transform:translateX(-50%);width:auto;min-width:280px;max-width:calc(100% - 32px);z-index:100;background:var(--surface);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border:1px solid var(--border);border-radius:100px;padding:6px 8px;display:flex;gap:2px;box-shadow:0 4px 24px rgba(0,0,0,0.18); }
-  .bottom-nav-item { flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;padding:7px 12px;border:none;background:none;color:var(--muted);font-size:10px;font-weight:500;font-family:var(--font);cursor:pointer;transition:all 0.18s;letter-spacing:0.01em;border-radius:100px; }
+  .bottom-nav { position:fixed;bottom:calc(env(safe-area-inset-bottom,16px) + 12px);left:50%;transform:translateX(-50%);width:auto;min-width:320px;max-width:calc(100% - 24px);z-index:100;background:var(--surface);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border:1px solid var(--border);border-radius:100px;padding:6px 8px;display:flex;gap:2px;box-shadow:0 4px 24px rgba(0,0,0,0.18); }
+  .bottom-nav-item { flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;padding:7px 18px;border:none;background:none;color:var(--muted);font-size:10px;font-weight:500;font-family:var(--font);cursor:pointer;transition:all 0.18s;letter-spacing:0.01em;border-radius:100px; }
   .bottom-nav-item .nav-icon { font-size:22px;line-height:1; }
   .bottom-nav-item.active { color:var(--accent);background:var(--accent-dim); }
   /* Sub-tabs strip — card style with emoji */
@@ -1506,7 +1506,7 @@ async function applyUpdate() {
       <div class="modal-title" style="margin-bottom:0">Recurring expenses</div>
       <div style="display:flex;gap:6px">
         <button onclick="repairMissingRecurringExpenses();showToast('✅ Checked for missed recurring expenses',2500)" style="background:var(--surface2);color:var(--muted);border:none;border-radius:8px;padding:7px 10px;font-size:12px;font-weight:600;font-family:var(--font);cursor:pointer" title="Apply any missed transactions for today">↻ Apply today</button>
-        <button onclick="openAddRecurring()" style="background:var(--accent-dim);color:var(--accent);border:none;border-radius:8px;padding:7px 12px;font-size:12px;font-weight:600;font-family:var(--font);cursor:pointer">+ Add</button>
+        <button onclick="openAddRecurring()" style="background:var(--accent-dim);color:var(--accent);border:none;border-radius:8px;padding:7px 18px;font-size:12px;font-weight:600;font-family:var(--font);cursor:pointer">+ Add</button>
         <button onclick="showRecurringDiagnostic()" style="background:var(--surface2);color:var(--muted);border:none;border-radius:8px;padding:7px 10px;font-size:11px;font-family:var(--font);cursor:pointer" title="Diagnostic">🔍</button>
       </div>
     </div>
@@ -2013,9 +2013,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.3.40';
+const APP_VERSION = '2.3.41';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '15 Apr 2026 7:03 AM AEDT';
+const BUILD_TIME = '15 Apr 2026 9:16 AM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -3437,7 +3437,12 @@ const DAILY_QUOTES = [
 function getDailyQuote() {
   const today = new Date();
   const seed = today.getFullYear() * 10000 + (today.getMonth() + 1) * 100 + today.getDate();
-  const idx = seed % DAILY_QUOTES.length;
+  // Spread seed across the full quote range using a simple hash so nearby days don't cluster on the same author
+  let h = seed;
+  h = ((h >>> 16) ^ h) * 0x45d9f3b | 0;
+  h = ((h >>> 16) ^ h) * 0x45d9f3b | 0;
+  h = (h >>> 16) ^ h;
+  const idx = Math.abs(h) % DAILY_QUOTES.length;
   return DAILY_QUOTES[idx];
 }
 
@@ -4512,7 +4517,7 @@ function renderRecurringPane() {
     '<div style="font-size:13px;font-weight:600;color:var(--text)">' + recs.length + ' recurring expense' + (recs.length !== 1 ? 's' : '') + '</div>' +
     '<div style="display:flex;gap:6px">' +
       '<button onclick="repairMissingRecurringExpenses();showToast(\'✅ Checked for missed recurring expenses\',2500)" style="background:var(--surface2);color:var(--muted);border:none;border-radius:8px;padding:7px 10px;font-size:12px;font-weight:600;font-family:var(--font);cursor:pointer" title="Apply any missed transactions for today">↻ Apply today</button>' +
-      '<button onclick="openAddRecurringInline()" style="background:var(--accent-dim);color:var(--accent);border:none;border-radius:8px;padding:7px 12px;font-size:12px;font-weight:600;font-family:var(--font);cursor:pointer">+ Add</button>' +
+      '<button onclick="openAddRecurringInline()" style="background:var(--accent-dim);color:var(--accent);border:none;border-radius:8px;padding:7px 18px;font-size:12px;font-weight:600;font-family:var(--font);cursor:pointer">+ Add</button>' +
     '</div>' +
   '</div>';
 
@@ -9841,7 +9846,7 @@ function renderMortgage() {
   html += '<div style="background:var(--surface);border-radius:var(--r);padding:14px;margin-bottom:8px">' +
     '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">' +
       '<div style="font-size:13px;font-weight:700">Offset account</div>' +
-      '<button onclick="openOffsetTxSheet()" style="background:var(--accent-dim);color:var(--accent);border:none;border-radius:8px;padding:7px 12px;font-size:12px;font-weight:600;font-family:var(--font);cursor:pointer">+ Add / View</button>' +
+      '<button onclick="openOffsetTxSheet()" style="background:var(--accent-dim);color:var(--accent);border:none;border-radius:8px;padding:7px 18px;font-size:12px;font-weight:600;font-family:var(--font);cursor:pointer">+ Add / View</button>' +
     '</div>' +
     '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:12px">' +
       '<div>' +
@@ -14683,7 +14688,7 @@ function checkBackupNudge() {
       '<div style="font-size:11px;color:var(--muted);line-height:1.4">Your data is stored on this device only. Export a backup to keep it safe.</div>' +
     '</div>' +
     '<div style="display:flex;gap:6px;flex-shrink:0">' +
-      '<button onclick="exportBackup();dismissBackupNudge()" style="background:var(--accent);border:none;border-radius:8px;padding:7px 12px;font-size:12px;font-weight:700;color:#fff;cursor:pointer;font-family:var(--font);white-space:nowrap">Export now</button>' +
+      '<button onclick="exportBackup();dismissBackupNudge()" style="background:var(--accent);border:none;border-radius:8px;padding:7px 18px;font-size:12px;font-weight:700;color:#fff;cursor:pointer;font-family:var(--font);white-space:nowrap">Export now</button>' +
       '<button onclick="dismissBackupNudge()" style="background:var(--surface2);border:none;border-radius:8px;padding:7px 10px;font-size:12px;color:var(--muted);cursor:pointer;font-family:var(--font)">Later</button>' +
     '</div>';
   document.body.appendChild(banner);
