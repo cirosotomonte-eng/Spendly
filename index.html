@@ -2034,9 +2034,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.4.2';
+const APP_VERSION = '2.4.3';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '16 Apr 2026 5:57 PM AEDT';
+const BUILD_TIME = '16 Apr 2026 10:01 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -2504,6 +2504,7 @@ async function loadFromSupabase() {
 function saveState() {
   // Strip UI-only state that should always reset on load
   const { currentTab, viewingCycleOffset, mortgageCycleOffset, editingExpenseId, editingCatId, ...persistState } = state;
+  persistState._savedAt = new Date().toISOString(); // timestamp for conflict detection
   const data = JSON.stringify(persistState);
   // Always save locally first (instant)
   try { localStorage.setItem(STORAGE_KEY, data); } catch(e) {}
@@ -2553,8 +2554,20 @@ async function loadState() {
             const localData = JSON.parse(localRaw);
             const cloudExpCount = (cloudData.expenses || []).length;
             const localExpCount = (localData.expenses || []).length;
-            // If local has meaningfully more expenses, offer recovery
-            if (localExpCount > cloudExpCount + 2) {
+            const cloudRecSavCount = (cloudData.recurringSavings || []).length;
+            const localRecSavCount = (localData.recurringSavings || []).length;
+            const cloudPendingCount = (cloudData.pendingPayments || []).length;
+            const localPendingCount = (localData.pendingPayments || []).length;
+            // Check local timestamp vs cloud — if local is newer, prefer local
+            const localTs = localStorage.getItem(BACKUP_TS_KEY);
+            const cloudTs = cloudData._savedAt || null;
+            const localIsNewer = localTs && cloudTs && localTs > cloudTs;
+            // Detect any meaningful local-ahead condition
+            const localAhead = localExpCount > cloudExpCount + 1
+              || localRecSavCount > cloudRecSavCount
+              || localPendingCount > cloudPendingCount
+              || localIsNewer;
+            if (localAhead) {
               state = { ...state, ...cloudData };
               if (!state.setupDone) { state.setupDone = true; }
               localStorage.setItem(ONBOARDED_KEY, '1');
@@ -15130,10 +15143,51 @@ function triggerInactivityLock() {
   document.addEventListener(evt, resetInactivityTimer, { passive: true });
 });
 
+// ── Reliable background flush for iOS PWA ────────────────────────────────────
+// iOS kills the app before async fetch completes on swipe-up.
+// We use sendBeacon (fire-and-forget, survives kill) as primary,
+// with flushSyncNow as secondary for other platforms.
+function flushSyncBeacon() {
+  if (SPENDLY_MODE !== 'cloud' || !getCurrentUserId()) return;
+  clearTimeout(syncTimer);
+  const { currentTab, viewingCycleOffset, mortgageCycleOffset, editingExpenseId, editingCatId, ...persistState } = state;
+  const userId = getCurrentUserId();
+  const now = new Date().toISOString();
+  const payload = JSON.stringify({ id: 'main', user_id: userId, data: persistState, updated_at: now });
+  // sendBeacon survives page kill on iOS — uses POST to REST endpoint
+  const url = SB_URL + '/rest/v1/spendly_data';
+  const headers = getAuthHeaders();
+  // Build a Blob with content-type so Supabase accepts it
+  try {
+    const blob = new Blob([payload], { type: 'application/json' });
+    // sendBeacon doesn't support custom headers — use fetch with keepalive instead
+    fetch(url, {
+      method: 'POST',
+      headers: { ...headers, 'Content-Type': 'application/json', 'Prefer': 'resolution=merge-duplicates,return=minimal' },
+      body: payload,
+      keepalive: true,  // key: this survives page unload on modern browsers/iOS
+    }).then(r => { if (r.ok) _lastKnownServerTimestamp = now; }).catch(() => {});
+  } catch(e) {}
+  // Also stamp localStorage so recovery check has current timestamp
+  try { localStorage.setItem(BACKUP_TS_KEY, now); } catch(e) {}
+}
+
+// pagehide is more reliable than visibilitychange on iOS Safari/PWA for kill events
+window.addEventListener('pagehide', (e) => {
+  autoBackup();
+  flushSyncBeacon();
+});
+
+// Also catch beforeunload for desktop browsers
+window.addEventListener('beforeunload', () => {
+  flushSyncBeacon();
+});
+
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'hidden') {
     autoBackup();
-    // Flush any pending sync immediately before the app is backgrounded
+    // Use keepalive fetch (survives iOS kill) + regular async as belt-and-suspenders
+    flushSyncBeacon();
     flushSyncNow();
   } else if (document.visibilityState === 'visible') {
     // Don't act if auth screen is showing
