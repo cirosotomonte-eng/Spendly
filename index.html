@@ -1742,6 +1742,26 @@ async function applyUpdate() {
     <input type="date" id="acctOpeningDate">
     <label>Color</label>
     <div class="color-grid" id="acctColorGrid"></div>
+    <!-- Salary account options -->
+    <div id="acctSalarySection" style="display:none;margin-bottom:14px">
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 14px;background:var(--surface2);border-radius:10px;margin-bottom:8px">
+        <div>
+          <div style="font-size:13px;font-weight:600;color:var(--text)">💼 Salary / Payment account</div>
+          <div style="font-size:11px;color:var(--muted);margin-top:2px">Recurring savings will create pending items here instead of auto-firing</div>
+        </div>
+        <label style="position:relative;display:inline-block;width:44px;height:26px;flex-shrink:0">
+          <input type="checkbox" id="acctIsSalary" onchange="toggleSalaryFields()" style="opacity:0;width:0;height:0">
+          <span id="acctIsSalaryToggle" style="position:absolute;cursor:pointer;top:0;left:0;right:0;bottom:0;background:var(--border);border-radius:26px;transition:0.2s"></span>
+        </label>
+      </div>
+      <div id="acctLinkedOffsetWrap" style="display:none">
+        <label>Linked offset account</label>
+        <select id="acctLinkedOffset" style="width:100%;background:var(--surface2);border:1.5px solid var(--border);border-radius:10px;color:var(--text);font-size:14px;font-family:var(--font);padding:10px 12px;margin-bottom:14px">
+          <option value="">None — don't link to offset</option>
+        </select>
+        <div style="font-size:11px;color:var(--muted);margin-top:-10px;margin-bottom:14px">This account's balance will be added to the linked offset account's total</div>
+      </div>
+    </div>
     <button class="btn-primary" id="acctSaveBtn" onclick="saveAccount()">Save account</button>
     <button class="btn-danger" id="acctDeleteBtn" onclick="deleteAccount()" style="display:none">Delete account</button>
     <button class="btn-ghost" onclick="closeModal('accountModal')">Cancel</button>
@@ -2013,9 +2033,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.3.44';
+const APP_VERSION = '2.4.0';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '16 Apr 2026 9:21 AM AEDT';
+const BUILD_TIME = '16 Apr 2026 5:25 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -2087,6 +2107,7 @@ let state = {
   },
   propertyValue: 0,     // estimated home value for net worth
   notes: [],            // { id, title, body, color, pinned, createdAt, updatedAt, category }
+  pendingPayments: [],  // { id, recurringId, goalId, salaryAccountId, originalAmount, amount, dueDate, status:'pending'|'paid'|'cancelled', paidDate, paidAmount, note }
   propertyHistory: [],  // [{ date, value, note }] — valuation history
 };
 
@@ -2289,7 +2310,7 @@ async function signOut() {
   try { localStorage.removeItem('spendly_backup'); } catch(e) {}
   try { sessionStorage.clear(); } catch(e) {}
   // Reset state and show auth screen
-  state = { currentTab:'expenses', viewingCycleOffset:0, budget:0, cycleDay:1, appName:'', categories:[], expenses:[], recurringExpenses:[], recurringSavings:[], recurringIncome:[], recurringSkips:[], savingsCategories:[], savingsSubcategories:[], savingsDeposits:[], recyclingTrips:[], mortgage:{}, taxCategories:[], taxTransactions:[], giftCards:[], portfolio:[], netWorth:[], notes:[], accounts:[], accountTransactions:[], lastActiveDate:'', setupDone:false };
+  state = { currentTab:'expenses', viewingCycleOffset:0, budget:0, cycleDay:1, appName:'', categories:[], expenses:[], recurringExpenses:[], recurringSavings:[], recurringIncome:[], recurringSkips:[], savingsCategories:[], savingsSubcategories:[], savingsDeposits:[], recyclingTrips:[], mortgage:{}, taxCategories:[], taxTransactions:[], giftCards:[], portfolio:[], netWorth:[], notes:[], accounts:[], accountTransactions:[], pendingPayments:[], lastActiveDate:'', setupDone:false };
   showAuthScreen();
   document.getElementById('app').style.visibility = 'hidden';
 }
@@ -7971,6 +7992,37 @@ function renderRecurringSavingsPane() {
 
   let html = '<button onclick="openAddRecurringSaving()" style="width:100%;background:rgba(52,199,89,0.1);color:#34C759;border:2px solid rgba(52,199,89,0.3);border-radius:var(--r);padding:13px;font-size:14px;font-weight:700;font-family:var(--font);cursor:pointer;margin-bottom:16px;display:flex;align-items:center;justify-content:center;gap:8px">+ New recurring saving</button>';
 
+  // ── Pending payments summary ──────────────────────────────────────────
+  const allPending = (state.pendingPayments||[]).filter(p => p.status === 'pending')
+    .slice().sort((a,b) => a.dueDate.localeCompare(b.dueDate));
+  if (allPending.length > 0) {
+    const pendingTotal = allPending.reduce((s,p) => s + p.amount, 0);
+    html += '<div class="section-label">Pending payments <span style="background:var(--orange);color:#fff;font-size:9px;font-weight:700;border-radius:10px;padding:1px 7px;vertical-align:middle">' + allPending.length + '</span></div>';
+    html += '<div style="background:var(--surface);border-radius:var(--r);overflow:hidden;margin-bottom:14px">';
+    allPending.forEach((p, i) => {
+      const goal = savingsCatById(p.goalId);
+      const salAcct = accountById(p.salaryAccountId);
+      const dt = new Date(p.dueDate + 'T00:00:00');
+      const dateLabel = dt.toLocaleDateString('en-AU', {weekday:'short', day:'numeric', month:'short'});
+      html += '<div style="display:flex;align-items:center;gap:12px;padding:12px 14px;' + (i>0?'border-top:1px solid var(--surface2)':'') + '">' +
+        '<div style="width:38px;height:38px;border-radius:10px;background:rgba(240,168,96,0.12);display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0">' + (goal ? goal.icon : '💰') + '</div>' +
+        '<div style="flex:1;min-width:0">' +
+          '<div style="font-size:13px;font-weight:600">' + (goal ? goal.name : p.note||'Saving') + '</div>' +
+          '<div style="font-size:11px;color:var(--muted)">' + dateLabel + (salAcct ? ' · ' + salAcct.name : '') + '</div>' +
+        '</div>' +
+        '<div style="display:flex;align-items:center;gap:6px">' +
+          '<div style="font-size:14px;font-weight:700;color:var(--orange)">' + fmt(p.amount) + '</div>' +
+          '<button data-pid="' + p.id + '" onclick="payPendingItem(this.dataset.pid);renderContent()" style="font-size:11px;font-weight:600;color:#fff;background:var(--accent);border:none;border-radius:6px;padding:4px 10px;font-family:var(--font);cursor:pointer">Pay</button>' +
+        '</div>' +
+      '</div>';
+    });
+    html += '<div style="padding:10px 14px;border-top:1px solid var(--surface2);display:flex;justify-content:space-between;align-items:center;font-size:12px">' +
+      '<span style="color:var(--muted)">Total pending</span>' +
+      '<span style="font-weight:700;color:var(--orange)">' + fmt(pendingTotal) + '</span>' +
+    '</div>';
+    html += '</div>';
+  }
+
   // ── Upcoming this cycle ────────────────────────────────────────────────
   const upcoming = getUpcomingRecurringSavings();
   if (upcoming.length > 0) {
@@ -9415,6 +9467,21 @@ let editingOffsetTxId = null;
 let currentOffsetTxType = 'deposit';
 
 function getOffsetBalance() {
+  let bal = (state.offsetTransactions || []).reduce((s, t) =>
+    s + (t.type === 'withdrawal' ? -t.amount : t.amount), 0);
+  // Add balances of salary accounts linked to this offset account
+  // Find offset account id by matching against offsetTransactions owner
+  // We add ALL salary accounts that link to ANY offset (offset balance is aggregated)
+  (state.accounts||[]).forEach(a => {
+    if (a.isSalaryAccount && a.linkedOffsetAccountId) {
+      bal += getAccountBalance(a.id);
+    }
+  });
+  return bal;
+}
+
+// Get offset balance excluding linked salary accounts (raw offset only)
+function getRawOffsetBalance() {
   return (state.offsetTransactions || []).reduce((s, t) =>
     s + (t.type === 'withdrawal' ? -t.amount : t.amount), 0);
 }
@@ -11285,6 +11352,36 @@ function applyRecurringSavings() {
     datesToProcess.forEach(checkDate => {
       const checkDateStr = dateToStr(checkDate);
       if (!isRecurringDueOn(r, checkDateStr)) return;
+
+      // Check if a salary account is linked — if so, create a pending item instead
+      const sourceAcct = r.sourceAccountId ? accountById(r.sourceAccountId) : null;
+      const usePendingFlow = sourceAcct && sourceAcct.isSalaryAccount;
+
+      if (usePendingFlow) {
+        // Check not already pending or paid for this date
+        const alreadyPending = (state.pendingPayments||[]).some(p =>
+          p.recurringId === r.id && p.dueDate === checkDateStr
+        );
+        if (alreadyPending) return;
+        if (!state.pendingPayments) state.pendingPayments = [];
+        state.pendingPayments.push({
+          id: uid(),
+          recurringId: r.id,
+          goalId: r.savingsGoalId,
+          salaryAccountId: r.sourceAccountId,
+          originalAmount: r.amount,
+          amount: r.amount,
+          dueDate: checkDateStr,
+          status: 'pending',
+          paidDate: null,
+          paidAmount: null,
+          note: r.name,
+        });
+        added = true;
+        return;
+      }
+
+      // Standard flow — auto-fire deposit into goal
       const alreadyExists = (state.savingsDeposits||[]).some(d =>
         d.recurringId === r.id && d.date === checkDateStr
       );
@@ -13294,6 +13391,16 @@ function getAccountBalance(accountId) {
     if (d.sourceAccountId === accountId) bal -= d.amount;
   });
 
+  // Pending payments paid from this salary account
+  (state.pendingPayments||[]).filter(p => p.salaryAccountId === accountId && p.status === 'paid').forEach(p => {
+    bal -= (p.paidAmount || p.amount);
+  });
+
+  // CC payments made directly from this salary account
+  (state.accountTransactions||[]).filter(t => t.type === 'ccPayment' && t.fromAccountId === accountId && !t.deleted).forEach(t => {
+    bal -= t.amount;
+  });
+
   return Math.round(bal * 100) / 100;
 }
 
@@ -13375,6 +13482,28 @@ function setAcctType(type) {
     btn.style.color = active ? 'var(--accent)' : 'var(--muted)';
     btn.style.fontWeight = active ? '700' : '600';
   });
+  // Show salary section only for transaction/savings account types
+  const salarySection = document.getElementById('acctSalarySection');
+  if (salarySection) salarySection.style.display = (type === 'transaction' || type === 'savings') ? '' : 'none';
+}
+
+function toggleSalaryFields() {
+  const cb = document.getElementById('acctIsSalary');
+  const toggle = document.getElementById('acctIsSalaryToggle');
+  const wrap = document.getElementById('acctLinkedOffsetWrap');
+  if (!cb) return;
+  const on = cb.checked;
+  if (toggle) { toggle.style.background = on ? 'var(--accent)' : 'var(--border)'; }
+  if (wrap) wrap.style.display = on ? '' : 'none';
+  if (on) populateLinkedOffsetSelect();
+}
+
+function populateLinkedOffsetSelect(selectedId) {
+  const sel = document.getElementById('acctLinkedOffset');
+  if (!sel) return;
+  const offsets = (state.accounts||[]).filter(a => a.type === 'offset' && a.id !== _editingAccountId);
+  sel.innerHTML = "<option value=''>None — don't link to offset</option>" +
+    offsets.map(a => '<option value="' + a.id + '"' + (a.id === selectedId ? ' selected' : '') + '>' + (a.icon||'🏦') + ' ' + a.name + '</option>').join('');
 }
 
 function openAddAccount() {
@@ -13387,6 +13516,11 @@ function openAddAccount() {
   document.getElementById('acctDeleteBtn').style.display = 'none';
   buildColorGridFor('acctColorGrid', PALETTE[Math.floor(Math.random()*PALETTE.length)]);
   setAcctType('transaction');
+  // Reset salary fields
+  const cb = document.getElementById('acctIsSalary');
+  const toggle = document.getElementById('acctIsSalaryToggle');
+  const wrap = document.getElementById('acctLinkedOffsetWrap');
+  if (cb) { cb.checked = false; if (toggle) toggle.style.background = 'var(--border)'; if (wrap) wrap.style.display = 'none'; }
   openModal('accountModal');
   setTimeout(() => document.getElementById('acctName').focus(), 350);
 }
@@ -13402,6 +13536,16 @@ function openEditAccount(id) {
   document.getElementById('acctDeleteBtn').style.display = 'block';
   buildColorGridFor('acctColorGrid', acct.color);
   setAcctType(acct.type || 'transaction');
+  // Restore salary account fields
+  const cb = document.getElementById('acctIsSalary');
+  const toggle = document.getElementById('acctIsSalaryToggle');
+  const wrap = document.getElementById('acctLinkedOffsetWrap');
+  if (cb) {
+    cb.checked = !!acct.isSalaryAccount;
+    if (toggle) toggle.style.background = acct.isSalaryAccount ? 'var(--accent)' : 'var(--border)';
+    if (wrap) wrap.style.display = acct.isSalaryAccount ? '' : 'none';
+    if (acct.isSalaryAccount) populateLinkedOffsetSelect(acct.linkedOffsetAccountId);
+  }
   openModal('accountModal');
 }
 
@@ -13415,9 +13559,13 @@ function saveAccount() {
   if (!state.accounts) state.accounts = [];
   if (_editingAccountId) {
     const idx = state.accounts.findIndex(a => a.id === _editingAccountId);
-    if (idx >= 0) state.accounts[idx] = { ...state.accounts[idx], name, type: _acctType, icon, color, openingBalance, openingDate };
+    const isSalaryE = !!(document.getElementById('acctIsSalary')?.checked);
+    const linkedOffsetE = isSalaryE ? (document.getElementById('acctLinkedOffset')?.value || '') : '';
+    if (idx >= 0) state.accounts[idx] = { ...state.accounts[idx], name, type: _acctType, icon, color, openingBalance, openingDate, isSalaryAccount: isSalaryE, linkedOffsetAccountId: linkedOffsetE||null };
   } else {
-    state.accounts.push({ id: uid(), name, type: _acctType, icon, color, openingBalance, openingDate });
+    const isSalary = !!(document.getElementById('acctIsSalary')?.checked);
+    const linkedOffset = isSalary ? (document.getElementById('acctLinkedOffset')?.value || '') : '';
+    state.accounts.push({ id: uid(), name, type: _acctType, icon, color, openingBalance, openingDate, isSalaryAccount: isSalary, linkedOffsetAccountId: linkedOffset||null });
   }
   saveState(); closeModal('accountModal'); renderContent();
 }
@@ -13695,6 +13843,88 @@ function setExpPaymentAccount(accountId) {
 // ── renderAccounts ────────────────────────────────────────────────────────────
 let _viewingAccountId = null;
 
+// ── Pending payment actions ───────────────────────────────────────────────────
+function payPendingItem(pendingId) {
+  const p = (state.pendingPayments||[]).find(x => x.id === pendingId);
+  if (!p) return;
+  const goal = savingsCatById(p.goalId);
+  const name = goal ? goal.name : (p.note || 'Saving');
+  if (!confirm('Pay ' + fmt(p.amount) + ' to ' + name + '?')) return;
+  // Create goal deposit
+  if (!state.savingsDeposits) state.savingsDeposits = [];
+  const depositId = uid();
+  state.savingsDeposits.push({
+    id: depositId, catId: p.goalId, targetId: p.goalId,
+    amount: p.amount, date: todayStr(), note: p.note || name,
+    type: 'deposit', recurringId: p.recurringId, sourceAccountId: p.salaryAccountId,
+  });
+  // Mark pending as paid
+  p.status = 'paid';
+  p.paidDate = todayStr();
+  p.paidAmount = p.amount;
+  saveState();
+  renderAccounts();
+  showToast('✅ Paid ' + fmt(p.amount) + ' to ' + name, 2000);
+}
+
+function cancelPendingItem(pendingId) {
+  const p = (state.pendingPayments||[]).find(x => x.id === pendingId);
+  if (!p) return;
+  if (!confirm('Cancel this pending payment? The money stays in your salary account.')) return;
+  p.status = 'cancelled';
+  saveState();
+  renderAccounts();
+  showToast('Payment cancelled', 1500);
+}
+
+function editPendingAmount(pendingId) {
+  const p = (state.pendingPayments||[]).find(x => x.id === pendingId);
+  if (!p) return;
+  const newAmt = parseFloat(prompt('Update amount (original: ' + fmt(p.originalAmount) + '):', p.amount));
+  if (isNaN(newAmt) || newAmt <= 0) return;
+  p.amount = Math.round(newAmt * 100) / 100;
+  saveState();
+  renderAccounts();
+  showToast('Amount updated to ' + fmt(p.amount), 1500);
+}
+
+function openPayCCFromSalary(salaryAccountId) {
+  const ccAccts = (state.accounts||[]).filter(a => a.type === 'credit');
+  if (ccAccts.length === 0) { showToast('No credit card accounts found', 2000); return; }
+  const salAcct = accountById(salaryAccountId);
+  const salBal = getAccountBalance(salaryAccountId);
+
+  let options = ccAccts.map((a,i) => {
+    const owed = Math.abs(Math.min(getAccountBalance(a.id), 0));
+    return (i+1) + '. ' + a.name + ' — owes ' + fmt(owed);
+  }).join('\n');
+
+  const choice = parseInt(prompt('Pay which credit card?\n' + options));
+  if (isNaN(choice) || choice < 1 || choice > ccAccts.length) return;
+  const ccAcct = ccAccts[choice - 1];
+  const owed = Math.abs(Math.min(getAccountBalance(ccAcct.id), 0));
+
+  const amount = parseFloat(prompt('Amount to pay to ' + ccAcct.name + ' (balance owed: ' + fmt(owed) + ', salary balance: ' + fmt(salBal) + '):', owed.toFixed(2)));
+  if (isNaN(amount) || amount <= 0) return;
+
+  if (!state.accountTransactions) state.accountTransactions = [];
+  // Debit from salary account
+  state.accountTransactions.push({
+    id: uid(), type: 'ccPayment', fromAccountId: salaryAccountId,
+    toAccountId: ccAcct.id, amount: amount, date: todayStr(),
+    note: 'CC payment to ' + ccAcct.name,
+  });
+  // Credit to CC account (reduces what's owed)
+  state.accountTransactions.push({
+    id: uid(), type: 'transfer', fromAccountId: salaryAccountId,
+    toAccountId: ccAcct.id, amount: amount, date: todayStr(),
+    note: 'CC payment from ' + (salAcct ? salAcct.name : 'Salary'),
+  });
+  saveState();
+  renderAccounts();
+  showToast('✅ Paid ' + fmt(amount) + ' to ' + ccAcct.name, 2500);
+}
+
 function renderAccounts() {
   const el = document.getElementById('content');
   if (!state.accounts) state.accounts = [];
@@ -13721,6 +13951,77 @@ function renderAccounts() {
     const linkedGoals = (state.savingsCategories||[]).filter(g => g.linkedAccountId === _viewingAccountId);
     const allocatedTotal = linkedGoals.reduce((s,g) => s + totalSavedForCat(g.id), 0);
     const unallocated = balance - allocatedTotal;
+
+    // ── Pending savings payments (salary accounts) ──────────────────────────
+    let pendingSavingsHtml = '';
+    if (acct.isSalaryAccount) {
+      const pending = (state.pendingPayments||[]).filter(p => p.salaryAccountId === _viewingAccountId && p.status === 'pending')
+        .slice().sort((a,b) => a.dueDate.localeCompare(b.dueDate));
+      const pendingTotal = pending.reduce((s,p) => s + p.amount, 0);
+      const ccAccts = (state.accounts||[]).filter(a => a.type === 'credit');
+
+      pendingSavingsHtml = '<div style="background:var(--surface);border-radius:var(--r);padding:14px;margin-bottom:14px">' +
+        '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">' +
+          '<div>' +
+            '<div style="font-size:13px;font-weight:700;color:var(--text)">⏳ Pending payments</div>' +
+            '<div style="font-size:11px;color:var(--muted);margin-top:2px">' + pending.length + ' item' + (pending.length!==1?'s':'') + ' · ' + fmt(pendingTotal) + ' total</div>' +
+          '</div>';
+
+      // Pay CC button
+      if (ccAccts.length > 0) {
+        pendingSavingsHtml += '<button data-aid="' + _viewingAccountId + '" onclick="openPayCCFromSalary(this.dataset.aid)" style="font-size:11px;font-weight:600;color:var(--accent);background:var(--accent-dim);border:none;border-radius:8px;padding:6px 12px;font-family:var(--font);cursor:pointer">💳 Pay CC</button>';
+      }
+      pendingSavingsHtml += '</div>';
+
+      if (pending.length === 0) {
+        pendingSavingsHtml += '<div style="font-size:12px;color:var(--muted);font-style:italic;text-align:center;padding:8px 0">No pending payments — all settled ✅</div>';
+      } else {
+        pending.forEach((p, i) => {
+          const goal = savingsCatById(p.goalId);
+          const rec = (state.recurringSavings||[]).find(r => r.id === p.recurringId);
+          const dt = new Date(p.dueDate + 'T00:00:00');
+          const dateLabel = dt.toLocaleDateString('en-AU', {weekday:'short', day:'numeric', month:'short'});
+          pendingSavingsHtml +=
+            '<div style="padding:10px 0;' + (i>0?'border-top:1px solid var(--surface2)':'') + '">' +
+              '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px">' +
+                '<div style="flex:1;min-width:0">' +
+                  '<div style="font-size:13px;font-weight:600;color:var(--text)">' + (goal ? goal.icon + ' ' + goal.name : p.note||'Saving') + '</div>' +
+                  '<div style="font-size:10px;color:var(--muted);margin-top:2px">' + dateLabel + (rec ? ' · ' + rec.name : '') + '</div>' +
+                '</div>' +
+                '<div style="display:flex;align-items:center;gap:8px;flex-shrink:0">' +
+                  '<div style="text-align:right">' +
+                    '<div style="font-size:14px;font-weight:700;color:var(--text)">' + fmt(p.amount) + '</div>' +
+                    (p.amount !== p.originalAmount ? '<div style="font-size:9px;color:var(--muted)">orig. ' + fmt(p.originalAmount) + '</div>' : '') +
+                  '</div>' +
+                  '<button data-pid="' + p.id + '" onclick="editPendingAmount(this.dataset.pid)" style="font-size:11px;color:var(--muted);background:var(--surface2);border:none;border-radius:6px;padding:4px 8px;font-family:var(--font);cursor:pointer">✏️</button>' +
+                  '<button data-pid="' + p.id + '" onclick="payPendingItem(this.dataset.pid)" style="font-size:11px;font-weight:600;color:#fff;background:var(--accent);border:none;border-radius:6px;padding:4px 10px;font-family:var(--font);cursor:pointer">Pay</button>' +
+                  '<button data-pid="' + p.id + '" onclick="cancelPendingItem(this.dataset.pid)" style="font-size:11px;color:var(--red);background:none;border:none;cursor:pointer;padding:4px 6px;font-family:var(--font)">✕</button>' +
+                '</div>' +
+              '</div>' +
+            '</div>';
+        });
+      }
+
+      // Show recently paid items (last 10)
+      const recentPaid = (state.pendingPayments||[]).filter(p => p.salaryAccountId === _viewingAccountId && p.status === 'paid')
+        .slice().sort((a,b) => b.paidDate.localeCompare(a.paidDate)).slice(0,5);
+      if (recentPaid.length > 0) {
+        pendingSavingsHtml += '<div style="border-top:1px solid var(--surface2);margin-top:10px;padding-top:10px">' +
+          '<div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:8px">Recently paid</div>';
+        recentPaid.forEach(p => {
+          const goal = savingsCatById(p.goalId);
+          const dt = new Date(p.paidDate + 'T00:00:00');
+          const dateLabel = dt.toLocaleDateString('en-AU', {day:'numeric', month:'short'});
+          pendingSavingsHtml += '<div style="display:flex;justify-content:space-between;align-items:center;padding:5px 0;font-size:12px">' +
+            '<span style="color:var(--muted)">' + (goal ? goal.icon + ' ' + goal.name : p.note) + ' · ' + dateLabel + '</span>' +
+            '<span style="color:#34C759;font-weight:600">+' + fmt(p.paidAmount||p.amount) + '</span>' +
+          '</div>';
+        });
+        pendingSavingsHtml += '</div>';
+      }
+
+      pendingSavingsHtml += '</div>';
+    }
 
     // ── Pending CC float (for non-CC accounts) ──────────────────────────────
     // Find CC expenses that are unpaid — these represent money that will eventually
@@ -13850,6 +14151,7 @@ function renderAccounts() {
     }
 
     html += recIncomeHtml;
+    html += pendingSavingsHtml;
     html += pendingCCHtml;
 
     if (txns.length === 0) {
@@ -13919,7 +14221,13 @@ function renderAccounts() {
       html += '<div style="display:flex;align-items:center;gap:12px;padding:13px 14px;' + (i>0?'border-top:1px solid var(--surface2)':'') + ';cursor:pointer" onclick="_viewingAccountId=\'' + acct.id + '\';renderAccounts()">' +
         '<div style="width:42px;height:42px;border-radius:12px;background:' + acct.color + '22;display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0">' + acct.icon + '</div>' +
         '<div style="flex:1;min-width:0">' +
-          '<div style="font-size:15px;font-weight:600">' + acct.name + '</div>' +
+          '<div style="display:flex;align-items:center;gap:6px">' +
+            '<div style="font-size:15px;font-weight:600">' + acct.name + '</div>' +
+            (acct.isSalaryAccount ? (() => {
+              const pCount = (state.pendingPayments||[]).filter(p => p.salaryAccountId === acct.id && p.status === 'pending').length;
+              return pCount > 0 ? '<div style="background:var(--orange);color:#fff;font-size:9px;font-weight:700;border-radius:10px;padding:1px 6px;flex-shrink:0">' + pCount + ' pending</div>' : '<div style="font-size:9px;color:var(--muted);border-radius:10px;padding:1px 6px;background:var(--surface2)">💼 Salary</div>';
+            })() : '') +
+          '</div>' +
           (acct.type === 'credit' ? '<div style="font-size:11px;color:var(--muted)">Credit Card</div>' : '') +
         '</div>' +
         '<div style="text-align:right;flex-shrink:0">' +
