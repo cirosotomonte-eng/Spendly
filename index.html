@@ -1664,9 +1664,10 @@ async function applyUpdate() {
       <div id="recSavingActiveCheck" onclick="toggleRecSavingActive()" style="width:22px;height:22px;border-radius:6px;background:var(--accent);border:2px solid var(--accent);display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:13px;color:#fff;flex-shrink:0">&#10003;</div>
       <span style="font-size:13px">Active</span>
     </div>
-    <label>Deduct from account (optional)</label>
-    <select id="recSavingSourceAccount" style="margin-bottom:14px">
-      <option value="">None — goal only</option>
+    <label>Pay from account (optional)</label>
+    <div id="recSavingSourceAccountHint" style="font-size:11px;color:var(--muted);line-height:1.5;margin-top:-8px;margin-bottom:8px;padding:0 2px"></div>
+    <select id="recSavingSourceAccount" style="margin-bottom:14px" onchange="_updateRecSavingSourceHint()">
+      <option value="">None — auto-deposit into goal</option>
     </select>
     <button class="btn-primary" id="recSavingSaveBtn" onclick="saveRecurringSaving()">Save</button>
     <button class="btn-danger" id="recSavingDeleteBtn" onclick="deleteRecurringSaving()" style="display:none">Delete</button>
@@ -2033,9 +2034,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.4.0';
+const APP_VERSION = '2.4.1';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '16 Apr 2026 5:25 PM AEDT';
+const BUILD_TIME = '16 Apr 2026 5:42 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -11288,8 +11289,30 @@ function _populateRecSavingSourceAccount(selectedId) {
   const sel = document.getElementById('recSavingSourceAccount');
   if (!sel) return;
   const accts = (state.accounts||[]).filter(a => a.type !== 'credit');
-  sel.innerHTML = '<option value="">None — goal only</option>' +
-    accts.map(a => '<option value="' + a.id + '"' + (a.id===selectedId?' selected':'') + '>' + (a.icon||'🏦') + ' ' + a.name + '</option>').join('');
+  sel.innerHTML = '<option value="">None — auto-deposit into goal</option>' +
+    accts.map(a => {
+      const isSalary = a.isSalaryAccount;
+      const label = (a.icon||'🏦') + ' ' + a.name + (isSalary ? ' 💼' : '');
+      return '<option value="' + a.id + '"' + (a.id===selectedId?' selected':'') + '>' + label + '</option>';
+    }).join('');
+  _updateRecSavingSourceHint();
+}
+
+function _updateRecSavingSourceHint() {
+  const sel = document.getElementById('recSavingSourceAccount');
+  const hint = document.getElementById('recSavingSourceAccountHint');
+  if (!sel || !hint) return;
+  const selectedId = sel.value;
+  if (!selectedId) {
+    hint.textContent = '';
+    return;
+  }
+  const acct = accountById(selectedId);
+  if (acct && acct.isSalaryAccount) {
+    hint.innerHTML = '💼 <strong style="color:var(--text)">Salary account selected</strong> — when this saving fires, a pending item will appear in ' + acct.name + ' for you to review and pay manually.';
+  } else if (acct) {
+    hint.innerHTML = '🏦 When this saving fires, it will automatically deduct from <strong style="color:var(--text)">' + acct.name + '</strong> and deposit into the goal.';
+  }
 }
 
 
