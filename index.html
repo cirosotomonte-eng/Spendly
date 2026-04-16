@@ -2034,9 +2034,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.4.3';
+const APP_VERSION = '2.4.4';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '16 Apr 2026 10:01 PM AEDT';
+const BUILD_TIME = '16 Apr 2026 11:37 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -2558,15 +2558,11 @@ async function loadState() {
             const localRecSavCount = (localData.recurringSavings || []).length;
             const cloudPendingCount = (cloudData.pendingPayments || []).length;
             const localPendingCount = (localData.pendingPayments || []).length;
-            // Check local timestamp vs cloud — if local is newer, prefer local
-            const localTs = localStorage.getItem(BACKUP_TS_KEY);
-            const cloudTs = cloudData._savedAt || null;
-            const localIsNewer = localTs && cloudTs && localTs > cloudTs;
-            // Detect any meaningful local-ahead condition
+            // Only trigger on actual data count differences — timestamp comparison is too unreliable
+            // (clocks, timezone differences, and debounce timing cause false positives)
             const localAhead = localExpCount > cloudExpCount + 1
-              || localRecSavCount > cloudRecSavCount
-              || localPendingCount > cloudPendingCount
-              || localIsNewer;
+              || localRecSavCount > cloudRecSavCount + 1
+              || localPendingCount > cloudPendingCount + 1;
             if (localAhead) {
               state = { ...state, ...cloudData };
               if (!state.setupDone) { state.setupDone = true; }
@@ -2574,7 +2570,7 @@ async function loadState() {
               setSyncStatus('saved');
               setTimeout(() => setSyncStatus('idle'), 2000);
               // Show recovery banner after UI loads
-              setTimeout(() => showRecoveryBanner(localData, cloudExpCount, localExpCount), 2000);
+              setTimeout(() => showRecoveryBanner(localData, {exp:cloudExpCount, rec:cloudRecSavCount, pend:cloudPendingCount}, {exp:localExpCount, rec:localRecSavCount, pend:localPendingCount}), 2000);
               return;
             }
           }
@@ -2618,15 +2614,21 @@ async function loadState() {
   }
 }
 
-function showRecoveryBanner(localData, cloudCount, localCount) {
+function showRecoveryBanner(localData, cloud, local) {
   const existing = document.getElementById('recoveryBanner');
   if (existing) return;
+  // Build diff summary
+  const diffs = [];
+  if (local.exp > cloud.exp + 1) diffs.push((local.exp - cloud.exp) + ' expense' + (local.exp - cloud.exp !== 1 ? 's' : ''));
+  if (local.rec > cloud.rec + 1) diffs.push((local.rec - cloud.rec) + ' recurring saving' + (local.rec - cloud.rec !== 1 ? 's' : ''));
+  if (local.pend > cloud.pend + 1) diffs.push((local.pend - cloud.pend) + ' pending payment' + (local.pend - cloud.pend !== 1 ? 's' : ''));
+  const diffStr = diffs.length > 0 ? diffs.join(', ') : 'some changes';
   const banner = document.createElement('div');
   banner.id = 'recoveryBanner';
   banner.style.cssText = 'position:fixed;bottom:90px;left:16px;right:16px;z-index:9000;background:var(--surface);border:2px solid var(--orange);border-radius:16px;padding:14px 16px;box-shadow:0 4px 24px rgba(0,0,0,0.3)';
   banner.innerHTML =
-    '<div style="font-size:14px;font-weight:700;margin-bottom:4px">⚠️ Possible missing data detected</div>' +
-    '<div style="font-size:12px;color:var(--muted);margin-bottom:12px;line-height:1.5">Your device has <strong style="color:var(--text)">' + localCount + ' expenses</strong> locally but Supabase only has <strong style="color:var(--text)">' + cloudCount + '</strong>. You may be able to recover recent transactions.</div>' +
+    '<div style="font-size:14px;font-weight:700;margin-bottom:4px">⚠️ Local data is ahead of cloud</div>' +
+    '<div style="font-size:12px;color:var(--muted);margin-bottom:12px;line-height:1.5">Your device has <strong style="color:var(--text)">' + diffStr + '</strong> not yet in Supabase. Tap Restore to use your local data.</div>' +
     '<div style="display:flex;gap:8px">' +
       '<button onclick="recoverFromLocal()" style="flex:1;background:var(--accent);border:none;border-radius:10px;padding:10px;font-size:13px;font-weight:700;color:#fff;font-family:var(--font);cursor:pointer">Restore local data</button>' +
       '<button onclick="document.getElementById(\'recoveryBanner\').remove()" style="background:var(--surface2);border:none;border-radius:10px;padding:10px 14px;font-size:13px;color:var(--muted);font-family:var(--font);cursor:pointer">Dismiss</button>' +
