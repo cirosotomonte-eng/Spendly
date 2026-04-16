@@ -2034,9 +2034,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.4.1';
+const APP_VERSION = '2.4.2';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '16 Apr 2026 5:42 PM AEDT';
+const BUILD_TIME = '16 Apr 2026 5:57 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -11318,6 +11318,9 @@ function _updateRecSavingSourceHint() {
 
 function saveRecurringSaving() {
   const name = document.getElementById('recSavingName').value.trim();
+  const amount = parseFloat(document.getElementById('recSavingAmount').value) || 0;
+  const savingsGoalId = document.getElementById('recSavingGoal').value;
+  if (!name || !amount || !savingsGoalId) { showToast('Please fill in all required fields', 2000); return; }
   if (!state.recurringSavings) state.recurringSavings = [];
   const rec = {
     id: editingRecurringSavingId || uid(),
