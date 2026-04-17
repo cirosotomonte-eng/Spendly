@@ -1005,6 +1005,20 @@ async function applyUpdate() {
       </div>
     </div>
 
+    <!-- ── Cloud sync status ───────────────────────────────── -->
+    <div class="settings-group" style="margin-top:8px" id="syncStatusSection">
+      <div class="settings-row" style="cursor:default;flex-direction:column;align-items:flex-start;gap:6px">
+        <div style="display:flex;align-items:center;gap:8px;width:100%">
+          <span style="font-size:20px;flex-shrink:0;width:24px;text-align:center">☁️</span>
+          <div style="flex:1">
+            <div style="font-size:15px;font-weight:500">Supabase sync</div>
+            <div style="font-size:12px;color:var(--muted);margin-top:1px">Last synced: <span id="lastSyncTime">—</span></div>
+          </div>
+          <button onclick="forceSyncToSupabase()" style="background:var(--accent-dim);border:1.5px solid var(--accent);border-radius:10px;padding:7px 14px;font-size:12px;font-weight:700;color:var(--accent);font-family:var(--font);cursor:pointer">↑ Sync now</button>
+        </div>
+      </div>
+    </div>
+
     <!-- ── Sign out ───────────────────────────────────────── -->
     <div id="signOutBtn" class="settings-group" style="margin-top:8px">
       <div class="settings-row" onclick="signOut()">
@@ -2034,9 +2048,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.4.5';
+const APP_VERSION = '2.4.6';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '17 Apr 2026 4:38 PM AEDT';
+const BUILD_TIME = '17 Apr 2026 6:24 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -2374,40 +2388,77 @@ async function syncToSupabase(data) {
   try {
     setSyncStatus('saving');
     const now = new Date().toISOString();
-
-    // ── Optimistic concurrency check ─────────────────────────────────────────
-    // Before writing, fetch the current server timestamp.
-    // If the server is newer than what we last loaded, another device saved
-    // more recently — show a conflict banner instead of overwriting.
-    if (_lastKnownServerTimestamp) {
-      const checkRes = await fetch(
-        SB_URL + '/rest/v1/spendly_data?user_id=eq.' + userId + '&select=updated_at',
-        { headers: getAuthHeaders() }
-      );
-      if (checkRes.ok) {
-        const rows = await checkRes.json();
-        const serverTs = rows && rows[0] && rows[0].updated_at;
-        if (serverTs && serverTs > _lastKnownServerTimestamp) {
-          // Server has newer data — don't overwrite, offer conflict resolution
-          setSyncStatus('idle');
-          showSyncConflictBanner(serverTs, data);
-          return;
-        }
-      }
-    }
-
     const res = await fetch(SB_URL + '/rest/v1/spendly_data', {
       method: 'POST',
       headers: { ...getAuthHeaders(), 'Prefer': 'resolution=merge-duplicates,return=minimal' },
       body: JSON.stringify({ id: 'main', user_id: userId, data, updated_at: now })
     });
     if (!res.ok) throw new Error('upsert failed ' + res.status);
-    _lastKnownServerTimestamp = now; // update our anchor to what we just wrote
+    _lastKnownServerTimestamp = now;
+    _lastSuccessfulSyncTime = now;
+    try { localStorage.setItem('spendly_last_sync', now); } catch(e) {}
     setSyncStatus('saved');
     setTimeout(() => setSyncStatus('idle'), 3000);
   } catch(e) {
     setSyncStatus('error');
+    // Retry once after 3 seconds
+    setTimeout(async () => {
+      try {
+        const now2 = new Date().toISOString();
+        const res2 = await fetch(SB_URL + '/rest/v1/spendly_data', {
+          method: 'POST',
+          headers: { ...getAuthHeaders(), 'Prefer': 'resolution=merge-duplicates,return=minimal' },
+          body: JSON.stringify({ id: 'main', user_id: userId, data, updated_at: now2 })
+        });
+        if (res2.ok) {
+          _lastKnownServerTimestamp = now2;
+          _lastSuccessfulSyncTime = now2;
+          try { localStorage.setItem('spendly_last_sync', now2); } catch(e) {}
+          setSyncStatus('saved');
+          setTimeout(() => setSyncStatus('idle'), 2000);
+        }
+      } catch(e2) { /* silent retry fail */ }
+    }, 3000);
   }
+}
+
+let _lastSuccessfulSyncTime = localStorage.getItem('spendly_last_sync') || null;
+
+async function forceSyncToSupabase() {
+  const { currentTab, viewingCycleOffset, mortgageCycleOffset, editingExpenseId, editingCatId, ...persistState } = state;
+  persistState._savedAt = new Date().toISOString();
+  setSyncStatus('saving');
+  showToast('↑ Syncing to Supabase…', 1500);
+  try {
+    const userId = getCurrentUserId();
+    if (!userId) { showToast('❌ Not logged in', 2000); return; }
+    const now = new Date().toISOString();
+    const res = await fetch(SB_URL + '/rest/v1/spendly_data', {
+      method: 'POST',
+      headers: { ...getAuthHeaders(), 'Prefer': 'resolution=merge-duplicates,return=minimal' },
+      body: JSON.stringify({ id: 'main', user_id: userId, data: persistState, updated_at: now })
+    });
+    if (!res.ok) throw new Error('status ' + res.status);
+    _lastKnownServerTimestamp = now;
+    _lastSuccessfulSyncTime = now;
+    try { localStorage.setItem('spendly_last_sync', now); } catch(e) {}
+    setSyncStatus('saved');
+    setTimeout(() => setSyncStatus('idle'), 2000);
+    showToast('✅ Synced to Supabase', 2500);
+    updateLastSyncDisplay();
+  } catch(e) {
+    setSyncStatus('error');
+    showToast('❌ Sync failed: ' + e.message, 3000);
+  }
+}
+
+function updateLastSyncDisplay() {
+  const el = document.getElementById('lastSyncTime');
+  if (!el) return;
+  const ts = _lastSuccessfulSyncTime || localStorage.getItem('spendly_last_sync');
+  if (!ts) { el.textContent = 'Never synced'; return; }
+  const d = new Date(ts);
+  el.textContent = d.toLocaleDateString('en-AU', {day:'numeric',month:'short',year:'numeric'}) + ' at ' + d.toLocaleTimeString('en-AU', {hour:'numeric',minute:'2-digit',hour12:true});
 }
 
 // Timestamp of the last Supabase state we loaded or wrote — used for conflict detection
@@ -5957,6 +6008,7 @@ function openSettings() {
   // applyModeUI handles signOut/syncIndicator visibility
   applyModeUI();
   openModal('settingsModal');
+  setTimeout(updateLastSyncDisplay, 100);
 }
 
 function settingsSetCycleType(type) {
