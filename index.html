@@ -2034,9 +2034,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.4.4';
+const APP_VERSION = '2.4.5';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '16 Apr 2026 11:37 PM AEDT';
+const BUILD_TIME = '17 Apr 2026 4:38 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -8902,36 +8902,62 @@ function renderSavings() {
 // ── Congrats modal ────────────────────────────────────────────────────────────
 const CONGRATS_KEY = 'spendly_congrats_shown';
 
-function getCycleKey() {
-  const { cycleStart } = getCycleRange(0);
-  return { cycleStart, cycleEnd };
+function getCycleKey(offset) {
+  const { cycleStart } = getCycleRange(offset || 0);
+  return dateToStr(cycleStart);
 }
 
 function checkCycleComplete() {
   if (!isSetupComplete() || !state.budget || state.budget <= 0) return;
   if ((state.viewingCycleOffset || 0) !== 0) return;
+
+  // Only trigger on the FIRST day of the new cycle (daysLeft === 0 means we're in a new cycle)
+  // We look at the PREVIOUS cycle (offset -1) to check if it was under budget
   const daysLeft = getDaysLeft();
-  if (daysLeft > 1) return;
-  const cycleKey = getCycleKey();
+  if (daysLeft !== 0) return;
+
+  // Use the previous cycle's key so it only fires once per completed cycle
+  const prevCycleKey = getCycleKey(-1);
   const shown = JSON.parse(localStorage.getItem(CONGRATS_KEY) || '{}');
-  if (shown[cycleKey]) return;
-  const expenses = cycleExpenses();
-  const spent = expenses.reduce((s,e) => s + e.amount, 0);
-  const saved = state.budget - spent;
-  if (saved <= 0) return;
-  shown[cycleKey] = true;
+  if (shown[prevCycleKey]) return;
+
+  // Calculate Left to Spend for the previous cycle using the same formula as the header
+  const prevExpenses = (state.expenses || []).filter(e => {
+    const { cycleStart, cycleEnd } = getCycleRange(-1);
+    const d = new Date(e.date + 'T00:00:00');
+    return d >= cycleStart && d <= cycleEnd;
+  });
+  const prevBudget = getBudgetForDate(getCycleKey(-1));
+  const prevSpent = prevExpenses.reduce((s, e) => s + budgetAmount(e), 0);
+
+  // Also account for all savings that fired in the previous cycle
+  const { cycleStart: prevStart, cycleEnd: prevEnd } = getCycleRange(-1);
+  const prevSavings = (state.recurringSavings || []).filter(r => r.active !== false).reduce((total, r) => {
+    let d = new Date(prevStart);
+    while (d <= prevEnd) {
+      if (isRecurringDueOn(r, dateToStr(d))) total += r.amount;
+      d.setDate(d.getDate() + 1);
+    }
+    return total;
+  }, 0);
+
+  const leftToSpend = prevBudget - prevSpent - prevSavings;
+  if (leftToSpend <= 0) return;
+
+  shown[prevCycleKey] = true;
   localStorage.setItem(CONGRATS_KEY, JSON.stringify(shown));
-  setTimeout(() => showCongratsModal(saved, spent), 600);
+  setTimeout(() => showCongratsModal(leftToSpend, prevSpent), 600);
 }
 
 function showCongratsModal(saved, spent) {
   const fmt2 = (n) => '$' + Math.abs(n).toLocaleString('en-AU', {minimumFractionDigits:2, maximumFractionDigits:2});
-  const { cycleStart, cycleEnd } = getCycleRange(0);
+  const { cycleStart, cycleEnd } = getCycleRange(-1);
+  const prevBudgetAmt = getBudgetForDate(dateToStr(cycleStart));
   const cycleEndDate = dateToStr(cycleEnd);
   const cycleLabel = cycleStart.toLocaleDateString('en-AU',{day:'numeric',month:'short'}) + ' – ' + cycleEnd.toLocaleDateString('en-AU',{day:'numeric',month:'short'});
   document.getElementById('congratsCycleLabel').textContent = cycleLabel;
   document.getElementById('congratsAmount').textContent = fmt2(saved);
-  document.getElementById('congratsSub').textContent = 'Spent ' + fmt2(spent) + ' of ' + fmt2(state.budget) + ' · ' + Math.round((saved/state.budget)*100) + '% under budget';
+  document.getElementById('congratsSub').textContent = 'Spent ' + fmt2(spent) + ' of ' + fmt2(prevBudgetAmt) + ' · ' + Math.round((saved/prevBudgetAmt)*100) + '% under budget';
   pendingSuggestions = [];
   document.getElementById('congratsAcceptBtn').style.display = 'none';
   document.getElementById('congratsSuggestions').innerHTML = buildSavingsSuggestions(saved, cycleEndDate);
