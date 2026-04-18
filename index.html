@@ -2048,9 +2048,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.4.6';
+const APP_VERSION = '2.4.7';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '17 Apr 2026 6:24 PM AEDT';
+const BUILD_TIME = '18 Apr 2026 10:09 AM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -8963,10 +8963,11 @@ function checkCycleComplete() {
   if (!isSetupComplete() || !state.budget || state.budget <= 0) return;
   if ((state.viewingCycleOffset || 0) !== 0) return;
 
-  // Only trigger on the FIRST day of the new cycle (daysLeft === 0 means we're in a new cycle)
-  // We look at the PREVIOUS cycle (offset -1) to check if it was under budget
-  const daysLeft = getDaysLeft();
-  if (daysLeft !== 0) return;
+  // Only trigger on the FIRST day of the new cycle
+  // Detect by checking if today == cycle start date
+  const { cycleStart: currentCycleStart } = getCycleRange(0);
+  const isFirstDayOfCycle = todayStr() === dateToStr(currentCycleStart);
+  if (!isFirstDayOfCycle) return;
 
   // Use the previous cycle's key so it only fires once per completed cycle
   const prevCycleKey = getCycleKey(-1);
@@ -8982,16 +8983,24 @@ function checkCycleComplete() {
   const prevBudget = getBudgetForDate(getCycleKey(-1));
   const prevSpent = prevExpenses.reduce((s, e) => s + budgetAmount(e), 0);
 
-  // Also account for all savings that fired in the previous cycle
+  // Account for savings that actually fired in the previous cycle
   const { cycleStart: prevStart, cycleEnd: prevEnd } = getCycleRange(-1);
-  const prevSavings = (state.recurringSavings || []).filter(r => r.active !== false).reduce((total, r) => {
-    let d = new Date(prevStart);
-    while (d <= prevEnd) {
-      if (isRecurringDueOn(r, dateToStr(d))) total += r.amount;
-      d.setDate(d.getDate() + 1);
-    }
-    return total;
-  }, 0);
+  const prevDepositTotal = (state.savingsDeposits||[])
+    .filter(d => {
+      if (!d.recurringId) return false;
+      if (d.type === 'withdrawal' || d.type === 'bill-payment') return false;
+      const dt = new Date(d.date + 'T00:00:00');
+      return dt >= prevStart && dt <= prevEnd;
+    })
+    .reduce((s, d) => s + d.amount, 0);
+  const prevPendingTotal = (state.pendingPayments||[])
+    .filter(p => {
+      if (p.status === 'cancelled') return false;
+      const dt = new Date(p.dueDate + 'T00:00:00');
+      return dt >= prevStart && dt <= prevEnd;
+    })
+    .reduce((s, p) => s + p.amount, 0);
+  const prevSavings = prevDepositTotal + prevPendingTotal;
 
   const leftToSpend = prevBudget - prevSpent - prevSavings;
   if (leftToSpend <= 0) return;
@@ -11710,22 +11719,32 @@ function applyRecurringIncome() {
 // Returns the total of ALL recurring savings scheduled within the current cycle,
 // by iterating the schedule — fired, today, or upcoming. Used for Left to Spend.
 function getFiredRecurringSavingsTotal() {
+  // Returns ONLY savings that have actually fired this cycle:
+  // 1. Deposits already recorded in savingsDeposits (standard flow)
+  // 2. Pending payment items already created (salary account flow)
+  // Does NOT project future occurrences — those are handled by getUpcomingRecurringSavings()
   const { cycleStart, cycleEnd } = getCycleRange(0);
-  const recs = (state.recurringSavings||[]).filter(r => r.active !== false);
-  let total = 0;
-  recs.forEach(r => {
-    let d = new Date(cycleStart);
-    d.setHours(0,0,0,0);
-    const visited = new Set();
-    while (d <= cycleEnd) {
-      const key = dateToStr(d);
-      if (visited.has(key)) break;
-      visited.add(key);
-      if (isRecurringDueOn(r, key)) total += r.amount;
-      d.setDate(d.getDate() + 1);
-    }
-  });
-  return total;
+
+  // Standard deposits with a recurringId in this cycle
+  const depositTotal = (state.savingsDeposits||[])
+    .filter(d => {
+      if (!d.recurringId) return false;
+      if (d.type === 'withdrawal' || d.type === 'bill-payment') return false;
+      const dt = new Date(d.date + 'T00:00:00');
+      return dt >= cycleStart && dt <= cycleEnd;
+    })
+    .reduce((s, d) => s + d.amount, 0);
+
+  // Pending payments created this cycle (salary account flow) — both pending and paid
+  const pendingTotal = (state.pendingPayments||[])
+    .filter(p => {
+      if (p.status === 'cancelled') return false;
+      const dt = new Date(p.dueDate + 'T00:00:00');
+      return dt >= cycleStart && dt <= cycleEnd;
+    })
+    .reduce((s, p) => s + p.amount, 0);
+
+  return depositTotal + pendingTotal;
 }
 
 function getUpcomingRecurringSavings() {
