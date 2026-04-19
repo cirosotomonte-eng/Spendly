@@ -1262,6 +1262,8 @@ async function applyUpdate() {
       <option value="">None</option>
     </select>
     <button class="btn-primary" id="scSaveBtn" onclick="saveSavingsCat()">Save goal</button>
+    <button id="scCloseGoalBtn" onclick="closeGoal()" style="display:none;width:100%;background:none;border:1.5px solid var(--border);border-radius:12px;padding:13px;font-size:14px;font-weight:600;color:var(--muted);font-family:var(--font);cursor:pointer;margin-bottom:8px">🔒 Close goal</button>
+    <button id="scReopenGoalBtn" onclick="reopenGoal()" style="display:none;width:100%;background:none;border:1.5px solid var(--accent);border-radius:12px;padding:13px;font-size:14px;font-weight:600;color:var(--accent);font-family:var(--font);cursor:pointer;margin-bottom:8px">🔓 Reopen goal</button>
     <button class="btn-danger" id="scDeleteBtn" onclick="deleteSavingsCat()" style="display:none">Delete goal</button>
     <button class="btn-ghost" onclick="closeModal('savingsCatModal')">Cancel</button>
   </div>
@@ -2048,9 +2050,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.4.7';
+const APP_VERSION = '2.4.9';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '18 Apr 2026 10:09 AM AEDT';
+const BUILD_TIME = '19 Apr 2026 5:29 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -3561,8 +3563,8 @@ function updateHeader() {
   let upcomingTotal = 0;
   if (isCurrentCycle()) {
     upcomingTotal = getUpcomingRecurring().reduce((s,e) => s + e.amount, 0);
-    // Include ALL recurring savings scheduled this cycle (full schedule, not deposit-based)
-    upcomingTotal += getFiredRecurringSavingsTotal();
+    // Include full cycle savings schedule so Left to Spend reflects the complete picture
+    upcomingTotal += getCycleRecurringSavingsScheduleTotal(0);
   } else if (isFutureCycle()) {
     // Project all recurring expenses due within this future cycle
     const { cycleStart, cycleEnd } = getCycleRange();
@@ -5660,8 +5662,10 @@ function renderGoals() {
 
   // Full cycle savings: schedule-based total vs just upcoming
   const upcomingRecSavingsOnly = isCurrentCycle() ? getUpcomingRecurringSavings().reduce((s,u) => s + u.r.amount, 0) : 0;
-  const upcomingRecSavingsTotal = isCurrentCycle() ? getFiredRecurringSavingsTotal() : 0;
-  const firedRecSavingsTotal = upcomingRecSavingsTotal - upcomingRecSavingsOnly;
+  // Use schedule-based total for display (Saved pill, Free pill, banner)
+  // so it reflects the full cycle plan immediately, including any recent changes to recurring amounts
+  const upcomingRecSavingsTotal = isCurrentCycle() ? getCycleRecurringSavingsScheduleTotal(0) : 0;
+  const firedRecSavingsTotal = Math.max(0, upcomingRecSavingsTotal - upcomingRecSavingsOnly);
 
 
 
@@ -8223,6 +8227,10 @@ function openAddSavingsCat() {
   document.getElementById('scGoalDate').value = '';
   document.getElementById('scDeleteBtn').style.display = 'none';
   document.getElementById('scSaveBtn').textContent = 'Save goal';
+  const closeBtnA = document.getElementById('scCloseGoalBtn');
+  const reopenBtnA = document.getElementById('scReopenGoalBtn');
+  if (closeBtnA) closeBtnA.style.display = 'none';
+  if (reopenBtnA) reopenBtnA.style.display = 'none';
   const col = PALETTE[Math.floor(Math.random()*PALETTE.length)];
   buildColorGridFor('scColorGrid', col);
   setEmojiPicker('sc', '');
@@ -8286,11 +8294,55 @@ function openEditSavingsCat(id) {
   document.getElementById('scGoalDate').value = cat.goalDate||'';
   document.getElementById('scDeleteBtn').style.display = 'block';
   document.getElementById('scSaveBtn').textContent = 'Update goal';
+  // Show close/reopen based on status and balance
+  const editBal = totalSavedForCat(cat.id);
+  const closeBtn = document.getElementById('scCloseGoalBtn');
+  const reopenBtn = document.getElementById('scReopenGoalBtn');
+  if (cat.status === 'closed') {
+    if (closeBtn) closeBtn.style.display = 'none';
+    if (reopenBtn) reopenBtn.style.display = 'block';
+  } else {
+    if (reopenBtn) reopenBtn.style.display = 'none';
+    if (closeBtn) closeBtn.style.display = editBal <= 0 ? 'block' : 'none';
+  }
   buildColorGridFor('scColorGrid', cat.color);
   setEmojiPicker('sc', cat.icon||'');
   _populateSavingsAccountSelect(cat.linkedAccountId || '');
   openModal('savingsCatModal');
 }
+// ── Goal state management ─────────────────────────────────────────────────────
+function checkAndMarkGoalReached(catId) {
+  const cat = savingsCatById(catId);
+  if (!cat || cat.reachedAt || !cat.target || cat.target <= 0) return;
+  const balance = totalSavedForCat(catId);
+  if (balance >= cat.target) {
+    const idx = (state.savingsCategories||[]).findIndex(c => c.id === catId);
+    if (idx >= 0) {
+      state.savingsCategories[idx].reachedAt = new Date().toISOString();
+      saveState();
+    }
+  }
+}
+
+function closeGoal() {
+  if (!editingSavingsCatId) return;
+  const bal = totalSavedForCat(editingSavingsCatId);
+  if (bal > 0.005) { showToast('Balance must be $0 to close this goal', 2500); return; }
+  if (!confirm('Close this goal? It will be hidden from active goals. You can reopen it anytime.')) return;
+  const idx = (state.savingsCategories||[]).findIndex(c => c.id === editingSavingsCatId);
+  if (idx >= 0) state.savingsCategories[idx].status = 'closed';
+  saveState(); closeModal('savingsCatModal'); renderContent();
+  showToast('Goal closed', 1500);
+}
+
+function reopenGoal() {
+  if (!editingSavingsCatId) return;
+  const idx = (state.savingsCategories||[]).findIndex(c => c.id === editingSavingsCatId);
+  if (idx >= 0) state.savingsCategories[idx].status = 'active';
+  saveState(); closeModal('savingsCatModal'); renderContent();
+  showToast('Goal reopened', 1500);
+}
+
 function saveSavingsCat() {
   const name = document.getElementById('scName').value.trim();
   if (!name) return;
@@ -8303,8 +8355,10 @@ function saveSavingsCat() {
   if (editingSavingsCatId) {
     const idx = state.savingsCategories.findIndex(c=>c.id===editingSavingsCatId);
     if (idx>=0) state.savingsCategories[idx] = {...state.savingsCategories[idx], name, icon, color, goalDate, target, linkedAccountId};
+    // Check if newly reached after target change
+    checkAndMarkGoalReached(editingSavingsCatId);
   } else {
-    state.savingsCategories.push({id:uid(), name, icon, color, goalDate, target, linkedAccountId});
+    state.savingsCategories.push({id:uid(), name, icon, color, goalDate, target, linkedAccountId, status:'active', reachedAt:null});
   }
   saveState(); closeModal('savingsCatModal'); renderContent();
 }
@@ -8543,6 +8597,8 @@ function saveSavingsDeposit() {
   }
   saveState(); closeModal('savingsDepositModal');
   _savingsCatScrollTarget = catId;
+  // Check if goal newly reached after this deposit
+  if (type === 'deposit') checkAndMarkGoalReached(depositCatId);
   renderContent();
 }
 
@@ -8596,7 +8652,19 @@ function renderSavings() {
   const el = document.getElementById('content');
   const allCats = state.savingsCategories || [];
   const savingsQuery = (_tabSearch['savings'] || '').toLowerCase().trim();
-  const cats = savingsQuery ? allCats.filter(c => c.name.toLowerCase().includes(savingsQuery)) : allCats;
+  // Separate active from closed goals
+  const activeCats = allCats.filter(c => c.status !== 'closed');
+  const closedCats = allCats.filter(c => c.status === 'closed');
+  const cats = savingsQuery
+    ? activeCats.filter(c => c.name.toLowerCase().includes(savingsQuery))
+    : activeCats;
+  // Auto-mark goals as reached if not already flagged
+  activeCats.forEach(cat => {
+    if (!cat.reachedAt && cat.target > 0 && totalSavedForCat(cat.id) >= cat.target) {
+      const idx = allCats.findIndex(c => c.id === cat.id);
+      if (idx >= 0) { state.savingsCategories[idx].reachedAt = new Date().toISOString(); }
+    }
+  });
   const totalAllSavings = (state.savingsDeposits||[]).reduce((s,d)=>s+(d.type==='withdrawal'||d.type==='bill-payment'?-d.amount:d.amount),0);
   const { cycleStart, cycleEnd } = getCycleRange();
   const cycleNetAll = (state.savingsDeposits||[]).filter(d=>{ const dt=new Date(d.date+'T00:00:00'); return dt>=cycleStart&&dt<=cycleEnd; }).reduce((s,d)=>s+(d.type==='withdrawal'||d.type==='bill-payment'?-d.amount:d.amount),0);
@@ -8703,7 +8771,7 @@ function renderSavings() {
     html += '<div style="display:flex;align-items:center;gap:12px;padding:14px">' +
       '<div style="width:42px;height:42px;border-radius:11px;background:'+cat.color+'22;display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0;cursor:pointer" onclick="openEditSavingsCat(\''+cat.id+'\')">'+cat.icon+'</div>' +
       '<div style="flex:1;min-width:0;cursor:pointer" onclick="openEditSavingsCat(\''+cat.id+'\')">' +
-        '<div style="font-size:15px;font-weight:700">'+cat.name+'</div>' +
+        '<div style="font-size:15px;font-weight:700">'+cat.name+(cat.reachedAt ? ' <span style="font-size:10px;background:rgba(52,199,89,0.15);color:#34C759;border-radius:6px;padding:2px 6px;font-weight:600;vertical-align:middle">🎉 Reached</span>' : '')+'</div>' +
         (cat.goalDate ? '<div style="font-size:11px;color:var(--muted);margin-top:1px">Goal: '+fmtGoalDate(cat.goalDate)+(catDays!==null?' · '+(catDays>0?catDays+' days left':catDays===0?'Today!':'Overdue'):'')+'</div>' : '') +
       '</div>' +
       '<div style="text-align:right;flex-shrink:0;margin-right:8px">' +
@@ -8909,6 +8977,29 @@ function renderSavings() {
     }
     html += '</div>';
   });
+
+  // ── Closed goals section ──────────────────────────────────────────────────
+  if (closedCats.length > 0) {
+    html += '<div style="margin-top:20px">';
+    html += '<div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:8px;display:flex;align-items:center;gap:6px">🔒 Closed goals <span style="background:var(--surface2);border-radius:10px;padding:1px 7px;font-size:10px">' + closedCats.length + '</span></div>';
+    html += '<div style="background:var(--surface);border-radius:var(--r);overflow:hidden;opacity:0.7">';
+    closedCats.forEach((cat, i) => {
+      const catTotal = totalSavedForCat(cat.id);
+      html += '<div style="display:flex;align-items:center;gap:12px;padding:12px 14px;' + (i > 0 ? 'border-top:1px solid var(--surface2)' : '') + ';cursor:pointer" data-cid="' + cat.id + '" onclick="openEditSavingsCat(this.dataset.cid)">' +
+        '<div style="width:38px;height:38px;border-radius:10px;background:var(--surface2);display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0">' + cat.icon + '</div>' +
+        '<div style="flex:1;min-width:0">' +
+          '<div style="font-size:14px;font-weight:600;color:var(--muted)">' + cat.name + (cat.reachedAt ? ' <span style="font-size:9px;background:rgba(52,199,89,0.15);color:#34C759;border-radius:6px;padding:1px 5px;font-weight:600">🎉 Reached</span>' : '') + '</div>' +
+          '<div style="font-size:10px;color:var(--muted);margin-top:1px">Closed</div>' +
+        '</div>' +
+        '<div style="text-align:right;flex-shrink:0">' +
+          '<div style="font-size:14px;font-weight:600;color:var(--muted)">' + fmt(Math.abs(catTotal)) + '</div>' +
+          (cat.target > 0 ? '<div style="font-size:10px;color:var(--muted)">of ' + fmt(cat.target) + '</div>' : '') +
+        '</div>' +
+        '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" style="flex-shrink:0;color:var(--muted)"><path d="M6 3l5 5-5 5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>' +
+      '</div>';
+    });
+    html += '</div></div>';
+  }
 
   el.innerHTML = html;
 
@@ -11718,6 +11809,27 @@ function applyRecurringIncome() {
 
 // Returns the total of ALL recurring savings scheduled within the current cycle,
 // by iterating the schedule — fired, today, or upcoming. Used for Left to Spend.
+// Schedule-based: total savings planned for this cycle regardless of whether fired yet
+// Used for the Saved pill display and savings table "This Cycle" column
+function getCycleRecurringSavingsScheduleTotal(offset) {
+  const { cycleStart, cycleEnd } = getCycleRange(offset || 0);
+  const recs = (state.recurringSavings||[]).filter(r => r.active !== false);
+  let total = 0;
+  recs.forEach(r => {
+    let d = new Date(cycleStart);
+    d.setHours(0,0,0,0);
+    const visited = new Set();
+    while (d <= cycleEnd) {
+      const key = dateToStr(d);
+      if (visited.has(key)) break;
+      visited.add(key);
+      if (isRecurringDueOn(r, key)) total += r.amount;
+      d.setDate(d.getDate() + 1);
+    }
+  });
+  return total;
+}
+
 function getFiredRecurringSavingsTotal() {
   // Returns ONLY savings that have actually fired this cycle:
   // 1. Deposits already recorded in savingsDeposits (standard flow)
