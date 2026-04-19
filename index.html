@@ -2050,9 +2050,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.4.10';
+const APP_VERSION = '2.4.11';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '19 Apr 2026 6:12 PM AEDT';
+const BUILD_TIME = '20 Apr 2026 8:57 AM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -12730,9 +12730,9 @@ function renderGiftCards() {
 // ── Offset transaction sheet ──────────────────────────────────────────────────
 function openOffsetTxSheet() {
   const refreshOffsetSheet = () => {
-    const { cycleStart, cycleEnd } = getCycleRange(state.mortgageCycleOffset || 0);
+    const { cycleStart, cycleEnd } = getMortgageCycleRange(state.mortgageCycleOffset || 0);
     const cycleTxs = getOffsetTxInRange(cycleStart, cycleEnd).sort((a,b)=>b.date.localeCompare(a.date));
-    const cycleLabel = cycleStart.toLocaleDateString('en-AU',{day:'numeric',month:'short'}) + ' – ' + cycleEnd.toLocaleDateString('en-AU',{day:'numeric',month:'short'});
+    const cycleLabel = getMortgageCycleLabel(state.mortgageCycleOffset || 0);
     const cycleNet = cycleTxs.filter(t=>t.type==='deposit').reduce((s,t)=>s+t.amount,0)
                    - cycleTxs.filter(t=>t.type==='withdrawal').reduce((s,t)=>s+t.amount,0);
     const fmtF = n => '$' + n.toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2});
