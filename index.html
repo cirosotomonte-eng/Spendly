@@ -2050,9 +2050,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.4.11';
+const APP_VERSION = '2.4.12';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '20 Apr 2026 8:57 AM AEDT';
+const BUILD_TIME = '20 Apr 2026 9:41 AM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -3095,6 +3095,7 @@ function getUpcomingRecurring() {
           amount: netAmount,
           grossAmount: r.amount,
           goalCovered: covered,
+          linkedGoalId: linkedGoalId,
           name: r.name,
           categoryId: r.categoryId,
           date: key,
@@ -4504,7 +4505,7 @@ function renderRecurringSection() {
   const allUpcoming = isCurrentCycle() ? getUpcomingRecurring().sort((a,b) => a.date.localeCompare(b.date)) : [];
   if (allUpcoming.length === 0) { container.innerHTML = ''; return; }
 
-  const upTotal = allUpcoming.reduce((s,e) => s + e.amount, 0);
+  const upTotal = allUpcoming.reduce((s,e) => s + (e.grossAmount || e.amount), 0);
   const chevron = _recurringExpanded
     ? '<svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2 8l4-4 4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>'
     : '<svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2 4l4 4 4-4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
@@ -4533,13 +4534,27 @@ function renderRecurringSection() {
       const daysUntilDue = Math.round((dueDate - today) / 86400000);
       const dueStr = daysUntilDue === 1 ? 'Tomorrow' : daysUntilDue === 0 ? 'Today' :
         dueDate.toLocaleDateString('en-AU',{weekday:'short',day:'numeric',month:'short'});
+      const grossAmt = e.grossAmount || e.amount;
+      const covered = e.goalCovered || 0;
+      const isFullyCovered = covered >= grossAmt && grossAmt > 0;
+      const isPartial = covered > 0 && covered < grossAmt;
+      // Find the goal name for coverage label
+      const linkedGoalId = e.linkedGoalId || null;
+      const coverGoal = linkedGoalId ? savingsCatById(linkedGoalId) : null;
+      const coverLabel = coverGoal ? coverGoal.icon + ' Covered by ' + coverGoal.name : '💚 Covered by savings';
       html += '<div style="display:flex;align-items:center;gap:12px;padding:9px 14px;border-top:1px solid rgba(79,142,247,0.12)">' +
         '<div style="width:36px;height:36px;display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0">' + cat.icon + '</div>' +
         '<div style="flex:1;min-width:0">' +
           '<div style="font-size:13px;font-weight:500">' + e.name + '</div>' +
           '<div style="font-size:11px;color:var(--muted)">' + cat.name + ' · ' + dueStr + '</div>' +
+          (isFullyCovered ? '<div style="font-size:10px;color:#34C759;margin-top:2px">' + coverLabel + '</div>' : '') +
+          (isPartial ? '<div style="font-size:10px;color:#34C759;margin-top:2px">' + coverLabel + ' · ' + fmt(covered) + ' · You pay ' + fmt(grossAmt - covered) + '</div>' : '') +
         '</div>' +
-        '<div style="font-size:13px;font-weight:600;color:var(--accent)">-' + fmt(e.amount) + '</div>' +
+        '<div style="text-align:right;flex-shrink:0">' +
+          '<div style="font-size:13px;font-weight:600;color:var(--accent)">-' + fmt(grossAmt) + '</div>' +
+          (isFullyCovered ? '<div style="font-size:9px;color:#34C759;font-weight:600">$0 from budget</div>' : '') +
+          (isPartial ? '<div style="font-size:9px;color:var(--muted)">-' + fmt(grossAmt - covered) + ' from budget</div>' : '') +
+        '</div>' +
       '</div>';
     });
   }
