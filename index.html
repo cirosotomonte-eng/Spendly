@@ -1262,9 +1262,6 @@ async function applyUpdate() {
       <option value="">None</option>
     </select>
     <button class="btn-primary" id="scSaveBtn" onclick="saveSavingsCat()">Save goal</button>
-    <button id="scCloseGoalBtn" onclick="closeGoal()" style="display:none;width:100%;background:none;border:1.5px solid var(--border);border-radius:12px;padding:13px;font-size:14px;font-weight:600;color:var(--muted);font-family:var(--font);cursor:pointer;margin-bottom:8px">🔒 Close goal</button>
-    <button id="scReopenGoalBtn" onclick="reopenGoal()" style="display:none;width:100%;background:none;border:1.5px solid var(--accent);border-radius:12px;padding:13px;font-size:14px;font-weight:600;color:var(--accent);font-family:var(--font);cursor:pointer;margin-bottom:8px">🔓 Reopen goal</button>
-    <button class="btn-danger" id="scDeleteBtn" onclick="deleteSavingsCat()" style="display:none">Delete goal</button>
     <button class="btn-ghost" onclick="closeModal('savingsCatModal')">Cancel</button>
   </div>
 </div>
@@ -2050,9 +2047,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.4.12';
+const APP_VERSION = '2.4.13';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '20 Apr 2026 9:41 AM AEDT';
+const BUILD_TIME = '20 Apr 2026 1:03 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -8252,10 +8249,7 @@ function openAddSavingsCat() {
   document.getElementById('scGoalDate').value = '';
   document.getElementById('scDeleteBtn').style.display = 'none';
   document.getElementById('scSaveBtn').textContent = 'Save goal';
-  const closeBtnA = document.getElementById('scCloseGoalBtn');
-  const reopenBtnA = document.getElementById('scReopenGoalBtn');
-  if (closeBtnA) closeBtnA.style.display = 'none';
-  if (reopenBtnA) reopenBtnA.style.display = 'none';
+  // No lifecycle buttons in add mode
   const col = PALETTE[Math.floor(Math.random()*PALETTE.length)];
   buildColorGridFor('scColorGrid', col);
   setEmojiPicker('sc', '');
@@ -8280,6 +8274,17 @@ function openSavingsHistory(catId, subId) {
       '<div style="width:36px;height:4px;border-radius:2px;background:var(--border);margin:0 auto 16px"></div>' +
       '<div style="font-size:15px;font-weight:700;margin-bottom:16px;text-align:center">' + label + '</div>' +
       '<button onclick="document.getElementById(\'savingsActionSheet\').remove();' + (sub ? 'openEditSavingsSub(\'' + subId + '\')' : 'openEditSavingsCat(\'' + catId + '\')') + '" style="width:100%;background:var(--surface2);border:none;border-radius:12px;padding:14px 16px;font-size:15px;font-weight:500;font-family:var(--font);cursor:pointer;text-align:left;margin-bottom:8px;display:flex;align-items:center;gap:12px"><span style="font-size:20px">✏️</span> Edit ' + (sub ? 'goal' : 'category') + '</button>' +
+      (!sub ? (() => {
+        const _cat = savingsCatById(catId);
+        const _bal = _cat ? totalSavedForCat(catId) : 1;
+        const _closed = _cat && _cat.status === 'closed';
+        if (_closed) {
+          return '<button onclick="document.getElementById(\'savingsActionSheet\').remove();reopenGoal(\''+catId+'\')" style="width:100%;background:rgba(52,199,89,0.08);border:1px solid rgba(52,199,89,0.25);border-radius:12px;padding:14px 16px;font-size:15px;font-weight:500;font-family:var(--font);cursor:pointer;text-align:left;margin-bottom:8px;display:flex;align-items:center;gap:12px;color:#34C759"><span style="font-size:20px">🔓</span> Reopen goal</button>';
+        } else if (_bal <= 0.005) {
+          return '<button onclick="document.getElementById(\'savingsActionSheet\').remove();closeGoal(\''+catId+'\')" style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:14px 16px;font-size:15px;font-weight:500;font-family:var(--font);cursor:pointer;text-align:left;margin-bottom:8px;display:flex;align-items:center;gap:12px;color:var(--muted)"><span style="font-size:20px">🔒</span> Close goal</button>';
+        }
+        return '';
+      })() : '') +
       '<button onclick="document.getElementById(\'savingsActionSheet\').remove();_confirmDeleteSavings(\'' + catId + '\',\'' + (subId||'') + '\')" style="width:100%;background:rgba(255,92,92,0.08);border:1px solid rgba(255,92,92,0.2);border-radius:12px;padding:14px 16px;font-size:15px;font-weight:500;font-family:var(--font);cursor:pointer;text-align:left;margin-bottom:8px;display:flex;align-items:center;gap:12px;color:var(--red)"><span style="font-size:20px">🗑️</span> Delete ' + (sub ? 'goal' : 'category') + (sub ? '' : ' and all data') + '</button>' +
       '<button onclick="document.getElementById(\'savingsActionSheet\').remove()" style="width:100%;background:none;border:none;color:var(--muted);padding:12px;font-size:14px;font-family:var(--font);cursor:pointer">Cancel</button>' +
     '</div>';
@@ -8319,17 +8324,7 @@ function openEditSavingsCat(id) {
   document.getElementById('scGoalDate').value = cat.goalDate||'';
   document.getElementById('scDeleteBtn').style.display = 'block';
   document.getElementById('scSaveBtn').textContent = 'Update goal';
-  // Show close/reopen based on status and balance
-  const editBal = totalSavedForCat(cat.id);
-  const closeBtn = document.getElementById('scCloseGoalBtn');
-  const reopenBtn = document.getElementById('scReopenGoalBtn');
-  if (cat.status === 'closed') {
-    if (closeBtn) closeBtn.style.display = 'none';
-    if (reopenBtn) reopenBtn.style.display = 'block';
-  } else {
-    if (reopenBtn) reopenBtn.style.display = 'none';
-    if (closeBtn) closeBtn.style.display = editBal <= 0 ? 'block' : 'none';
-  }
+  // Close/Reopen and Delete are in the goal action sheet (tap goal icon)
   buildColorGridFor('scColorGrid', cat.color);
   setEmojiPicker('sc', cat.icon||'');
   _populateSavingsAccountSelect(cat.linkedAccountId || '');
@@ -8349,22 +8344,24 @@ function checkAndMarkGoalReached(catId) {
   }
 }
 
-function closeGoal() {
-  if (!editingSavingsCatId) return;
-  const bal = totalSavedForCat(editingSavingsCatId);
+function closeGoal(catId) {
+  const id = catId || editingSavingsCatId;
+  if (!id) return;
+  const bal = totalSavedForCat(id);
   if (bal > 0.005) { showToast('Balance must be $0 to close this goal', 2500); return; }
   if (!confirm('Close this goal? It will be hidden from active goals. You can reopen it anytime.')) return;
-  const idx = (state.savingsCategories||[]).findIndex(c => c.id === editingSavingsCatId);
+  const idx = (state.savingsCategories||[]).findIndex(c => c.id === id);
   if (idx >= 0) state.savingsCategories[idx].status = 'closed';
-  saveState(); closeModal('savingsCatModal'); renderContent();
+  saveState(); renderContent();
   showToast('Goal closed', 1500);
 }
 
-function reopenGoal() {
-  if (!editingSavingsCatId) return;
-  const idx = (state.savingsCategories||[]).findIndex(c => c.id === editingSavingsCatId);
+function reopenGoal(catId) {
+  const id = catId || editingSavingsCatId;
+  if (!id) return;
+  const idx = (state.savingsCategories||[]).findIndex(c => c.id === id);
   if (idx >= 0) state.savingsCategories[idx].status = 'active';
-  saveState(); closeModal('savingsCatModal'); renderContent();
+  saveState(); renderContent();
   showToast('Goal reopened', 1500);
 }
 
