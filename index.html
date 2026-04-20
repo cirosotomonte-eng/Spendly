@@ -2047,9 +2047,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.4.17';
+const APP_VERSION = '2.4.18';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '20 Apr 2026 9:46 PM AEDT';
+const BUILD_TIME = '20 Apr 2026 9:52 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -5731,7 +5731,10 @@ function renderGoals() {
     actions: [{ svg: SVG_PLUS, onclick: 'openAddCategory()', title: 'Add category' }]
   });
   const upcomingExpensesNet = isCurrentCycle() ? getUpcomingRecurring().reduce((s,e) => s + e.amount, 0) : 0;
-  const freeToSpend = overallBudget > 0 ? overallBudget - totalSpent - upcomingExpensesNet - upcomingRecSavingsTotal : totalLeft - upcomingRecSavingsTotal;
+  // Use same formula as updateHeader: fired savings + upcoming savings (avoids double-count with pending flow)
+  const firedSavingsForFree = isCurrentCycle() ? getFiredRecurringSavingsTotal() : 0;
+  const upcomingSavingsForFree = isCurrentCycle() ? getUpcomingRecurringSavings().reduce((s,u) => s + u.r.amount, 0) : 0;
+  const freeToSpend = overallBudget > 0 ? overallBudget - totalSpent - upcomingExpensesNet - firedSavingsForFree - upcomingSavingsForFree : totalLeft - upcomingRecSavingsTotal;
   const freeColor = freeToSpend < 0 ? 'var(--red)' : freeToSpend < overallBudget * 0.1 ? 'var(--orange)' : 'var(--text)';
   html += '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin:8px 0 14px">' +
     // Budget
@@ -11915,8 +11918,9 @@ function getUpcomingRecurringSavings() {
       visited.add(key);
       // Include today only if not already deposited
       const isDueToday = key === todayDateStr;
-      const alreadyFired = isDueToday && (state.savingsDeposits||[]).some(dep =>
-        dep.recurringId === r.id && dep.date === todayDateStr
+      const alreadyFired = isDueToday && (
+        (state.savingsDeposits||[]).some(dep => dep.recurringId === r.id && dep.date === todayDateStr) ||
+        (state.pendingPayments||[]).some(p => p.recurringId === r.id && p.dueDate === todayDateStr && p.status !== 'cancelled')
       );
       if (d >= cycleStart && (d > today || (isDueToday && !alreadyFired))) {
         const goal = savingsCatById(r.savingsGoalId);
