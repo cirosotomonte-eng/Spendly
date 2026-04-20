@@ -2047,9 +2047,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.4.15';
+const APP_VERSION = '2.4.16';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '20 Apr 2026 9:21 PM AEDT';
+const BUILD_TIME = '20 Apr 2026 9:33 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -5675,11 +5675,12 @@ function renderGoals() {
   const expenses = cycleExpenses();
   const bycat = {};
   expenses.forEach(e => { bycat[e.categoryId] = (bycat[e.categoryId]||0) + budgetAmount(e); });
-  // Include upcoming recurring expenses AND recurring savings so budget limits reflect all committed spending
+  // Track upcoming separately so Spent only shows fired transactions
+  const bycatUpcoming = {};
   if (isCurrentCycle()) {
-    getUpcomingRecurring().forEach(e => { bycat[e.categoryId] = (bycat[e.categoryId]||0) + e.amount; });
-    // Recurring savings have no categoryId — they pull from overall budget, not a specific category
-    // They are accounted for in the overall "left to spend" but not per-category
+    getUpcomingRecurring().forEach(e => {
+      bycatUpcoming[e.categoryId] = (bycatUpcoming[e.categoryId]||0) + (e.grossAmount || e.amount);
+    });
   }
 
   // Full cycle savings: schedule-based total vs just upcoming
@@ -5777,11 +5778,12 @@ function renderGoals() {
     if (cats.length === 0) return;
     const gBudget = cats.reduce((s,c)=>s+(c.budgetLimit||0),0);
     const gSpent  = cats.reduce((s,c)=>s+(bycat[c.id]||0),0);
-    const gLeft   = gBudget - gSpent;
+    const gCommitted = cats.reduce((s,c)=>s+(bycat[c.id]||0)+(bycatUpcoming[c.id]||0),0);
+    const gLeft   = gBudget - gCommitted;
 
     // Sum of category lefts that are positive (what the table implies you can still spend)
     const sumCatLefts = cats.reduce((s,c) => {
-      const left = (c.budgetLimit||0) - (bycat[c.id]||0);
+      const left = (c.budgetLimit||0) - (bycat[c.id]||0) - (bycatUpcoming[c.id]||0);
       return s + (left > 0 ? left : 0);
     }, 0);
     // Warning: the total pot left is less than what these categories suggest you can spend
@@ -5804,20 +5806,23 @@ function renderGoals() {
     html += tooltipHtml;
     cats.forEach(cat => {
       const spent = bycat[cat.id] || 0;
+      const upcoming = bycatUpcoming[cat.id] || 0;
+      const committed = spent + upcoming;
       const budget = cat.budgetLimit || 0;
-      const left = budget - spent;
-      const over = budget > 0 && spent > budget;
-      const spentStyle = over ? 'color:var(--red);font-weight:600' : '';
+      const left = budget - committed;
+      const over = budget > 0 && committed > budget;
+      const spentStyle = spent > budget && budget > 0 ? 'color:var(--red);font-weight:600' : '';
       const leftStyle  = left < 0 ? 'color:var(--red);font-weight:600' : left < budget*0.1 && budget > 0 ? 'color:var(--orange)' : '';
-      const pct = budget > 0 ? Math.min((spent/budget)*100,100) : 0;
+      const pct = budget > 0 ? Math.min((committed/budget)*100,100) : 0;
       const barColor = over ? 'var(--red)' : pct>80 ? 'var(--orange)' : cat.color;
       const isExpanded = _budgetExpandedCats.has(cat.id);
       html += '<div class="goal-row" onclick="toggleBudgetCat(\'' + cat.id + '\')" style="cursor:pointer;grid-template-columns:1fr 80px 80px 70px 16px">' +
         '<div class="goal-cat">' + cat.icon + ' ' + cat.name +
           (catRecSavings[cat.id] ? '<div style="font-size:10px;color:#34C759;font-weight:400;margin-top:2px">💚 ' + fmt(catRecSavings[cat.id]) + ' saving this cycle</div>' : '') +
+          (upcoming > 0 ? '<div style="font-size:10px;color:var(--muted);margin-top:1px">⏳ ' + fmt(upcoming) + ' upcoming</div>' : '') +
         '</div>' +
         '<div class="goal-num" style="color:var(--muted)">' + (budget>0?fmt(budget):'—') + '</div>' +
-        '<div class="goal-num" style="' + spentStyle + '">' + fmt(spent) + '</div>' +
+        '<div class="goal-num" style="' + spentStyle + '">' + fmt(spent) + (upcoming > 0 ? '<div style="font-size:9px;color:var(--muted);font-weight:400">+' + fmt(upcoming) + ' due</div>' : '') + '</div>' +
         '<div class="goal-num" style="' + leftStyle + '">' + (budget>0?(left<0?'-':'')+fmt(Math.abs(left)):'—') + '</div>' +
         '<div style="text-align:center;font-size:10px;color:var(--muted)">' + (isExpanded ? '▲' : '▼') + '</div>' +
       '</div>' +
