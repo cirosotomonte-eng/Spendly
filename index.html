@@ -2047,9 +2047,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.4.13';
+const APP_VERSION = '2.4.14';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '20 Apr 2026 1:03 PM AEDT';
+const BUILD_TIME = '20 Apr 2026 1:31 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -8137,6 +8137,11 @@ function renderRecurringSavingsPane() {
         '<div style="font-size:13px;font-weight:700;color:#34C759;flex-shrink:0">+' + fmtAmt(u.r.amount) + '</div>' +
       '</div>';
     });
+    const upcomingTotal = upcoming.reduce((s,u) => s + u.r.amount, 0);
+    html += '<div style="padding:10px 14px;border-top:1px solid var(--surface2);display:flex;justify-content:space-between;align-items:center;font-size:12px">' +
+      '<span style="color:var(--muted)">Total this cycle</span>' +
+      '<span style="font-weight:700;color:#34C759">+' + fmtAmt(upcomingTotal) + '</span>' +
+    '</div>';
     html += '</div>';
   }
 
@@ -8174,6 +8179,11 @@ function renderRecurringSavingsPane() {
       '</div>' +
     '</div>';
   });
+  const allTotal = allRecs.filter(r => r.active !== false).reduce((s,r) => s + r.amount, 0);
+  html += '<div style="padding:10px 14px;border-top:1px solid var(--surface2);display:flex;justify-content:space-between;align-items:center;font-size:12px">' +
+    '<span style="color:var(--muted)">Total per occurrence</span>' +
+    '<span style="font-weight:700;color:#34C759">+' + fmtAmt(allTotal) + '</span>' +
+  '</div>';
   html += '</div>';
   return html;
 }
