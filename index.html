@@ -2047,9 +2047,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.4.14';
+const APP_VERSION = '2.4.15';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '20 Apr 2026 1:31 PM AEDT';
+const BUILD_TIME = '20 Apr 2026 9:21 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -4502,7 +4502,7 @@ function renderRecurringSection() {
   const allUpcoming = isCurrentCycle() ? getUpcomingRecurring().sort((a,b) => a.date.localeCompare(b.date)) : [];
   if (allUpcoming.length === 0) { container.innerHTML = ''; return; }
 
-  const upTotal = allUpcoming.reduce((s,e) => s + (e.grossAmount || e.amount), 0);
+  const upTotal = allUpcoming.reduce((s,e) => s + e.amount, 0); // net of goal coverage — matches Left to Spend
   const chevron = _recurringExpanded
     ? '<svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2 8l4-4 4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>'
     : '<svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2 4l4 4 4-4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
