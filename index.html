@@ -2047,9 +2047,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.4.18';
+const APP_VERSION = '2.4.19';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '20 Apr 2026 9:52 PM AEDT';
+const BUILD_TIME = '22 Apr 2026 8:31 AM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -2570,21 +2570,25 @@ function saveState() {
 }
 
 async function flushSyncNow() {
-  // Force immediate sync when app is backgrounded — bypass conflict check
-  // (the user is leaving the app, no time to show a banner)
+  // Force immediate sync when app is backgrounded
   if (SPENDLY_MODE !== 'cloud' || !getCurrentUserId()) return;
-  clearTimeout(syncTimer);
+  // DO NOT clear syncTimer — flushSyncBeacon runs concurrently as primary
   const { currentTab, viewingCycleOffset, mortgageCycleOffset, editingExpenseId, editingCatId, ...persistState } = state;
+  persistState._savedAt = new Date().toISOString();
   const userId = getCurrentUserId();
-  const now = new Date().toISOString();
+  const now = persistState._savedAt;
   try {
     const res = await fetch(SB_URL + '/rest/v1/spendly_data', {
       method: 'POST',
       headers: { ...getAuthHeaders(), 'Prefer': 'resolution=merge-duplicates,return=minimal' },
       body: JSON.stringify({ id: 'main', user_id: userId, data: persistState, updated_at: now })
     });
-    if (res.ok) _lastKnownServerTimestamp = now;
-  } catch(e) { /* silent fail on background flush */ }
+    if (res.ok) {
+      _lastKnownServerTimestamp = now;
+      _lastSuccessfulSyncTime = now;
+      try { localStorage.setItem('spendly_last_sync', now); } catch(e) {}
+    }
+  } catch(e) { /* beacon is the primary — this is the belt */ }
 }
 
 async function loadState() {
@@ -2608,11 +2612,14 @@ async function loadState() {
             const localRecSavCount = (localData.recurringSavings || []).length;
             const cloudPendingCount = (cloudData.pendingPayments || []).length;
             const localPendingCount = (localData.pendingPayments || []).length;
-            // Only trigger on actual data count differences — timestamp comparison is too unreliable
-            // (clocks, timezone differences, and debounce timing cause false positives)
+            // Trigger if local has more data OR if local _savedAt is strictly newer than cloud
+            const localSavedAt = localData._savedAt || null;
+            const cloudSavedAt = cloudData._savedAt || null;
+            const localNewerByTs = localSavedAt && cloudSavedAt && localSavedAt > cloudSavedAt;
             const localAhead = localExpCount > cloudExpCount + 1
               || localRecSavCount > cloudRecSavCount + 1
-              || localPendingCount > cloudPendingCount + 1;
+              || localPendingCount > cloudPendingCount + 1
+              || localNewerByTs; // local has newer _savedAt means unsaved changes exist
             if (localAhead) {
               state = { ...state, ...cloudData };
               if (!state.setupDone) { state.setupDone = true; }
@@ -15402,27 +15409,44 @@ function triggerInactivityLock() {
 // with flushSyncNow as secondary for other platforms.
 function flushSyncBeacon() {
   if (SPENDLY_MODE !== 'cloud' || !getCurrentUserId()) return;
-  clearTimeout(syncTimer);
+  // DO NOT clearTimeout(syncTimer) — let the debounced sync also run as a fallback
+  // If the beacon fails, the debounced sync (if still pending) will catch it
   const { currentTab, viewingCycleOffset, mortgageCycleOffset, editingExpenseId, editingCatId, ...persistState } = state;
+  persistState._savedAt = new Date().toISOString();
   const userId = getCurrentUserId();
-  const now = new Date().toISOString();
+  const now = persistState._savedAt;
   const payload = JSON.stringify({ id: 'main', user_id: userId, data: persistState, updated_at: now });
-  // sendBeacon survives page kill on iOS — uses POST to REST endpoint
   const url = SB_URL + '/rest/v1/spendly_data';
   const headers = getAuthHeaders();
-  // Build a Blob with content-type so Supabase accepts it
   try {
-    const blob = new Blob([payload], { type: 'application/json' });
-    // sendBeacon doesn't support custom headers — use fetch with keepalive instead
     fetch(url, {
       method: 'POST',
       headers: { ...headers, 'Content-Type': 'application/json', 'Prefer': 'resolution=merge-duplicates,return=minimal' },
       body: payload,
-      keepalive: true,  // key: this survives page unload on modern browsers/iOS
-    }).then(r => { if (r.ok) _lastKnownServerTimestamp = now; }).catch(() => {});
-  } catch(e) {}
-  // Also stamp localStorage so recovery check has current timestamp
+      keepalive: true,
+    }).then(r => {
+      if (r.ok) {
+        _lastKnownServerTimestamp = now;
+        _lastSuccessfulSyncTime = now;
+        try { localStorage.setItem('spendly_last_sync', now); } catch(e) {}
+      }
+      // If beacon fails, schedule an immediate retry via syncToSupabase
+      else { setTimeout(() => syncToSupabase(persistState), 1000); }
+    }).catch(() => {
+      // Beacon failed — retry after 1s
+      setTimeout(() => syncToSupabase(persistState), 1000);
+    });
+  } catch(e) {
+    setTimeout(() => syncToSupabase(persistState), 1000);
+  }
+  // Stamp localStorage with current state + timestamp regardless
   try { localStorage.setItem(BACKUP_TS_KEY, now); } catch(e) {}
+  // Also ensure localStorage has the latest state in case app is killed before retry
+  try {
+    const data = JSON.stringify(persistState);
+    localStorage.setItem(STORAGE_KEY, data);
+    localStorage.setItem(BACKUP_KEY, data);
+  } catch(e) {}
 }
 
 // pagehide is more reliable than visibilitychange on iOS Safari/PWA for kill events
