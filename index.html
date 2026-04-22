@@ -2050,9 +2050,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.5.2';
+const APP_VERSION = '2.5.3';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '22 Apr 2026 5:18 PM AEDT';
+const BUILD_TIME = '22 Apr 2026 11:55 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -2386,7 +2386,7 @@ function setSyncStatus(s) {
 
 async function syncToSupabase(data) {
   const userId = getCurrentUserId();
-  if (!userId) { setSyncStatus('error'); return; }
+  if (!userId) { return; } // session not ready yet — not an error
   try {
     setSyncStatus('saving');
     const now = new Date().toISOString();
@@ -2395,6 +2395,31 @@ async function syncToSupabase(data) {
       headers: { ...getAuthHeaders(), 'Prefer': 'resolution=merge-duplicates,return=minimal' },
       body: JSON.stringify({ id: 'main', user_id: userId, data, updated_at: now })
     });
+    if (res.status === 401 || res.status === 403) {
+      // Token expired — refresh session silently and retry, don't show error to user
+      setSyncStatus('idle');
+      try {
+        const { data: refreshData, error } = await getSB().auth.refreshSession();
+        if (!error && refreshData.session) {
+          _sbSession = refreshData.session;
+          // Retry with fresh token
+          const now2 = new Date().toISOString();
+          const res2 = await fetch(SB_URL + '/rest/v1/spendly_data', {
+            method: 'POST',
+            headers: { ...getAuthHeaders(), 'Prefer': 'resolution=merge-duplicates,return=minimal' },
+            body: JSON.stringify({ id: 'main', user_id: userId, data, updated_at: now2 })
+          });
+          if (res2.ok) {
+            _lastKnownServerTimestamp = now2;
+            _lastSuccessfulSyncTime = now2;
+            try { localStorage.setItem('spendly_last_sync', now2); } catch(e) {}
+            setSyncStatus('saved');
+            setTimeout(() => setSyncStatus('idle'), 3000);
+          }
+        }
+      } catch(refreshErr) {}
+      return;
+    }
     if (!res.ok) throw new Error('upsert failed ' + res.status);
     _lastKnownServerTimestamp = now;
     _lastSuccessfulSyncTime = now;
@@ -2403,14 +2428,16 @@ async function syncToSupabase(data) {
     setTimeout(() => setSyncStatus('idle'), 3000);
   } catch(e) {
     setSyncStatus('error');
-    // Retry once after 3 seconds
+    // Retry once after 3 seconds — only if session still valid
     setTimeout(async () => {
+      const retryUserId = getCurrentUserId();
+      if (!retryUserId) { setSyncStatus('idle'); return; }
       try {
         const now2 = new Date().toISOString();
         const res2 = await fetch(SB_URL + '/rest/v1/spendly_data', {
           method: 'POST',
           headers: { ...getAuthHeaders(), 'Prefer': 'resolution=merge-duplicates,return=minimal' },
-          body: JSON.stringify({ id: 'main', user_id: userId, data, updated_at: now2 })
+          body: JSON.stringify({ id: 'main', user_id: retryUserId, data, updated_at: now2 })
         });
         if (res2.ok) {
           _lastKnownServerTimestamp = now2;
@@ -2418,8 +2445,10 @@ async function syncToSupabase(data) {
           try { localStorage.setItem('spendly_last_sync', now2); } catch(e) {}
           setSyncStatus('saved');
           setTimeout(() => setSyncStatus('idle'), 2000);
+        } else {
+          setSyncStatus('idle'); // don't keep showing error on retry fail
         }
-      } catch(e2) { /* silent retry fail */ }
+      } catch(e2) { setSyncStatus('idle'); }
     }, 3000);
   }
 }
@@ -15671,14 +15700,14 @@ function flushSyncBeacon() {
         _lastSuccessfulSyncTime = now;
         try { localStorage.setItem('spendly_last_sync', now); } catch(e) {}
       }
-      // If beacon fails, schedule an immediate retry via syncToSupabase
-      else { setTimeout(() => syncToSupabase(persistState), 1000); }
+      // If beacon fails, schedule a retry — but only if session is available
+      else { setTimeout(() => { if (getCurrentUserId()) syncToSupabase(persistState); }, 2000); }
     }).catch(() => {
-      // Beacon failed — retry after 1s
-      setTimeout(() => syncToSupabase(persistState), 1000);
+      // Beacon failed — retry after 2s only if session ready
+      setTimeout(() => { if (getCurrentUserId()) syncToSupabase(persistState); }, 2000);
     });
   } catch(e) {
-    setTimeout(() => syncToSupabase(persistState), 1000);
+    setTimeout(() => { if (getCurrentUserId()) syncToSupabase(persistState); }, 2000);
   }
   // Stamp localStorage with current state + timestamp regardless
   try { localStorage.setItem(BACKUP_TS_KEY, now); } catch(e) {}
@@ -15714,6 +15743,21 @@ document.addEventListener('visibilitychange', () => {
 
     // Reset inactivity timer when coming back to the tab
     resetInactivityTimer();
+
+    // Refresh the Supabase session if it has expired — this prevents 401 errors
+    // on sync after the app has been in the background for > 1 hour
+    if (SPENDLY_MODE === 'cloud') {
+      getSB().auth.getSession().then(({ data: { session } }) => {
+        if (session) {
+          _sbSession = session; // refresh our local reference
+        } else {
+          // Session fully expired — re-auth silently via refresh token
+          getSB().auth.refreshSession().then(({ data, error }) => {
+            if (!error && data.session) _sbSession = data.session;
+          }).catch(() => {});
+        }
+      }).catch(() => {});
+    }
 
     const currentDate = todayStr();
     if (currentDate !== _lastRecurringCheckDate) {
