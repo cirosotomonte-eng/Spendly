@@ -2050,7 +2050,7 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.5.5';
+const APP_VERSION = '2.5.6';
 const BUILD_DATE = '2026-03-29';
 const BUILD_TIME = '22 Apr 2026 11:55 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
@@ -4892,16 +4892,16 @@ function renderExpenseResults(resultsEl) {
         '</div>' +
         '<div class="list-item" onclick="openEditExpense(\'' + e.id + '\')">' +
         '<div class="cat-icon">' + cat.icon + '</div>' +
-        '<div class="item-info"><div class="item-name">' + cat.name +
+        '<div class="item-info"><div class="item-name">' + (e.name || cat.name) +
           (e.transactionType==='saving' ? '<span style="font-size:9px;background:rgba(52,199,89,0.15);color:#34C759;border-radius:4px;padding:1px 5px;font-weight:700;margin-left:5px;vertical-align:middle">SAVING</span>' :
            e.goalCoveredAmount > 0 && e.goalCoveredAmount < e.amount ? '<span style="font-size:9px;background:rgba(240,168,96,0.15);color:var(--orange);border-radius:4px;padding:1px 5px;font-weight:700;margin-left:5px;vertical-align:middle">SPLIT</span>' :
            e.linkedDepositId ? '<span style="font-size:9px;background:rgba(52,199,89,0.15);color:#34C759;border-radius:4px;padding:1px 5px;font-weight:700;margin-left:5px;vertical-align:middle">SAVING</span>' : '') +
         '</div>' +
-        (e.name || e.paymentMethod ? '<div class="item-meta" style="display:flex;align-items:center;gap:6px">' +
-          (e.name ? '<span>' + e.name + '</span>' : '') +
+        '<div class="item-meta" style="display:flex;align-items:center;gap:6px">' +
+          '<span>' + cat.name + '</span>' +
           (e.paymentMethod && e.paymentMethod !== 'cc' && EXP_PAYMENT_METHODS[e.paymentMethod] ?
             '<span style="font-size:9px;background:var(--surface2);color:var(--muted);border-radius:4px;padding:1px 5px;font-weight:600">' + EXP_PAYMENT_METHODS[e.paymentMethod].icon + ' ' + EXP_PAYMENT_METHODS[e.paymentMethod].label + '</span>' : '') +
-        '</div>' : '') +
+        '</div>' +
         (e.goalCoveredAmount > 0 && e.transactionType !== 'saving' ? (() => {
           const goal = (() => {
             if (e.linkedGoalId) return savingsCatById(e.linkedGoalId);
