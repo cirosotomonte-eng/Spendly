@@ -2050,7 +2050,7 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.5.3';
+const APP_VERSION = '2.5.5';
 const BUILD_DATE = '2026-03-29';
 const BUILD_TIME = '22 Apr 2026 11:55 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
@@ -2593,11 +2593,18 @@ function saveState() {
   try { localStorage.setItem(BACKUP_KEY, data); } catch(e) {}
   try { sessionStorage.setItem(BACKUP_KEY2, data); } catch(e) {}
   try { localStorage.setItem(BACKUP_TS_KEY, new Date().toISOString()); } catch(e) {}
-  // Cloud sync — 500ms debounce batches rapid saves while keeping sync fast
-  // Guard: only sync when we have an active session
+  // Cloud sync — immediate sync + trailing debounce for rapid-fire batching
+  // Immediate ensures data is safe even if app is killed right after saving
+  // Trailing debounce catches any follow-up saves (e.g. recurring apply) into one write
   if (SPENDLY_MODE === 'cloud' && getCurrentUserId()) {
     clearTimeout(syncTimer);
-    syncTimer = setTimeout(() => syncToSupabase(persistState), 500);
+    syncToSupabase(persistState); // immediate — no waiting
+    syncTimer = setTimeout(() => {
+      // Re-read state for the trailing write to capture anything that happened after
+      const { currentTab, viewingCycleOffset, mortgageCycleOffset, editingExpenseId, editingCatId, ...latestState } = state;
+      latestState._savedAt = new Date().toISOString();
+      syncToSupabase(latestState);
+    }, 1500);
   }
 }
 
