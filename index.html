@@ -2050,9 +2050,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.5.1';
+const APP_VERSION = '2.5.2';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '22 Apr 2026 5:03 PM AEDT';
+const BUILD_TIME = '22 Apr 2026 5:18 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -5039,31 +5039,19 @@ function renderDashboard() {
   // ─────────────────────────────────────────────────────────────────────────
   let html = '<div style="padding:0 0 100px">';
 
-  // ── 1. CYCLE CARD ──────────────────────────────────────────────────────
-  html += '<div style="background:var(--surface);border-radius:var(--r);padding:18px 16px;margin-bottom:12px">' +
-    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">' +
-      '<div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em">Left to spend</div>' +
+  // ── 1. CYCLE SUMMARY (compact — header already shows Left to Spend) ────
+  html += '<div style="background:var(--surface);border-radius:var(--r);padding:12px 14px;margin-bottom:12px;cursor:pointer" onclick="switchMainTab(\'spend\')"> ' +
+    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">' +
       '<div style="font-size:11px;color:var(--muted)">' + cycleStart.toLocaleDateString('en-AU',{day:'numeric',month:'short'}) + ' – ' + cycleEnd.toLocaleDateString('en-AU',{day:'numeric',month:'short'}) + '</div>' +
+      '<div style="font-size:11px;color:var(--muted)">' + daysLeft + ' days · ' + fmt2(Math.max(dailyLimit,0)) + '/day</div>' +
     '</div>' +
-    '<div style="font-size:42px;font-weight:800;letter-spacing:-2px;color:' + leftColor + ';margin-bottom:10px">' + (leftToSpend<0?'-':'') + fmt2(Math.abs(leftToSpend)) + '</div>' +
-    '<div style="background:var(--surface2);border-radius:100px;height:6px;overflow:hidden;margin-bottom:12px">' +
+    '<div style="background:var(--surface2);border-radius:100px;height:5px;overflow:hidden;margin-bottom:8px">' +
       '<div style="width:' + pct + '%;height:100%;background:' + barColor + ';border-radius:100px;transition:width 0.4s"></div>' +
     '</div>' +
-    '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">' +
-      '<div style="background:var(--surface2);border-radius:10px;padding:10px 12px">' +
-        '<div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:3px">Budget</div>' +
-        '<div style="font-size:15px;font-weight:700">' + fmt0(budget) + '</div>' +
-      '</div>' +
-      '<div style="background:var(--surface2);border-radius:10px;padding:10px 12px">' +
-        '<div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:3px">Spent</div>' +
-        '<div style="font-size:15px;font-weight:700">' + fmt0(spent) + '</div>' +
-      '</div>' +
-      '<div style="background:var(--surface2);border-radius:10px;padding:10px 12px">' +
-        '<div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:3px">Days left</div>' +
-        '<div style="font-size:15px;font-weight:700">' + daysLeft + '</div>' +
-      '</div>' +
+    '<div style="display:flex;justify-content:space-between;align-items:center">' +
+      '<div style="font-size:12px;color:var(--muted)">' + fmt2(spent) + ' spent of ' + fmt0(budget) + '</div>' +
+      '<div style="font-size:12px;font-weight:600;color:' + barColor + '">' + Math.round(pct) + '% used</div>' +
     '</div>' +
-    (daysLeft > 0 ? '<div style="margin-top:10px;font-size:12px;color:var(--muted)">Daily limit <strong style="color:var(--text)">' + fmt2(Math.max(dailyLimit,0)) + '</strong></div>' : '') +
   '</div>';
 
   // ── 2. SPENDING PULSE ──────────────────────────────────────────────────
