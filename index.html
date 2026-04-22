@@ -873,6 +873,9 @@ async function applyUpdate() {
 
   <!-- Bottom nav -->
   <nav class="bottom-nav" id="bottomNav">
+    <button class="bottom-nav-item" id="bnDashboard" onclick="switchMainTab('dashboard')">
+      <span class="nav-icon">🏠</span>Home
+    </button>
     <button class="bottom-nav-item" id="bnSpend" onclick="switchMainTab('spend')">
       <span class="nav-icon">💳</span>Spend
     </button>
@@ -2047,9 +2050,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.4.22';
+const APP_VERSION = '2.5.0';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '22 Apr 2026 11:42 AM AEDT';
+const BUILD_TIME = '22 Apr 2026 4:40 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -2076,7 +2079,7 @@ let state = {
   cycleAnchorDate: '',   // anchor date for weekly/fortnightly cycles (YYYY-MM-DD)
   categories: [],  // { id, name, icon, color, type, budgetLimit }
   expenses: [],    // { id, amount, name, categoryId, date }
-  currentTab: 'expenses',
+  currentTab: 'dashboard',
   viewingCycleOffset: 0,
   editingExpenseId: null,
   editingCatId: null,
@@ -2255,7 +2258,7 @@ async function handleAuthSubmit() {
     // Signed in — load data and enter app
     hideAuthScreen();
     await loadState();
-    state.currentTab = 'expenses';
+    state.currentTab = 'dashboard';
     updateHeader();
     renderContent();
     initVersionDisplay();
@@ -2324,7 +2327,7 @@ async function signOut() {
   try { localStorage.removeItem('spendly_backup'); } catch(e) {}
   try { sessionStorage.clear(); } catch(e) {}
   // Reset state and show auth screen
-  state = { currentTab:'expenses', viewingCycleOffset:0, budget:0, cycleDay:1, appName:'', categories:[], expenses:[], recurringExpenses:[], recurringSavings:[], recurringIncome:[], recurringSkips:[], savingsCategories:[], savingsSubcategories:[], savingsDeposits:[], recyclingTrips:[], mortgage:{}, taxCategories:[], taxTransactions:[], giftCards:[], portfolio:[], netWorth:[], notes:[], accounts:[], accountTransactions:[], pendingPayments:[], lastActiveDate:'', setupDone:false };
+  state = { currentTab:'dashboard', viewingCycleOffset:0, budget:0, cycleDay:1, appName:'', categories:[], expenses:[], recurringExpenses:[], recurringSavings:[], recurringIncome:[], recurringSkips:[], savingsCategories:[], savingsSubcategories:[], savingsDeposits:[], recyclingTrips:[], mortgage:{}, taxCategories:[], taxTransactions:[], giftCards:[], portfolio:[], netWorth:[], notes:[], accounts:[], accountTransactions:[], pendingPayments:[], lastActiveDate:'', setupDone:false };
   showAuthScreen();
   document.getElementById('app').style.visibility = 'hidden';
 }
@@ -3730,6 +3733,7 @@ const MAIN_TABS = {
   insights: { label:'Insights', icon:'📊', sections:['analytics','notes','investor'] },
 };
 const SECTION_LABELS = {
+  dashboard:'Home',
   expenses:'Expenses', goals:'Budget', savings:'Savings', giftcards:'Wallet',
   recycling:'Recycling', portfolio:'Portfolio', networth:'Net Worth',
   mortgage:'Mortgage', tax:'Tax', analytics:'Analytics', notes:'Notes', investor:'Playbook',
@@ -3787,7 +3791,7 @@ function renderSubTabs() {
   const tab = cfg.find(t => t.id === currentMain);
   if (!tab || tab.sections.length <= 1) { strip.innerHTML = ''; return; }
   const sectionIcons = {
-    expenses:'💸', goals:'🎯', savings:'💰', giftcards:'🎁',
+    dashboard:'🏠', expenses:'💸', goals:'🎯', savings:'💰', giftcards:'🎁',
     recycling:'♻️', portfolio:'📈', networth:'💎', mortgage:'🏠',
     tax:'🧾', analytics:'📊', notes:'📝', investor:'💡', accounts:'🏦',
   };
@@ -3935,7 +3939,7 @@ function saveTabConfig() {
   state.tabConfig = _tabDraftConfig.map(t => ({ id: t.id, enabled: t.enabled }));
   // If current tab was disabled, switch to expenses
   const currentEnabled = _tabDraftConfig.find(t => t.id === state.currentTab && t.enabled);
-  if (!currentEnabled) state.currentTab = 'expenses';
+  if (!currentEnabled) state.currentTab = 'dashboard';
   saveState();
   closeModal('tabCustomiseModal');
   renderTabs();
@@ -3954,6 +3958,7 @@ function getTabConfig() {
 
 // ── Nav customise system ──────────────────────────────────────────────────────
 const DEFAULT_NAV_CONFIG = [
+  { id:'dashboard', label:'Home',    icon:'🏠', sections:['dashboard'] },
   { id:'spend',    label:'Spend',    icon:'💳', sections:['expenses','goals'] },
   { id:'save',     label:'Save',     icon:'💰', sections:['savings','giftcards','recycling'] },
   { id:'finance',  label:'Accounts',  icon:'🏦', sections:['accounts','portfolio','networth','mortgage','tax'] },
@@ -4108,7 +4113,7 @@ function saveNavConfig() {
   // Switch to first tab if current section is now unreachable
   const allSections = state.navConfig.flatMap(t => t.sections);
   if (!allSections.includes(state.currentTab)) {
-    state.currentTab = state.navConfig[0]?.sections[0] || 'expenses';
+    state.currentTab = state.navConfig[0]?.sections[0] || 'dashboard';
   }
   closeModal('navCustomiseModal');
   renderTabs();
@@ -4236,7 +4241,8 @@ function renderContent() {
     const showFab = state.currentTab === 'expenses' && !isFutureCycle() && isSetupComplete();
     fabEl.style.display = showFab ? '' : 'none';
   }
-  if      (state.currentTab === 'expenses')  renderExpenses();
+  if      (state.currentTab === 'dashboard') renderDashboard();
+  else if (state.currentTab === 'expenses')  renderExpenses();
   else if (state.currentTab === 'accounts')   renderAccounts();
   else if (state.currentTab === 'analytics') renderAnalytics();
   else if (state.currentTab === 'goals')     renderGoals();
@@ -4932,6 +4938,247 @@ function getMultiCycleData(numCycles) {
     result.push({ label, total, bycat, expenses: exps, budget, cycleStart, cycleEnd, offset });
   }
   return result;
+}
+
+
+function renderDashboard() {
+  const el = document.getElementById('content');
+  if (!isSetupComplete()) { el.innerHTML = onboardingHTML(); return; }
+
+  const fmt2 = n => '$' + Math.abs(n).toLocaleString('en-AU', {minimumFractionDigits:2, maximumFractionDigits:2});
+  const fmt0 = n => '$' + Math.round(Math.abs(n)).toLocaleString('en-AU');
+  const today = new Date(); today.setHours(0,0,0,0);
+  const todayStr_ = todayStr();
+
+  // ── Core numbers ──────────────────────────────────────────────────────────
+  const { cycleStart, cycleEnd } = getCycleRange(0);
+  const budget = getBudgetForDate(todayStr_);
+  const expenses = cycleExpenses();
+  const spent = expenses.reduce((s,e) => s + budgetAmount(e), 0);
+  const upcomingExpNet = getUpcomingRecurring().reduce((s,e) => s + e.amount, 0);
+  const firedSav = getFiredRecurringSavingsTotal();
+  const upcomingSav = getUpcomingRecurringSavings().reduce((s,u) => s + u.r.amount, 0);
+  const leftToSpend = budget - spent - upcomingExpNet - firedSav - upcomingSav;
+  const daysLeft = getDaysLeft();
+  const dailyLimit = daysLeft > 0 ? leftToSpend / daysLeft : 0;
+  const pct = budget > 0 ? Math.min(((spent + upcomingExpNet) / budget) * 100, 100) : 0;
+  const savingsTotal = getCycleRecurringSavingsScheduleTotal(0);
+  const leftColor = leftToSpend < 0 ? 'var(--red)' : leftToSpend < budget * 0.1 ? 'var(--orange)' : 'var(--text)';
+  const barColor = pct >= 100 ? 'var(--red)' : pct >= 80 ? 'var(--orange)' : '#34C759';
+
+  // ── Projection ──────────────────────────────────────────────────────────
+  const cycleLen = Math.round((cycleEnd - cycleStart) / 86400000) + 1;
+  const daysElapsed = Math.round((today - cycleStart) / 86400000) + 1;
+  const dailyRate = daysElapsed > 0 ? spent / daysElapsed : 0;
+  const projectedTotal = dailyRate * cycleLen;
+  const projectedLeft = budget - projectedTotal - savingsTotal;
+  const projDir = projectedLeft >= 0 ? 'under' : 'over';
+  const projColor = projectedLeft >= 0 ? '#34C759' : 'var(--red)';
+
+  // ── Previous cycle ──────────────────────────────────────────────────────
+  const prevExpenses = (state.expenses||[]).filter(e => {
+    const { cycleStart:ps, cycleEnd:pe } = getCycleRange(-1);
+    const d = new Date(e.date + 'T00:00:00');
+    return d >= ps && d <= pe;
+  });
+  const prevBudget = getBudgetForDate((() => { const { cycleStart:ps } = getCycleRange(-1); return dateToStr(ps); })());
+  const prevSpent = prevExpenses.reduce((s,e) => s + budgetAmount(e), 0);
+  const prevLeft = prevBudget - prevSpent;
+
+  // ── Next 7 days ──────────────────────────────────────────────────────────
+  const in7 = new Date(today); in7.setDate(today.getDate() + 6);
+  const upcomingExp7 = getUpcomingRecurring().filter(e => {
+    const d = new Date(e.date + 'T00:00:00');
+    return d >= today && d <= in7;
+  });
+  const pendingPay7 = (state.pendingPayments||[]).filter(p => {
+    if (p.status !== 'pending') return false;
+    const d = new Date(p.dueDate + 'T00:00:00');
+    return d >= today && d <= in7;
+  });
+  const upcoming7 = [
+    ...upcomingExp7.map(e => ({
+      date: e.date, label: e.name, sublabel: (catById(e.categoryId)||{}).name || '',
+      amount: e.grossAmount || e.amount, covered: e.goalCovered || 0, type: 'expense',
+      icon: (catById(e.categoryId)||{}).icon || '💸'
+    })),
+    ...pendingPay7.map(p => ({
+      date: p.dueDate, label: p.note || 'Saving', sublabel: (accountById(p.salaryAccountId)||{}).name || '',
+      amount: p.amount, covered: 0, type: 'pending',
+      icon: (savingsCatById(p.goalId)||{}).icon || '💰'
+    }))
+  ].sort((a,b) => a.date.localeCompare(b.date));
+
+  // ── Top savings goals ──────────────────────────────────────────────────
+  const activeGoals = (state.savingsCategories||[]).filter(c => c.status !== 'closed');
+  const goalsWithData = activeGoals.map(g => {
+    const bal = totalSavedForCat(g.id);
+    const pct = g.target > 0 ? Math.min((bal / g.target) * 100, 100) : 0;
+    return { g, bal, pct };
+  }).sort((a,b) => {
+    // Sort: in-progress with target first, then no-target
+    if (a.g.target && !b.g.target) return -1;
+    if (!a.g.target && b.g.target) return 1;
+    return b.pct - a.pct;
+  }).slice(0, 4);
+
+  const totalAllSavings = (state.savingsDeposits||[]).reduce((s,d) =>
+    s + (d.type==='withdrawal'||d.type==='bill-payment' ? -d.amount : d.amount), 0);
+
+  // ── Offset balance ──────────────────────────────────────────────────────
+  const offsetBal = getOffsetBalance();
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // BUILD HTML
+  // ─────────────────────────────────────────────────────────────────────────
+  let html = '<div style="padding:0 0 100px">';
+
+  // ── 1. CYCLE CARD ──────────────────────────────────────────────────────
+  html += '<div style="background:var(--surface);border-radius:var(--r);padding:18px 16px;margin-bottom:12px">' +
+    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">' +
+      '<div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em">Left to spend</div>' +
+      '<div style="font-size:11px;color:var(--muted)">' + cycleStart.toLocaleDateString('en-AU',{day:'numeric',month:'short'}) + ' – ' + cycleEnd.toLocaleDateString('en-AU',{day:'numeric',month:'short'}) + '</div>' +
+    '</div>' +
+    '<div style="font-size:42px;font-weight:800;letter-spacing:-2px;color:' + leftColor + ';margin-bottom:10px">' + (leftToSpend<0?'-':'') + fmt2(Math.abs(leftToSpend)) + '</div>' +
+    '<div style="background:var(--surface2);border-radius:100px;height:6px;overflow:hidden;margin-bottom:12px">' +
+      '<div style="width:' + pct + '%;height:100%;background:' + barColor + ';border-radius:100px;transition:width 0.4s"></div>' +
+    '</div>' +
+    '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">' +
+      '<div style="background:var(--surface2);border-radius:10px;padding:10px 12px">' +
+        '<div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:3px">Budget</div>' +
+        '<div style="font-size:15px;font-weight:700">' + fmt0(budget) + '</div>' +
+      '</div>' +
+      '<div style="background:var(--surface2);border-radius:10px;padding:10px 12px">' +
+        '<div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:3px">Spent</div>' +
+        '<div style="font-size:15px;font-weight:700">' + fmt0(spent) + '</div>' +
+      '</div>' +
+      '<div style="background:var(--surface2);border-radius:10px;padding:10px 12px">' +
+        '<div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:3px">Days left</div>' +
+        '<div style="font-size:15px;font-weight:700">' + daysLeft + '</div>' +
+      '</div>' +
+    '</div>' +
+    (daysLeft > 0 ? '<div style="margin-top:10px;font-size:12px;color:var(--muted)">Daily limit <strong style="color:var(--text)">' + fmt2(Math.max(dailyLimit,0)) + '</strong></div>' : '') +
+  '</div>';
+
+  // ── 2. SPENDING PULSE ──────────────────────────────────────────────────
+  html += '<div style="background:var(--surface);border-radius:var(--r);padding:14px 16px;margin-bottom:12px">' +
+    '<div style="font-size:12px;font-weight:700;color:var(--text);margin-bottom:10px">📈 Spending pulse</div>' +
+    '<div style="display:flex;gap:12px">' +
+      '<div style="flex:1;background:var(--surface2);border-radius:10px;padding:10px 12px">' +
+        '<div style="font-size:10px;color:var(--muted);margin-bottom:3px">Projection</div>' +
+        '<div style="font-size:14px;font-weight:700;color:' + projColor + '">' + fmt0(Math.abs(projectedLeft)) + ' ' + projDir + '</div>' +
+        '<div style="font-size:10px;color:var(--muted);margin-top:2px">at current rate</div>' +
+      '</div>' +
+      '<div style="flex:1;background:var(--surface2);border-radius:10px;padding:10px 12px">' +
+        '<div style="font-size:10px;color:var(--muted);margin-bottom:3px">Last cycle</div>' +
+        '<div style="font-size:14px;font-weight:700;color:' + (prevLeft>=0?'#34C759':'var(--red)') + '">' + fmt0(Math.abs(prevLeft)) + ' ' + (prevLeft>=0?'under':'over') + '</div>' +
+        '<div style="font-size:10px;color:var(--muted);margin-top:2px">of ' + fmt0(prevBudget) + ' budget</div>' +
+      '</div>' +
+    '</div>' +
+  '</div>';
+
+  // ── 3. NEXT 7 DAYS ────────────────────────────────────────────────────
+  if (upcoming7.length > 0) {
+    html += '<div style="background:var(--surface);border-radius:var(--r);padding:14px 16px;margin-bottom:12px">' +
+      '<div style="font-size:12px;font-weight:700;color:var(--text);margin-bottom:10px">📅 Next 7 days</div>';
+    upcoming7.forEach((item, i) => {
+      const d = new Date(item.date + 'T00:00:00');
+      const isToday = item.date === todayStr_;
+      const isTomorrow = item.date === (() => { const t = new Date(today); t.setDate(today.getDate()+1); return dateToStr(t); })();
+      const dateLabel = isToday ? 'Today' : isTomorrow ? 'Tomorrow' : d.toLocaleDateString('en-AU',{weekday:'short',day:'numeric',month:'short'});
+      const isFullyCovered = item.covered >= item.amount && item.amount > 0;
+      const isPending = item.type === 'pending';
+      html += '<div style="display:flex;align-items:center;gap:10px;padding:9px 0;' + (i>0?'border-top:1px solid var(--surface2)':'') + '">' +
+        '<div style="font-size:22px;width:32px;text-align:center;flex-shrink:0">' + item.icon + '</div>' +
+        '<div style="flex:1;min-width:0">' +
+          '<div style="font-size:13px;font-weight:500">' + item.label + '</div>' +
+          '<div style="font-size:10px;color:' + (isToday?'var(--accent)':'var(--muted)') + '">' + dateLabel + (item.sublabel ? ' · ' + item.sublabel : '') + '</div>' +
+          (isFullyCovered ? '<div style="font-size:10px;color:#34C759">💚 Covered by savings</div>' : '') +
+        '</div>' +
+        '<div style="text-align:right;flex-shrink:0">' +
+          '<div style="font-size:13px;font-weight:600;color:' + (isPending?'#34C759':isFullyCovered?'var(--muted)':'var(--text)') + '">' + (isPending?'+':'-') + fmt2(item.amount) + '</div>' +
+          (isFullyCovered ? '<div style="font-size:9px;color:var(--muted)">$0 budget</div>' : '') +
+        '</div>' +
+      '</div>';
+    });
+    html += '</div>';
+  } else {
+    html += '<div style="background:var(--surface);border-radius:var(--r);padding:14px 16px;margin-bottom:12px">' +
+      '<div style="font-size:12px;font-weight:700;color:var(--text);margin-bottom:6px">📅 Next 7 days</div>' +
+      '<div style="font-size:12px;color:var(--muted)">Nothing scheduled — enjoy the quiet 😌</div>' +
+    '</div>';
+  }
+
+  // ── 4. SAVINGS SNAPSHOT ────────────────────────────────────────────────
+  html += '<div style="background:var(--surface);border-radius:var(--r);padding:14px 16px;margin-bottom:12px">' +
+    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">' +
+      '<div style="font-size:12px;font-weight:700;color:var(--text)">💰 Savings</div>' +
+      '<div style="text-align:right">' +
+        '<div style="font-size:14px;font-weight:700;color:#34C759">' + fmt0(totalAllSavings) + '</div>' +
+        '<div style="font-size:10px;color:var(--muted)">total saved</div>' +
+      '</div>' +
+    '</div>';
+
+  if (goalsWithData.length > 0) {
+    goalsWithData.forEach((item, i) => {
+      const { g, bal, pct: gPct } = item;
+      html += '<div style="' + (i>0?'border-top:1px solid var(--surface2);margin-top:8px;padding-top:8px':'') + '">' +
+        '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">' +
+          '<div style="display:flex;align-items:center;gap:6px">' +
+            '<span style="font-size:16px">' + g.icon + '</span>' +
+            '<span style="font-size:13px;font-weight:500">' + g.name + (g.reachedAt ? ' <span style="font-size:9px;background:rgba(52,199,89,0.15);color:#34C759;border-radius:4px;padding:1px 4px">🎉</span>' : '') + '</span>' +
+          '</div>' +
+          '<div style="text-align:right">' +
+            '<span style="font-size:13px;font-weight:600">' + fmt0(bal) + '</span>' +
+            (g.target > 0 ? '<span style="font-size:10px;color:var(--muted)"> / ' + fmt0(g.target) + '</span>' : '') +
+          '</div>' +
+        '</div>' +
+        (g.target > 0 ? '<div style="background:var(--surface2);border-radius:100px;height:4px;overflow:hidden">' +
+          '<div style="width:' + gPct + '%;height:100%;background:' + g.color + ';border-radius:100px;transition:width 0.4s"></div>' +
+        '</div>' : '') +
+      '</div>';
+    });
+    if (activeGoals.length > 4) {
+      html += '<div style="margin-top:10px;font-size:11px;color:var(--accent);cursor:pointer;text-align:center" onclick="switchTab(\'savings\')">See all ' + activeGoals.length + ' goals →</div>';
+    }
+  } else {
+    html += '<div style="font-size:12px;color:var(--muted)">No goals yet — tap Save to create one</div>';
+  }
+  html += '</div>';
+
+  // ── 5. QUICK ACTIONS ──────────────────────────────────────────────────
+  const pendingCount = (state.pendingPayments||[]).filter(p => p.status === 'pending').length;
+  html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">' +
+    '<button onclick="openAddExpense&&openAddExpense();switchTab(\'expenses\')" style="background:var(--accent);color:#fff;border:none;border-radius:var(--r);padding:14px;font-size:14px;font-weight:700;font-family:var(--font);cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px">+ Expense</button>' +
+    '<button onclick="switchTab(\'savings\')" style="background:var(--surface);border:1.5px solid var(--border);border-radius:var(--r);padding:14px;font-size:14px;font-weight:600;font-family:var(--font);cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;color:var(--text)">💰 Save</button>' +
+  '</div>';
+
+  if (pendingCount > 0) {
+    html += '<button onclick="switchMainTab(\'save\')" style="width:100%;background:rgba(240,168,96,0.1);border:1.5px solid rgba(240,168,96,0.3);border-radius:var(--r);padding:13px;font-size:14px;font-weight:600;font-family:var(--font);cursor:pointer;color:var(--orange);display:flex;align-items:center;justify-content:center;gap:8px;margin-bottom:12px">⏳ ' + pendingCount + ' pending payment' + (pendingCount>1?'s':'') + ' to review</button>';
+  }
+
+  // ── 6. OFFSET SNAPSHOT ────────────────────────────────────────────────
+  if (offsetBal > 0) {
+    const mg = state.mortgage || {};
+    const annualRate = (mg.interestRate || 0) / 100;
+    const dailySaving = offsetBal * (annualRate / 365);
+    html += '<div style="background:var(--surface);border-radius:var(--r);padding:14px 16px;margin-bottom:12px">' +
+      '<div style="font-size:12px;font-weight:700;color:var(--text);margin-bottom:8px">🏠 Offset account</div>' +
+      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">' +
+        '<div>' +
+          '<div style="font-size:10px;color:var(--muted);margin-bottom:2px">Balance</div>' +
+          '<div style="font-size:18px;font-weight:700">' + fmt0(offsetBal) + '</div>' +
+        '</div>' +
+        '<div>' +
+          '<div style="font-size:10px;color:var(--muted);margin-bottom:2px">Daily saving</div>' +
+          '<div style="font-size:18px;font-weight:700;color:var(--accent)">$' + dailySaving.toFixed(2) + '</div>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+  }
+
+  html += '</div>';
+  el.innerHTML = html;
 }
 
 function renderAnalytics() {
