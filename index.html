@@ -2047,9 +2047,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.4.19';
+const APP_VERSION = '2.4.20';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '22 Apr 2026 8:31 AM AEDT';
+const BUILD_TIME = '22 Apr 2026 11:29 AM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -8273,7 +8273,7 @@ function openAddSavingsCat() {
   document.getElementById('scName').value = '';
   document.getElementById('scTarget').value = '';
   document.getElementById('scGoalDate').value = '';
-  document.getElementById('scDeleteBtn').style.display = 'none';
+  const _scDel = document.getElementById('scDeleteBtn'); if (_scDel) _scDel.style.display = 'none';
   document.getElementById('scSaveBtn').textContent = 'Save goal';
   // No lifecycle buttons in add mode
   const col = PALETTE[Math.floor(Math.random()*PALETTE.length)];
@@ -8348,7 +8348,7 @@ function openEditSavingsCat(id) {
   document.getElementById('scName').value = cat.name;
   document.getElementById('scTarget').value = cat.target || '';
   document.getElementById('scGoalDate').value = cat.goalDate||'';
-  document.getElementById('scDeleteBtn').style.display = 'block';
+  const _scDelE = document.getElementById('scDeleteBtn'); if (_scDelE) _scDelE.style.display = 'block';
   document.getElementById('scSaveBtn').textContent = 'Update goal';
   // Close/Reopen and Delete are in the goal action sheet (tap goal icon)
   buildColorGridFor('scColorGrid', cat.color);
@@ -8814,9 +8814,9 @@ function renderSavings() {
 
     html += '<div id="savcat-' + cat.id + '" style="background:var(--surface);border-radius:var(--r);margin-bottom:12px;overflow:hidden">';
 
-    // Category header
+    // Category header — coloured tint background
     const catDays = cat.goalDate ? daysUntil(cat.goalDate) : null;
-    html += '<div style="display:flex;align-items:center;gap:12px;padding:14px">' +
+    html += '<div style="display:flex;align-items:center;gap:12px;padding:14px;background:' + cat.color + '18;border-bottom:1px solid ' + cat.color + '22">' +
       '<div style="width:42px;height:42px;border-radius:11px;background:'+cat.color+'22;display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0;cursor:pointer" onclick="openEditSavingsCat(\''+cat.id+'\')">'+cat.icon+'</div>' +
       '<div style="flex:1;min-width:0;cursor:pointer" onclick="openEditSavingsCat(\''+cat.id+'\')">' +
         '<div style="font-size:15px;font-weight:700">'+cat.name+(cat.reachedAt ? ' <span style="font-size:10px;background:rgba(52,199,89,0.15);color:#34C759;border-radius:6px;padding:2px 6px;font-weight:600;vertical-align:middle">🎉 Reached</span>' : '')+'</div>' +
