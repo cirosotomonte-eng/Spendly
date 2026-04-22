@@ -177,7 +177,7 @@ async function applyUpdate() {
 
   /* Bottom nav */
   .bottom-nav { position:fixed;bottom:calc(env(safe-area-inset-bottom,16px) + 12px);left:50%;transform:translateX(-50%);width:auto;min-width:320px;max-width:calc(100% - 24px);z-index:100;background:var(--surface);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border:1px solid var(--border);border-radius:100px;padding:6px 8px;display:flex;gap:2px;box-shadow:0 4px 24px rgba(0,0,0,0.18); }
-  .bottom-nav-item { flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;padding:7px 18px;border:none;background:none;color:var(--muted);font-size:10px;font-weight:500;font-family:var(--font);cursor:pointer;transition:all 0.18s;letter-spacing:0.01em;border-radius:100px; }
+  .bottom-nav-item { flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;padding:7px 10px;border:none;background:none;color:var(--muted);font-size:10px;font-weight:500;font-family:var(--font);cursor:pointer;transition:all 0.18s;letter-spacing:0.01em;border-radius:100px; }
   .bottom-nav-item .nav-icon { font-size:22px;line-height:1; }
   .bottom-nav-item.active { color:var(--accent);background:var(--accent-dim); }
   /* Sub-tabs strip — card style with emoji */
@@ -2050,9 +2050,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.5.0';
+const APP_VERSION = '2.5.1';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '22 Apr 2026 4:40 PM AEDT';
+const BUILD_TIME = '22 Apr 2026 5:03 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -3967,20 +3967,26 @@ const DEFAULT_NAV_CONFIG = [
 
 function getNavConfig() {
   if (state.navConfig && state.navConfig.length > 0) {
+    // Ensure new top-level tabs are injected (e.g. dashboard added in v2.5.0)
+    const existingTabIds = state.navConfig.map(t => t.id);
+    DEFAULT_NAV_CONFIG.forEach((defaultTab, idx) => {
+      if (!existingTabIds.includes(defaultTab.id)) {
+        // Insert at the correct position
+        state.navConfig.splice(idx, 0, { ...defaultTab, sections: [...defaultTab.sections] });
+      }
+    });
     // Ensure all sections are present (handle new sections added in updates)
     const allSections = DEFAULT_NAV_CONFIG.flatMap(t => t.sections);
     const usedSections = state.navConfig.flatMap(t => t.sections);
     const missingSections = allSections.filter(s => !usedSections.includes(s));
     if (missingSections.length > 0) {
       missingSections.forEach(s => {
-        // Find the default home for this section and add it there
         const defaultTab = DEFAULT_NAV_CONFIG.find(t => t.sections.includes(s));
         const targetId = defaultTab ? defaultTab.id : null;
         const target = targetId ? state.navConfig.find(t => t.id === targetId) : null;
         if (target) {
           target.sections.push(s);
         } else {
-          // Fallback: add to last tab
           state.navConfig[state.navConfig.length - 1].sections.push(s);
         }
       });
