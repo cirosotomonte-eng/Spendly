@@ -2050,7 +2050,7 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.5.6';
+const APP_VERSION = '2.5.7';
 const BUILD_DATE = '2026-03-29';
 const BUILD_TIME = '22 Apr 2026 11:55 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
@@ -3098,7 +3098,8 @@ function cycleExpenses() {
 
 // Returns the amount that hits the budget (subtracts goal-covered portion)
 function budgetAmount(e) {
-  return e.amount - (e.goalCoveredAmount || 0);
+  const net = e.amount - (e.goalCoveredAmount || 0);
+  return net < 0.01 ? 0 : Math.round(net * 100) / 100;
 }
 
 // Returns recurring expenses due TODAY (not yet logged) or AFTER today — within cycle
@@ -4453,7 +4454,7 @@ function renderFutureCycle(el) {
     const dueDate = p.dateObj.toLocaleDateString('en-AU',{weekday:'short',day:'numeric',month:'short'});
     const isSaving = p.kind === 'saving';
     const isFullyCovered = p.kind === 'expense' && p.goalCoveredAmount >= p.r.amount && p.r.amount > 0;
-    const isSplit = p.kind === 'expense' && p.goalCoveredAmount > 0 && p.goalCoveredAmount < p.r.amount;
+    const isSplit = p.kind === 'expense' && p.goalCoveredAmount > 0 && p.r.amount - p.goalCoveredAmount > 0.01;
     const linkedGoal = p.linkedGoalId ? savingsCatById(p.linkedGoalId) : null;
     // Show full transaction amount always — colour indicates budget impact
     const displayAmount = p.r.amount;
@@ -4800,7 +4801,7 @@ function renderExpenseResults(resultsEl) {
   let expenses = query ? allExpenses.filter(e => {
     const cat = catById(e.categoryId);
     const badge = e.transactionType === 'saving' ? 'saving' :
-                  e.goalCoveredAmount > 0 && e.goalCoveredAmount < e.amount ? 'split' :
+                  e.goalCoveredAmount > 0 && e.amount - e.goalCoveredAmount > 0.01 ? 'split' :
                   e.goalCoveredAmount >= e.amount && e.goalCoveredAmount > 0 ? 'goal' : '';
     return (cat ? cat.name.toLowerCase() : '').includes(query) ||
            (e.name||'').toLowerCase().includes(query) ||
@@ -4894,7 +4895,7 @@ function renderExpenseResults(resultsEl) {
         '<div class="cat-icon">' + cat.icon + '</div>' +
         '<div class="item-info"><div class="item-name">' + (e.name || cat.name) +
           (e.transactionType==='saving' ? '<span style="font-size:9px;background:rgba(52,199,89,0.15);color:#34C759;border-radius:4px;padding:1px 5px;font-weight:700;margin-left:5px;vertical-align:middle">SAVING</span>' :
-           e.goalCoveredAmount > 0 && e.goalCoveredAmount < e.amount ? '<span style="font-size:9px;background:rgba(240,168,96,0.15);color:var(--orange);border-radius:4px;padding:1px 5px;font-weight:700;margin-left:5px;vertical-align:middle">SPLIT</span>' :
+           e.goalCoveredAmount > 0 && e.amount - e.goalCoveredAmount > 0.01 ? '<span style="font-size:9px;background:rgba(240,168,96,0.15);color:var(--orange);border-radius:4px;padding:1px 5px;font-weight:700;margin-left:5px;vertical-align:middle">SPLIT</span>' :
            e.linkedDepositId ? '<span style="font-size:9px;background:rgba(52,199,89,0.15);color:#34C759;border-radius:4px;padding:1px 5px;font-weight:700;margin-left:5px;vertical-align:middle">SAVING</span>' : '') +
         '</div>' +
         '<div class="item-meta" style="display:flex;align-items:center;gap:6px">' +
@@ -5875,7 +5876,7 @@ function buildCatTransactionRows(cat, cycleExps) {
   return catExps.map(e => {
     const amt = budgetAmount(e);
     const isCovered = e.goalCoveredAmount > 0 && e.goalCoveredAmount >= e.amount;
-    const isSplit = e.goalCoveredAmount > 0 && e.goalCoveredAmount < e.amount;
+    const isSplit = e.goalCoveredAmount > 0 && e.amount - e.goalCoveredAmount > 0.01;
     const d = new Date(e.date + 'T00:00:00');
     const dateLabel = d.toLocaleDateString('en-AU', {day:'numeric', month:'short'});
     const amtColor = isCovered ? 'var(--muted)' : 'var(--red)';
@@ -5936,7 +5937,7 @@ function buildSavingsCatTransactionRows(cat, cycleExps) {
       '</div>';
     } else {
       const e = item.e;
-      const isSplit = e.goalCoveredAmount < e.amount;
+      const isSplit = e.amount - e.goalCoveredAmount > 0.01;
       const dt = new Date(e.date + 'T00:00:00');
       const dateLabel = dt.toLocaleDateString('en-AU', {day:'numeric', month:'short'});
       return '<div style="display:grid;grid-template-columns:1fr 80px 80px 70px 16px;align-items:center;padding:5px 14px;border-top:1px solid rgba(128,128,128,0.12)">' +
