@@ -2050,7 +2050,7 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.5.8';
+const APP_VERSION = '2.5.9';
 const BUILD_DATE = '2026-03-29';
 const BUILD_TIME = '22 Apr 2026 11:55 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
@@ -14438,6 +14438,15 @@ function setExpPaymentAccount(accountId) {
 let _viewingAccountId = null;
 
 // ── CC batch payment ──────────────────────────────────────────────────────────
+function toggleCCList(id) {
+  const el = document.getElementById(id);
+  const chev = document.getElementById(id + '-chev');
+  if (!el) return;
+  const open = el.style.display === 'block';
+  el.style.display = open ? 'none' : 'block';
+  if (chev) chev.style.transform = open ? '' : 'rotate(180deg)';
+}
+
 function payCCBatch(btn) {
   const amount = parseFloat(btn.dataset.amount);
   const expenseIds = btn.dataset.ids ? btn.dataset.ids.split(',').filter(Boolean) : [];
@@ -14705,62 +14714,86 @@ function renderAccounts() {
             const cat = catById(e.categoryId);
             const payAcct = accountById(e.paymentAccountId);
             const goal = e.linkedGoalId ? savingsCatById(e.linkedGoalId) : null;
-            return '<div style="display:flex;align-items:center;gap:10px;padding:8px 0;' + (i>0?'border-top:1px solid '+borderColor:'') + '">' +
+            return '<div style="display:flex;align-items:center;gap:10px;padding:9px 0;' + (i>0?'border-top:1px solid '+borderColor:'') + '">' +
               '<div style="flex:1;min-width:0">' +
                 '<div style="font-size:13px;font-weight:500">' + (e.name || (cat ? cat.name : 'Expense')) + '</div>' +
-                '<div style="font-size:11px;color:var(--muted)">' +
+                '<div style="font-size:11px;color:var(--muted);margin-top:1px">' +
                   new Date(e.date+'T00:00:00').toLocaleDateString('en-AU',{day:'numeric',month:'short'}) +
                   (cat ? ' · ' + cat.icon + ' ' + cat.name : '') +
-                  (payAcct ? ' · ' + payAcct.name : '') +
-                  (goal ? ' · ' + goal.icon + ' ' + goal.name : '') +
                 '</div>' +
               '</div>' +
               '<div style="font-size:13px;font-weight:600;flex-shrink:0">-' + fmtB(e.amount) + '</div>' +
             '</div>';
           };
 
-          pendingCCHtml = '<div style="background:var(--surface);border-radius:var(--r);margin-bottom:14px;overflow:hidden">';
+          const prevCardId = 'ccPrev-' + _viewingAccountId;
+          const currCardId = 'ccCurr-' + _viewingAccountId;
+          pendingCCHtml = '';
 
-          // ── PREVIOUS CYCLES ──
+          // ── PREVIOUS CYCLE CARD ──
           if (prevExp.length > 0) {
-            const prevIds = JSON.stringify(prevExp.map(e => e.id));
-            pendingCCHtml += '<div style="background:rgba(255,59,48,0.06);padding:12px 14px;border-bottom:1px solid var(--surface2)">' +
-              '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px">' +
-                '<div style="font-size:11px;font-weight:700;color:var(--red);text-transform:uppercase;letter-spacing:0.06em">Previous cycle · ' + prevExp.length + ' charge' + (prevExp.length!==1?'s':'') + '</div>' +
-                '<div style="font-size:14px;font-weight:700;color:var(--red)">-' + fmtB(prevTotal) + '</div>' +
-              '</div>' +
-              '<div style="font-size:11px;color:var(--muted);margin-bottom:10px">Pay these first - from before ' + cycleStart.toLocaleDateString('en-AU',{day:'numeric',month:'short'}) + '</div>';
-            prevExp.forEach((e, i) => { pendingCCHtml += buildExpRow(e, i, 'rgba(255,59,48,0.1)'); });
-            pendingCCHtml += '<div style="margin-top:10px;padding-top:10px;border-top:1px solid rgba(255,59,48,0.15);display:flex;justify-content:space-between;align-items:center">' +
-              '<div style="font-size:12px;color:var(--muted)">Total to settle</div>' +
-              '<div style="display:flex;align-items:center;gap:8px">' +
-                '<div style="font-size:14px;font-weight:700;color:var(--red)">-' + fmtB(prevTotal) + '</div>' +
-                '<button data-amount="' + prevTotal + '" data-ids="' + prevExp.map(e=>e.id).join(',') + '" data-acid="' + _viewingAccountId + '" onclick="payCCBatch(this)" style="background:var(--red);color:#fff;border:none;border-radius:8px;padding:7px 14px;font-size:12px;font-weight:700;font-family:var(--font);cursor:pointer">💳 Pay</button>' +
-              '</div>' +
-            '</div>';
-            pendingCCHtml += '</div>';
+            pendingCCHtml +=
+              '<div style="background:var(--surface);border:1.5px solid rgba(255,59,48,0.3);border-radius:var(--r);margin-bottom:10px;overflow:hidden">' +
+                // Header — always visible, tap to expand list
+                '<div style="padding:12px 14px;cursor:pointer" onclick="toggleCCList(\'' + prevCardId + '\')">' +
+                  '<div style="display:flex;justify-content:space-between;align-items:center">' +
+                    '<div>' +
+                      '<div style="font-size:12px;font-weight:700;color:var(--red);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:2px">Previous cycle</div>' +
+                      '<div style="font-size:11px;color:var(--muted)">' + prevExp.length + ' charge' + (prevExp.length!==1?'s':'') + ' · before ' + cycleStart.toLocaleDateString('en-AU',{day:'numeric',month:'short'}) + '</div>' +
+                    '</div>' +
+                    '<div style="display:flex;align-items:center;gap:10px">' +
+                      '<div style="font-size:15px;font-weight:700;color:var(--red)">-' + fmtB(prevTotal) + '</div>' +
+                      '<svg id="' + prevCardId + '-chev" width="14" height="14" viewBox="0 0 12 12" fill="none" style="color:var(--muted);transition:transform 0.2s"><path d="M2 4l4 4 4-4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>' +
+                    '</div>' +
+                  '</div>' +
+                '</div>' +
+                // Collapsible list
+                '<div id="' + prevCardId + '" style="display:none;padding:0 14px;border-top:1px solid rgba(255,59,48,0.15)">' +
+                  prevExp.map((e,i) => buildExpRow(e, i, 'rgba(255,59,48,0.1)')).join('') +
+                '</div>' +
+                // Footer — always visible
+                '<div style="padding:10px 14px;border-top:1px solid rgba(255,59,48,0.15);display:flex;justify-content:space-between;align-items:center">' +
+                  '<div style="font-size:12px;color:var(--muted)">Pay to settle</div>' +
+                  '<button data-amount="' + prevTotal + '" data-ids="' + prevExp.map(e=>e.id).join(',') + '" data-acid="' + _viewingAccountId + '" onclick="payCCBatch(this)" style="background:var(--red);color:#fff;border:none;border-radius:8px;padding:8px 16px;font-size:13px;font-weight:700;font-family:var(--font);cursor:pointer">💳 Pay ' + fmtB(prevTotal) + '</button>' +
+                '</div>' +
+              '</div>';
           }
 
-          // ── CURRENT CYCLE ──
+          // ── CURRENT CYCLE CARD ──
           if (currExp.length > 0) {
-            pendingCCHtml += '<div style="padding:12px 14px">' +
-              '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px">' +
-                '<div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em">Current cycle · ' + currExp.length + ' charge' + (currExp.length!==1?'s':'') + '</div>' +
-                '<div style="font-size:14px;font-weight:700;color:var(--muted)">-' + fmtB(currTotal) + '</div>' +
-              '</div>' +
-              '<div style="font-size:11px;color:var(--muted);margin-bottom:10px">Pay at end of cycle · from ' + cycleStart.toLocaleDateString('en-AU',{day:'numeric',month:'short'}) + '</div>';
-            currExp.forEach((e, i) => { pendingCCHtml += buildExpRow(e, i, 'var(--surface2)'); });
-            pendingCCHtml += '</div>';
+            pendingCCHtml +=
+              '<div style="background:var(--surface);border:1.5px solid var(--border);border-radius:var(--r);margin-bottom:10px;overflow:hidden">' +
+                // Header — always visible, tap to expand list
+                '<div style="padding:12px 14px;cursor:pointer" onclick="toggleCCList(\'' + currCardId + '\')">' +
+                  '<div style="display:flex;justify-content:space-between;align-items:center">' +
+                    '<div>' +
+                      '<div style="font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:2px">Current cycle</div>' +
+                      '<div style="font-size:11px;color:var(--muted)">' + currExp.length + ' charge' + (currExp.length!==1?'s':'') + ' · from ' + cycleStart.toLocaleDateString('en-AU',{day:'numeric',month:'short'}) + '</div>' +
+                    '</div>' +
+                    '<div style="display:flex;align-items:center;gap:10px">' +
+                      '<div style="font-size:15px;font-weight:700;color:var(--text)">-' + fmtB(currTotal) + '</div>' +
+                      '<svg id="' + currCardId + '-chev" width="14" height="14" viewBox="0 0 12 12" fill="none" style="color:var(--muted);transition:transform 0.2s"><path d="M2 4l4 4 4-4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>' +
+                    '</div>' +
+                  '</div>' +
+                '</div>' +
+                // Collapsible list
+                '<div id="' + currCardId + '" style="display:none;padding:0 14px;border-top:1px solid var(--surface2)">' +
+                  currExp.map((e,i) => buildExpRow(e, i, 'var(--surface2)')).join('') +
+                '</div>' +
+                // Footer — always visible, no pay button yet
+                '<div style="padding:10px 14px;border-top:1px solid var(--surface2);display:flex;justify-content:space-between;align-items:center">' +
+                  '<div style="font-size:12px;color:var(--muted)">Pay at end of cycle</div>' +
+                  '<div style="font-size:13px;font-weight:600;color:var(--muted)">-' + fmtB(currTotal) + '</div>' +
+                '</div>' +
+              '</div>';
           }
 
-          // ── FOOTER ──
+          // ── NET BALANCE ──
           const effectiveBalance = balance - grandTotal;
-          pendingCCHtml += '<div style="background:var(--surface2);padding:10px 14px;display:flex;justify-content:space-between;align-items:center">' +
+          pendingCCHtml += '<div style="background:var(--surface2);border-radius:10px;padding:10px 14px;display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">' +
             '<div style="font-size:12px;color:var(--muted)">Balance after all CC paid</div>' +
             '<div style="font-size:14px;font-weight:700;color:' + (effectiveBalance < 0 ? 'var(--red)' : 'var(--text)') + '">' + fmtB(effectiveBalance) + '</div>' +
           '</div>';
-
-          pendingCCHtml += '</div>';
         }
       }
     }
