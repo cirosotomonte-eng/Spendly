@@ -231,7 +231,7 @@ async function applyUpdate() {
   .goal-row:active { background: var(--surface2); }
   .goal-cat { font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .goal-num { font-size: 13px; text-align: right; font-variant-numeric: tabular-nums; }
-  .goals-subtotal { display: grid; grid-template-columns: 1fr 80px 80px 70px 16px; padding: 8px 14px; background: var(--surface2); border-top: 1px solid var(--border); }
+  .goals-subtotal { display: grid; grid-template-columns: 1fr 80px 80px 70px 16px; padding: 8px 14px; border-top: 2px solid var(--border); }
   .goals-subtotal span { font-size: 12px; font-weight: 600; }
   .goals-subtotal span:not(:first-child) { text-align: right; }
 
@@ -2050,7 +2050,7 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.5.9';
+const APP_VERSION = '2.5.10';
 const BUILD_DATE = '2026-03-29';
 const BUILD_TIME = '22 Apr 2026 11:55 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
@@ -4602,11 +4602,11 @@ function renderRecurringSection() {
           '<div style="font-size:13px;font-weight:500">' + e.name + '</div>' +
           '<div style="font-size:11px;color:var(--muted)">' + cat.name + ' · ' + dueStr + '</div>' +
           (isFullyCovered ? '<div style="font-size:10px;color:#34C759;margin-top:2px">' + coverLabel + '</div>' : '') +
-          (isPartial ? '<div style="font-size:10px;color:#34C759;margin-top:2px">' + coverLabel + ' · ' + fmt(covered) + ' · You pay ' + fmt(grossAmt - covered) + '</div>' : '') +
+          (isPartial ? '<div style="font-size:10px;color:var(--orange);margin-top:2px">' + coverLabel + ' covers ' + fmt(covered) + ' · you pay ' + fmt(grossAmt - covered) + '</div>' : '') +
         '</div>' +
         '<div style="text-align:right;flex-shrink:0">' +
           '<div style="font-size:13px;font-weight:600;color:var(--accent)">-' + fmt(grossAmt) + '</div>' +
-          (isFullyCovered ? '<div style="font-size:9px;color:#34C759;font-weight:600">$0 from budget</div>' : '') +
+
           (isPartial ? '<div style="font-size:9px;color:var(--muted)">-' + fmt(grossAmt - covered) + ' from budget</div>' : '') +
         '</div>' +
       '</div>';
@@ -5088,7 +5088,7 @@ function renderDashboard() {
     '</div>' +
     '<div style="display:flex;justify-content:space-between;align-items:center">' +
       '<div style="font-size:12px;color:var(--muted)">' + fmt2(spent) + ' spent of ' + fmt0(budget) + '</div>' +
-      '<div style="font-size:12px;font-weight:600;color:' + barColor + '">' + Math.round(pct) + '% used</div>' +
+      '</div>' +
     '</div>' +
   '</div>';
 
