@@ -2050,9 +2050,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.5.11';
+const APP_VERSION = '2.5.12';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '22 Apr 2026 11:55 PM AEDT';
+const BUILD_TIME = '24 Apr 2026 1:09 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -6998,11 +6998,15 @@ function _updateTxGoalInfo() {
     infoEl.innerHTML = '💚 Depositing into <strong style="color:var(--text)">' + goal.icon + ' ' + goal.name + '</strong><br>Current balance: ' + fmtB(balance) + ' · Will become: <strong style="color:#34C759">' + fmtB(newBal) + '</strong><br><span style="color:var(--accent)">Also deducts from your monthly budget.</span>';
   } else {
     const amt = parseFloat(document.getElementById('expAmount').value) || 0;
-    if (balance >= amt && amt > 0) {
-      infoEl.innerHTML = '💚 Full amount covered by <strong style="color:var(--text)">' + goal.icon + ' ' + goal.name + '</strong> (balance: ' + fmtB(balance) + ')<br><span style="color:#34C759">Budget unaffected.</span>';
-    } else if (balance > 0 && amt > 0) {
-      const shortfall = amt - balance;
-      infoEl.innerHTML = '<strong style="color:var(--orange)">Split transaction!</strong> ' + fmtB(balance) + ' from <strong style="color:var(--text)">' + goal.icon + ' ' + goal.name + '</strong> + ' + fmtB(shortfall) + ' from budget.';
+    // When editing, if existing expense was already fully covered use that coverage amount
+    const editingExp = state.editingExpenseId ? (state.expenses||[]).find(e=>e.id===state.editingExpenseId) : null;
+    const existingCovered = editingExp ? (editingExp.goalCoveredAmount || 0) : 0;
+    const effectiveBalance = balance + existingCovered; // add back what was already covered
+    if ((effectiveBalance >= amt || existingCovered >= amt) && amt > 0) {
+      infoEl.innerHTML = '💚 Full amount covered by <strong style="color:var(--text)">' + goal.icon + ' ' + goal.name + '</strong><br><span style="color:#34C759">Budget unaffected.</span>';
+    } else if (effectiveBalance > 0 && amt > 0) {
+      const shortfall = amt - effectiveBalance;
+      infoEl.innerHTML = '<strong style="color:var(--orange)">Split transaction!</strong> ' + fmtB(effectiveBalance) + ' from <strong style="color:var(--text)">' + goal.icon + ' ' + goal.name + '</strong> + ' + fmtB(shortfall) + ' from budget.';
     } else {
       infoEl.innerHTML = '💚 Linked to <strong style="color:var(--text)">' + goal.icon + ' ' + goal.name + '</strong> (balance: ' + fmtB(balance) + ')<br>' + (balance <= 0 ? '<span style="color:var(--red)">No savings available — full amount from budget.</span>' : '<span style="color:var(--muted)">Enter an amount to see the breakdown.</span>');
     }
