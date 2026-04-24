@@ -2050,7 +2050,7 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.5.10';
+const APP_VERSION = '2.5.11';
 const BUILD_DATE = '2026-03-29';
 const BUILD_TIME = '22 Apr 2026 11:55 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
@@ -5077,20 +5077,7 @@ function renderDashboard() {
   // ─────────────────────────────────────────────────────────────────────────
   let html = '<div style="padding:0 0 100px">';
 
-  // ── 1. CYCLE SUMMARY (compact — header already shows Left to Spend) ────
-  html += '<div style="background:var(--surface);border-radius:var(--r);padding:12px 14px;margin-bottom:12px;cursor:pointer" onclick="switchMainTab(\'spend\')"> ' +
-    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">' +
-      '<div style="font-size:11px;color:var(--muted)">' + cycleStart.toLocaleDateString('en-AU',{day:'numeric',month:'short'}) + ' – ' + cycleEnd.toLocaleDateString('en-AU',{day:'numeric',month:'short'}) + '</div>' +
-      '<div style="font-size:11px;color:var(--muted)">' + daysLeft + ' days · ' + fmt2(Math.max(dailyLimit,0)) + '/day</div>' +
-    '</div>' +
-    '<div style="background:var(--surface2);border-radius:100px;height:5px;overflow:hidden;margin-bottom:8px">' +
-      '<div style="width:' + pct + '%;height:100%;background:' + barColor + ';border-radius:100px;transition:width 0.4s"></div>' +
-    '</div>' +
-    '<div style="display:flex;justify-content:space-between;align-items:center">' +
-      '<div style="font-size:12px;color:var(--muted)">' + fmt2(spent) + ' spent of ' + fmt0(budget) + '</div>' +
-      '</div>' +
-    '</div>' +
-  '</div>';
+  // Cycle summary removed — header already shows Left to Spend, Days Left and Daily Limit
 
   // ── 2. SPENDING PULSE ──────────────────────────────────────────────────
   html += '<div style="background:var(--surface);border-radius:var(--r);padding:14px 16px;margin-bottom:12px">' +
@@ -15896,11 +15883,14 @@ document.addEventListener('visibilitychange', () => {
     // Refresh the Supabase session if it has expired — this prevents 401 errors
     // on sync after the app has been in the background for > 1 hour
     if (SPENDLY_MODE === 'cloud') {
+      // Cancel any pending debounce sync — it has a stale token
+      // We'll re-sync after session is confirmed valid
+      clearTimeout(syncTimer);
+      setSyncStatus('idle');
       getSB().auth.getSession().then(({ data: { session } }) => {
         if (session) {
-          _sbSession = session; // refresh our local reference
+          _sbSession = session;
         } else {
-          // Session fully expired — re-auth silently via refresh token
           getSB().auth.refreshSession().then(({ data, error }) => {
             if (!error && data.session) _sbSession = data.session;
           }).catch(() => {});
