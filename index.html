@@ -1372,6 +1372,23 @@ async function applyUpdate() {
   </div>
 </div>
 
+<!-- ── CC Refund Modal ──────────────────────────────────────────────── -->
+<div class="modal-overlay" id="ccRefundModal">
+  <div class="modal-sheet">
+    <div class="modal-title">💳 CC Refund / Credit</div>
+    <label>Amount refunded</label>
+    <input type="number" id="ccRefundAmount" inputmode="decimal" placeholder="0.00" style="margin-bottom:14px">
+    <label>Date</label>
+    <input type="date" id="ccRefundDate" style="margin-bottom:14px">
+    <label>Note (optional)</label>
+    <input type="text" id="ccRefundNote" placeholder="e.g. Partial refund - flight cancellation" style="margin-bottom:14px">
+    <label>Credit card account</label>
+    <select id="ccRefundAccount" style="margin-bottom:20px"></select>
+    <button class="btn-primary" onclick="saveCCRefund()">Save refund</button>
+    <button class="btn-ghost" onclick="closeModal('ccRefundModal')">Cancel</button>
+  </div>
+</div>
+
 <!-- Rate change modal -->
 <div class="modal-overlay" id="mortgageRateModal">
   <div class="modal">
@@ -2050,9 +2067,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.5.12';
+const APP_VERSION = '2.5.15';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '24 Apr 2026 1:09 PM AEDT';
+const BUILD_TIME = '30 Apr 2026 12:31 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -2667,7 +2684,23 @@ async function loadState() {
               setSyncStatus('saved');
               setTimeout(() => setSyncStatus('idle'), 2000);
               // Show recovery banner after UI loads
-              setTimeout(() => showRecoveryBanner(localData, {exp:cloudExpCount, rec:cloudRecSavCount, pend:cloudPendingCount}, {exp:localExpCount, rec:localRecSavCount, pend:localPendingCount}), 2000);
+              // Store recovery data and show banner after lock screen is dismissed
+              // (showing during PIN screen means tap events are intercepted by the lock screen)
+              window._pendingRecoveryBanner = {
+                localData,
+                cloud: {exp:cloudExpCount, rec:cloudRecSavCount, pend:cloudPendingCount},
+                local: {exp:localExpCount, rec:localRecSavCount, pend:localPendingCount}
+              };
+              // If no lock screen active, show immediately after a short delay
+              if (!document.getElementById('lockScreen') || document.getElementById('lockScreen').classList.contains('hidden')) {
+                setTimeout(() => {
+                  if (window._pendingRecoveryBanner) {
+                    const p = window._pendingRecoveryBanner;
+                    window._pendingRecoveryBanner = null;
+                    showRecoveryBanner(p.localData, p.cloud, p.local);
+                  }
+                }, 500);
+              }
               return;
             }
           }
@@ -4912,8 +4945,8 @@ function renderExpenseResults(resultsEl) {
             return ids.length > 0 ? savingsCatById(ids[0]) : null;
           })();
           const goalName = goal ? goal.name : 'savings';
-          const shortfall = e.amount - e.goalCoveredAmount;
-          const isFullyCovered = shortfall <= 0;
+          const shortfall = Math.max(0, Math.round((e.amount - e.goalCoveredAmount) * 100) / 100);
+          const isFullyCovered = shortfall < 0.01;
           return '<div style="font-size:10px;color:#34C759;margin-top:3px;line-height:1.5">' +
             (isFullyCovered
               ? '💚 Covered by ' + goalName
@@ -7943,6 +7976,12 @@ function unlockApp() {
   document.getElementById('lockError').textContent = '';
   updateDots(0, false);
   renderContent();
+  // Show any pending recovery banner now that the lock screen is gone
+  if (window._pendingRecoveryBanner) {
+    const p = window._pendingRecoveryBanner;
+    window._pendingRecoveryBanner = null;
+    setTimeout(() => showRecoveryBanner(p.localData, p.cloud, p.local), 400);
+  }
 }
 const BIOM_CRED_KEY = 'spendly_biom_cred'; // stored credential ID (base64)
 
@@ -13970,9 +14009,9 @@ function getAccountBalance(accountId) {
     bal -= t.amount;
   });
 
-  // CC payments received by this CC account (credit — reduces what's owed)
+  // CC payments and refunds received by this CC account (credit — reduces what's owed)
   if (isCreditCard) {
-    (state.accountTransactions||[]).filter(t => t.type === 'ccPayment' && t.toAccountId === accountId && !t.deleted).forEach(t => {
+    (state.accountTransactions||[]).filter(t => (t.type === 'ccPayment' || t.type === 'ccRefund') && t.toAccountId === accountId && !t.deleted).forEach(t => {
       bal += t.amount;
     });
     // Also credit settled expenses — remove their balance impact once paid
@@ -14024,6 +14063,17 @@ function getAccountTransactions(accountId) {
       const goal = savingsCatById(d.catId);
       rows.push({ id: d.id, date: d.date, label: d.note || (goal ? 'Saving: ' + goal.name : 'Savings deposit'), amount: d.amount, direction: 'out', type: 'saving', raw: d });
     }
+  });
+
+  // CC refunds received by this account
+  (state.accountTransactions||[]).filter(t => t.type === 'ccRefund' && t.toAccountId === accountId && !t.deleted).forEach(t => {
+    rows.push({ id: t.id, date: t.date, label: '↩ ' + (t.note || 'Refund'), amount: t.amount, direction: 'in', type: 'ccRefund', raw: t });
+  });
+
+  // CC payments made from this account (show as out)
+  (state.accountTransactions||[]).filter(t => t.type === 'ccPayment' && t.toAccountId === accountId && !t.deleted).forEach(t => {
+    const fromAcct = accountById(t.fromAccountId);
+    rows.push({ id: t.id, date: t.date, label: '💳 Payment' + (fromAcct ? ' from ' + fromAcct.name : ''), amount: t.amount, direction: 'in', type: 'ccPayment', raw: t });
   });
 
   return rows.sort((a,b) => b.date.localeCompare(a.date) || b.id.localeCompare(a.id));
@@ -14429,6 +14479,49 @@ function setExpPaymentAccount(accountId) {
 let _viewingAccountId = null;
 
 // ── CC batch payment ──────────────────────────────────────────────────────────
+// ── CC Refund ─────────────────────────────────────────────────────────────────
+function openCCRefund(accountId) {
+  // Populate CC account dropdown
+  const sel = document.getElementById('ccRefundAccount');
+  if (!sel) return;
+  const ccAccts = (state.accounts||[]).filter(a => a.type === 'credit');
+  sel.innerHTML = ccAccts.map(a =>
+    '<option value="' + a.id + '"' + (a.id === accountId ? ' selected' : '') + '>' + (a.icon||'💳') + ' ' + a.name + '</option>'
+  ).join('');
+  // Set today's date
+  document.getElementById('ccRefundDate').value = todayStr();
+  document.getElementById('ccRefundAmount').value = '';
+  document.getElementById('ccRefundNote').value = '';
+  openModal('ccRefundModal');
+  setTimeout(() => document.getElementById('ccRefundAmount').focus(), 350);
+}
+
+function saveCCRefund() {
+  const amount = parseFloat(document.getElementById('ccRefundAmount').value);
+  const date = document.getElementById('ccRefundDate').value;
+  const note = document.getElementById('ccRefundNote').value.trim() || 'Refund / Credit';
+  const accountId = document.getElementById('ccRefundAccount').value;
+  if (!amount || amount <= 0) { showToast('Enter a valid amount', 2000); return; }
+  if (!date) { showToast('Select a date', 2000); return; }
+  if (!accountId) { showToast('Select a CC account', 2000); return; }
+
+  if (!state.accountTransactions) state.accountTransactions = [];
+  state.accountTransactions.push({
+    id: uid(),
+    type: 'ccRefund',
+    toAccountId: accountId,
+    amount,
+    date,
+    note,
+    description: note,
+  });
+
+  saveState();
+  closeModal('ccRefundModal');
+  renderAccounts();
+  showToast('✅ Refund of ' + fmt(amount) + ' recorded', 2500);
+}
+
 function toggleCCList(id) {
   const el = document.getElementById(id);
   const chev = document.getElementById(id + '-chev');
@@ -14697,8 +14790,12 @@ function renderAccounts() {
           const cycleStartStr = dateToStr(cycleStart);
           const prevExp = allCCExp.filter(e => e.date < cycleStartStr);
           const currExp = allCCExp.filter(e => e.date >= cycleStartStr);
-          const prevTotal = prevExp.reduce((s,e) => s + e.amount, 0);
-          const currTotal = currExp.reduce((s,e) => s + e.amount, 0);
+          // Reduce totals by any refunds recorded against this CC account
+          const allRefunds = (state.accountTransactions||[]).filter(t => t.type === 'ccRefund' && t.toAccountId === ccAccts[0]?.id && !t.deleted);
+          const prevRefunds = allRefunds.filter(r => r.date < cycleStartStr).reduce((s,r) => s + r.amount, 0);
+          const currRefunds = allRefunds.filter(r => r.date >= cycleStartStr).reduce((s,r) => s + r.amount, 0);
+          const prevTotal = Math.max(0, prevExp.reduce((s,e) => s + e.amount, 0) - prevRefunds);
+          const currTotal = Math.max(0, currExp.reduce((s,e) => s + e.amount, 0) - currRefunds);
           const grandTotal = prevTotal + currTotal;
 
           const buildExpRow = (e, i, borderColor) => {
@@ -14821,10 +14918,11 @@ function renderAccounts() {
 
     // Action buttons — CC gets "Pay bill" instead of Income
     if (acct.type === 'credit') {
-      html += '<div style="margin-bottom:14px">' +
-        '<button onclick="openCCPayment(\'' + acct.id + '\')" style="width:100%;background:' + (balance < 0 ? 'rgba(255,92,92,0.1)' : 'var(--accent-dim)') + ';color:' + (balance < 0 ? 'var(--red)' : 'var(--accent)') + ';border:2px solid ' + (balance < 0 ? 'rgba(255,92,92,0.3)' : 'var(--accent)') + ';border-radius:10px;padding:12px;font-size:14px;font-weight:700;font-family:var(--font);cursor:pointer">' +
-          (balance < 0 ? '💳 Pay CC bill — ' + fmtB(Math.abs(balance)) : '✓ Nothing owed') +
+      html += '<div style="display:flex;gap:8px;margin-bottom:14px">' +
+        '<button onclick="openCCPayment(\'' + acct.id + '\')" style="flex:1;background:' + (balance < 0 ? 'rgba(255,92,92,0.1)' : 'var(--accent-dim)') + ';color:' + (balance < 0 ? 'var(--red)' : 'var(--accent)') + ';border:2px solid ' + (balance < 0 ? 'rgba(255,92,92,0.3)' : 'var(--accent)') + ';border-radius:10px;padding:12px;font-size:13px;font-weight:700;font-family:var(--font);cursor:pointer">' +
+          (balance < 0 ? '💳 Pay bill · ' + fmtB(Math.abs(balance)) : '✓ Nothing owed') +
         '</button>' +
+        '<button onclick="openCCRefund(\'' + acct.id + '\')" style="background:rgba(52,199,89,0.1);color:#34C759;border:2px solid rgba(52,199,89,0.2);border-radius:10px;padding:12px 14px;font-size:13px;font-weight:700;font-family:var(--font);cursor:pointer;white-space:nowrap">↩ Refund</button>' +
       '</div>';
     } else {
       html += '<div style="display:flex;gap:8px;margin-bottom:14px">' +
