@@ -2067,9 +2067,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.5.15';
+const APP_VERSION = '2.5.16';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '30 Apr 2026 12:31 PM AEDT';
+const BUILD_TIME = '30 Apr 2026 12:55 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -14792,8 +14792,10 @@ function renderAccounts() {
           const currExp = allCCExp.filter(e => e.date >= cycleStartStr);
           // Reduce totals by any refunds recorded against this CC account
           const allRefunds = (state.accountTransactions||[]).filter(t => t.type === 'ccRefund' && t.toAccountId === ccAccts[0]?.id && !t.deleted);
-          const prevRefunds = allRefunds.filter(r => r.date < cycleStartStr).reduce((s,r) => s + r.amount, 0);
-          const currRefunds = allRefunds.filter(r => r.date >= cycleStartStr).reduce((s,r) => s + r.amount, 0);
+          const prevRefundItems = allRefunds.filter(r => r.date < cycleStartStr).sort((a,b) => b.date.localeCompare(a.date));
+          const currRefundItems = allRefunds.filter(r => r.date >= cycleStartStr).sort((a,b) => b.date.localeCompare(a.date));
+          const prevRefunds = prevRefundItems.reduce((s,r) => s + r.amount, 0);
+          const currRefunds = currRefundItems.reduce((s,r) => s + r.amount, 0);
           const prevTotal = Math.max(0, prevExp.reduce((s,e) => s + e.amount, 0) - prevRefunds);
           const currTotal = Math.max(0, currExp.reduce((s,e) => s + e.amount, 0) - currRefunds);
           const grandTotal = prevTotal + currTotal;
@@ -14827,7 +14829,7 @@ function renderAccounts() {
                   '<div style="display:flex;justify-content:space-between;align-items:center">' +
                     '<div>' +
                       '<div style="font-size:12px;font-weight:700;color:var(--red);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:2px">Previous cycle</div>' +
-                      '<div style="font-size:11px;color:var(--muted)">' + prevExp.length + ' charge' + (prevExp.length!==1?'s':'') + ' · before ' + cycleStart.toLocaleDateString('en-AU',{day:'numeric',month:'short'}) + '</div>' +
+                      '<div style="font-size:11px;color:var(--muted)">' + prevExp.length + ' charge' + (prevExp.length!==1?'s':'') + (prevRefundItems.length > 0 ? ' · ' + prevRefundItems.length + ' refund' + (prevRefundItems.length!==1?'s':'') : '') + ' · before ' + cycleStart.toLocaleDateString('en-AU',{day:'numeric',month:'short'}) + '</div>' +
                     '</div>' +
                     '<div style="display:flex;align-items:center;gap:10px">' +
                       '<div style="font-size:15px;font-weight:700;color:var(--red)">-' + fmtB(prevTotal) + '</div>' +
@@ -14838,6 +14840,17 @@ function renderAccounts() {
                 // Collapsible list
                 '<div id="' + prevCardId + '" style="display:none;padding:0 14px;border-top:1px solid rgba(255,59,48,0.15)">' +
                   prevExp.map((e,i) => buildExpRow(e, i, 'rgba(255,59,48,0.1)')).join('') +
+                  prevRefundItems.map((r,i) =>
+                    '<div style="display:flex;align-items:center;gap:10px;padding:9px 0;border-top:1px solid rgba(255,59,48,0.1)">' +
+                      '<div style="flex:1;min-width:0">' +
+                        '<div style="font-size:13px;font-weight:500;color:#34C759">↩ ' + (r.note || 'Refund') + '</div>' +
+                        '<div style="font-size:11px;color:var(--muted);margin-top:1px">' +
+                          new Date(r.date+'T00:00:00').toLocaleDateString('en-AU',{day:'numeric',month:'short'}) + ' · Refund / Credit' +
+                        '</div>' +
+                      '</div>' +
+                      '<div style="font-size:13px;font-weight:600;color:#34C759;flex-shrink:0">+' + fmtB(r.amount) + '</div>' +
+                    '</div>'
+                  ).join('') +
                 '</div>' +
                 // Footer — always visible
                 '<div style="padding:10px 14px;border-top:1px solid rgba(255,59,48,0.15);display:flex;justify-content:space-between;align-items:center">' +
@@ -14867,6 +14880,17 @@ function renderAccounts() {
                 // Collapsible list
                 '<div id="' + currCardId + '" style="display:none;padding:0 14px;border-top:1px solid var(--surface2)">' +
                   currExp.map((e,i) => buildExpRow(e, i, 'var(--surface2)')).join('') +
+                  currRefundItems.map((r,i) =>
+                    '<div style="display:flex;align-items:center;gap:10px;padding:9px 0;border-top:1px solid var(--surface2)">' +
+                      '<div style="flex:1;min-width:0">' +
+                        '<div style="font-size:13px;font-weight:500;color:#34C759">↩ ' + (r.note || 'Refund') + '</div>' +
+                        '<div style="font-size:11px;color:var(--muted);margin-top:1px">' +
+                          new Date(r.date+'T00:00:00').toLocaleDateString('en-AU',{day:'numeric',month:'short'}) + ' · Refund / Credit' +
+                        '</div>' +
+                      '</div>' +
+                      '<div style="font-size:13px;font-weight:600;color:#34C759;flex-shrink:0">+' + fmtB(r.amount) + '</div>' +
+                    '</div>'
+                  ).join('') +
                 '</div>' +
                 // Footer — always visible, no pay button yet
                 '<div style="padding:10px 14px;border-top:1px solid var(--surface2);display:flex;justify-content:space-between;align-items:center">' +
