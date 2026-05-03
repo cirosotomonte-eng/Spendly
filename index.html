@@ -2079,9 +2079,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.5.24';
+const APP_VERSION = '2.5.25';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '03 May 2026 10:12 PM AEDT';
+const BUILD_TIME = '03 May 2026 10:28 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -10443,6 +10443,7 @@ function renderMortgage() {
   '</div>';
 
   // ── Overpayment impact card ───────────────────────────────────────────────
+  const currentOffset = getTrueOffsetBalance();
   if (c.weeklyOverpayment > 0) {
     const timeSavedStr = (c.yearsSaved > 0 ? c.yearsSaved + ' yr ' : '') + (c.monthsSaved > 0 ? c.monthsSaved + ' mo' : '') || '< 1 month';
     const payoffStr = c.paidOffDate ? c.paidOffDate.toLocaleDateString('en-AU',{month:'long',year:'numeric'}) : '—';
@@ -10494,9 +10495,7 @@ function renderMortgage() {
   '</div>';
 
   // ── Offset account card ───────────────────────────────────────────────────
-  // Use the total across all linked goals + linked accounts as the true offset balance
-  // This matches the breakdown shown in the Offset Account detail page
-  const currentOffset = getTrueOffsetBalance();
+  // currentOffset already declared above
   const annualRateNow = (mg.interestRate || 0) / 100;
   const dailyInterestSaved = currentOffset * (annualRateNow / 365);
   const currentMonthSaving = getOffsetCurrentMonthSaving();
