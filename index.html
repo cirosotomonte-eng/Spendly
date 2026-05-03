@@ -2079,9 +2079,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.5.19';
+const APP_VERSION = '2.5.21';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '03 May 2026 8:25 PM AEDT';
+const BUILD_TIME = '03 May 2026 9:12 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -10498,7 +10498,7 @@ function renderMortgage() {
   html += '<div style="background:var(--surface);border-radius:var(--r);padding:14px;margin-bottom:8px">' +
     '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">' +
       '<div style="font-size:13px;font-weight:700">Offset account</div>' +
-      '<button onclick="openOffsetTxSheet()" style="background:var(--accent-dim);color:var(--accent);border:none;border-radius:8px;padding:7px 18px;font-size:12px;font-weight:600;font-family:var(--font);cursor:pointer">+ Add / View</button>' +
+      '<button onclick="navigateToOffsetAccount()" style="background:var(--surface2);color:var(--muted);border:none;border-radius:8px;padding:7px 18px;font-size:12px;font-weight:600;font-family:var(--font);cursor:pointer">View →</button>' +
     '</div>' +
     '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:12px">' +
       '<div>' +
@@ -10514,7 +10514,7 @@ function renderMortgage() {
         '<div style="font-size:18px;font-weight:700;color:'+(currentMonthSaving>0?'var(--accent)':'var(--muted)')+'">$' + currentMonthSaving.toFixed(2) + '</div>' +
       '</div>' +
     '</div>' +
-    '<div style="border-top:1px solid var(--surface2);padding-top:10px;cursor:pointer" onclick="openOffsetTxSheet()">' +
+    '<div style="border-top:1px solid var(--surface2);padding-top:10px">' +
       '<div style="display:flex;justify-content:space-between;align-items:center">' +
         '<div style="font-size:11px;color:var(--muted)">' + cycleLabel + ' · ' + cycleTxs.length + ' transaction' + (cycleTxs.length!==1?'s':'') + '</div>' +
         '<div style="font-size:11px;font-weight:600;color:'+(cycleNet!==0?(cycleNet>0?'var(--accent)':'var(--red)'):'var(--muted)')+'">' + (cycleNet>0?'+':cycleNet<0?'-':'') + '$'+Math.abs(cycleNet).toFixed(2) + '</div>' +
@@ -13088,6 +13088,20 @@ function renderGiftCards() {
 
 
 // ── Offset transaction sheet ──────────────────────────────────────────────────
+function navigateToOffsetAccount() {
+  const offsetAcct = (state.accounts||[]).find(a => a.type === 'offset');
+  if (!offsetAcct) {
+    showToast('No offset account found — add one in Accounts', 2500);
+    return;
+  }
+  switchMainTab('finance');
+  switchTab('accounts');
+  setTimeout(() => {
+    _viewingAccountId = offsetAcct.id;
+    renderAccounts();
+  }, 100);
+}
+
 function openOffsetTxSheet() {
   const refreshOffsetSheet = () => {
     const { cycleStart, cycleEnd } = getMortgageCycleRange(state.mortgageCycleOffset || 0);
@@ -15089,7 +15103,7 @@ function renderAccounts() {
           const gb = totalSavedForCat(g.id);
           return '<div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px"><span style="color:var(--muted)">' + g.icon + ' ' + g.name + '</span><span style="font-weight:600">' + fmtB(gb) + '</span></div>';
         }).join('') +
-        (Math.abs(unallocated) > 0.01 ?
+        (unallocated > 0.01 ?
           '<div style="display:flex;justify-content:space-between;align-items:center;font-size:12px;margin-top:4px;padding-top:4px;border-top:1px solid var(--surface2)">' +
             '<span style="display:flex;align-items:center;gap:4px;color:var(--orange);font-weight:600">Unallocated' +
               '<span onclick="event.stopPropagation();var t=document.getElementById(\'unallocTip\');t.style.display=t.style.display===\'block\'?\'none\':\'block\'" style="cursor:pointer;color:var(--muted);font-size:11px;background:var(--surface2);border-radius:50%;width:16px;height:16px;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0">?</span>' +
