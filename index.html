@@ -2079,9 +2079,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.5.25';
+const APP_VERSION = '2.5.26';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '03 May 2026 10:28 PM AEDT';
+const BUILD_TIME = '04 May 2026 8:06 AM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -14862,7 +14862,7 @@ function renderAccounts() {
   if (_viewingAccountId) {
     const acct = accountById(_viewingAccountId);
     if (!acct) { _viewingAccountId = null; renderAccounts(); return; }
-    const balance = getAccountBalance(_viewingAccountId);
+    const balance = acct.type === 'offset' ? getTrueOffsetBalance() : getAccountBalance(_viewingAccountId);
     const txns = getAccountTransactions(_viewingAccountId);
     const typeInfo = ACCOUNT_TYPES[acct.type] || ACCOUNT_TYPES.transaction;
 
@@ -14871,7 +14871,7 @@ function renderAccounts() {
     // This avoids double-counting where both balance and allocatedTotal shift by the same amount
     const linkedGoals = (state.savingsCategories||[]).filter(g => g.linkedAccountId === _viewingAccountId);
     const allocatedTotal = linkedGoals.reduce((s,g) => s + totalSavedForCat(g.id), 0);
-    const balanceForUnalloc = acct.type === 'offset' ? getOffsetBalance() : balance;
+    const balanceForUnalloc = balance; // balance already uses getTrueOffsetBalance() for offset accounts
     const unallocated = balanceForUnalloc - allocatedTotal;
 
     // ── Pending savings payments (salary accounts) ──────────────────────────
