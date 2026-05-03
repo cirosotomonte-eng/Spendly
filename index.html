@@ -1389,6 +1389,15 @@ async function applyUpdate() {
   </div>
 </div>
 
+<!-- ── Allocate Modal ──────────────────────────────────────────────────── -->
+<div class="modal-overlay" id="allocateModal">
+  <div class="modal-sheet" style="max-height:90vh;overflow-y:auto">
+    <div class="modal-title">Allocate to goals</div>
+    <div id="allocateContent"></div>
+    <button class="btn-ghost" onclick="closeModal('allocateModal')" style="margin-top:8px">Done</button>
+  </div>
+</div>
+
 <!-- Rate change modal -->
 <div class="modal-overlay" id="mortgageRateModal">
   <div class="modal">
@@ -2067,9 +2076,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.5.16';
+const APP_VERSION = '2.5.17';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '30 Apr 2026 12:55 PM AEDT';
+const BUILD_TIME = '30 Apr 2026 1:48 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -14480,6 +14489,142 @@ let _viewingAccountId = null;
 
 // ── CC batch payment ──────────────────────────────────────────────────────────
 // ── CC Refund ─────────────────────────────────────────────────────────────────
+// ── Allocate unallocated funds ────────────────────────────────────────────────
+let _allocateRemaining = 0;
+let _allocateSourceAccountId = null;
+let _allocateAllocations = []; // [{goalId, amount}]
+
+function openAllocateSheet(unallocated, accountId) {
+  _allocateRemaining = Math.round(unallocated * 100) / 100;
+  _allocateSourceAccountId = accountId;
+  _allocateAllocations = [];
+  renderAllocateSheet();
+  openModal('allocateModal');
+}
+
+function renderAllocateSheet() {
+  const el = document.getElementById('allocateContent');
+  if (!el) return;
+
+  const allGoals = (state.savingsCategories||[]).filter(c => c.status !== 'closed');
+  const fmtA = n => '$' + Math.abs(n).toLocaleString('en-AU', {minimumFractionDigits:2, maximumFractionDigits:2});
+
+  let html = '';
+
+  // ── Remaining pill ──
+  const remColor = _allocateRemaining < 0 ? 'var(--red)' : _allocateRemaining < 0.01 ? '#34C759' : 'var(--orange)';
+  html += '<div style="background:var(--surface2);border-radius:12px;padding:12px 14px;margin-bottom:16px;display:flex;justify-content:space-between;align-items:center">' +
+    '<div>' +
+      '<div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:2px">Remaining to allocate</div>' +
+      '<div id="allocateRemainingVal" style="font-size:22px;font-weight:800;color:' + remColor + '">' + fmtA(_allocateRemaining) + '</div>' +
+    '</div>' +
+    (_allocateRemaining < 0.01 && _allocateRemaining >= 0 ? '<div style="font-size:20px">🎉</div>' : '') +
+  '</div>';
+
+  // ── Existing allocations ──
+  if (_allocateAllocations.length > 0) {
+    html += '<div style="margin-bottom:12px">';
+    html += '<div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:8px">Added so far</div>';
+    _allocateAllocations.forEach((a, i) => {
+      const g = savingsCatById(a.goalId);
+      if (!g) return;
+      html += '<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-top:1px solid var(--surface2)">' +
+        '<span style="font-size:18px">' + g.icon + '</span>' +
+        '<div style="flex:1;font-size:13px;font-weight:500">' + g.name + '</div>' +
+        '<div style="font-size:13px;font-weight:700;color:#34C759">+' + fmtA(a.amount) + '</div>' +
+        '<button data-idx="' + i + '" onclick="removeAllocation(this.dataset.idx)" style="font-size:11px;color:var(--red);background:none;border:none;cursor:pointer;padding:2px 6px;font-family:var(--font)">✕</button>' +
+      '</div>';
+    });
+    html += '</div>';
+  }
+
+  // ── Add another goal ──
+  if (_allocateRemaining > 0.005) {
+    html += '<div style="background:var(--surface2);border-radius:12px;padding:12px 14px;margin-bottom:12px">';
+    html += '<div style="font-size:12px;font-weight:600;color:var(--text);margin-bottom:10px">Add to a goal</div>';
+    html += '<select id="allocateGoalSel" style="width:100%;background:var(--surface);border:1.5px solid var(--border);border-radius:10px;color:var(--text);font-size:14px;font-family:var(--font);padding:10px 12px;margin-bottom:10px">' +
+      '<option value="">Select a goal…</option>' +
+      allGoals.map(g => {
+        const bal = totalSavedForCat(g.id);
+        const label = g.icon + ' ' + g.name + (g.target ? ' — ' + fmtA(bal) + ' / ' + fmtA(g.target) : ' — ' + fmtA(bal));
+        return '<option value="' + g.id + '">' + label + '</option>';
+      }).join('') +
+    '</select>';
+    html += '<div style="display:flex;gap:8px;align-items:center">' +
+      '<input type="number" id="allocateAmtInput" inputmode="decimal" placeholder="Amount" style="flex:1;background:var(--surface);border:1.5px solid var(--border);border-radius:10px;color:var(--text);font-size:14px;font-family:var(--font);padding:10px 12px">' +
+      '<button onclick="allocateAll()" style="background:none;border:1.5px solid var(--border);border-radius:8px;padding:9px 12px;font-size:11px;font-weight:600;color:var(--muted);font-family:var(--font);cursor:pointer;white-space:nowrap">All</button>' +
+      '<button onclick="addAllocation()" style="background:var(--accent);color:#fff;border:none;border-radius:10px;padding:10px 16px;font-size:13px;font-weight:700;font-family:var(--font);cursor:pointer">Add</button>' +
+    '</div>';
+    html += '</div>';
+  }
+
+  // ── Confirm button ──
+  if (_allocateAllocations.length > 0) {
+    const totalToDeposit = _allocateAllocations.reduce((s,a) => s + a.amount, 0);
+    html += '<button onclick="confirmAllocations()" style="width:100%;background:var(--accent);color:#fff;border:none;border-radius:12px;padding:14px;font-size:15px;font-weight:700;font-family:var(--font);cursor:pointer;margin-bottom:8px">' +
+      '💚 Deposit ' + fmtA(totalToDeposit) + ' to ' + _allocateAllocations.length + ' goal' + (_allocateAllocations.length!==1?'s':'') +
+    '</button>';
+  }
+
+  el.innerHTML = html;
+}
+
+function allocateAll() {
+  const input = document.getElementById('allocateAmtInput');
+  if (input) input.value = _allocateRemaining.toFixed(2);
+}
+
+function addAllocation() {
+  const goalId = document.getElementById('allocateGoalSel')?.value;
+  const amount = parseFloat(document.getElementById('allocateAmtInput')?.value);
+  if (!goalId) { showToast('Select a goal', 1500); return; }
+  if (!amount || amount <= 0) { showToast('Enter an amount', 1500); return; }
+  if (amount > _allocateRemaining + 0.005) { showToast('Amount exceeds remaining ' + '$' + _allocateRemaining.toFixed(2), 2000); return; }
+  // Merge if same goal already added
+  const existing = _allocateAllocations.find(a => a.goalId === goalId);
+  if (existing) {
+    existing.amount = Math.round((existing.amount + amount) * 100) / 100;
+  } else {
+    _allocateAllocations.push({ goalId, amount: Math.round(amount * 100) / 100 });
+  }
+  _allocateRemaining = Math.round((_allocateRemaining - amount) * 100) / 100;
+  renderAllocateSheet();
+}
+
+function removeAllocation(idx) {
+  const a = _allocateAllocations[parseInt(idx)];
+  if (!a) return;
+  _allocateRemaining = Math.round((_allocateRemaining + a.amount) * 100) / 100;
+  _allocateAllocations.splice(parseInt(idx), 1);
+  renderAllocateSheet();
+}
+
+function confirmAllocations() {
+  if (_allocateAllocations.length === 0) return;
+  const today = todayStr();
+  if (!state.savingsDeposits) state.savingsDeposits = [];
+  _allocateAllocations.forEach(a => {
+    state.savingsDeposits.push({
+      id: uid(),
+      catId: a.goalId,
+      targetId: a.goalId,
+      amount: a.amount,
+      date: today,
+      note: 'Allocated from offset',
+      type: 'deposit',
+      sourceAccountId: _allocateSourceAccountId,
+    });
+    checkAndMarkGoalReached(a.goalId);
+  });
+  const total = _allocateAllocations.reduce((s,a) => s + a.amount, 0);
+  const count = _allocateAllocations.length;
+  _allocateAllocations = [];
+  saveState();
+  closeModal('allocateModal');
+  renderAccounts();
+  showToast('✅ Allocated $' + total.toFixed(2) + ' across ' + count + ' goal' + (count!==1?'s':''), 3000);
+}
+
 function openCCRefund(accountId) {
   // Populate CC account dropdown
   const sel = document.getElementById('ccRefundAccount');
@@ -14936,7 +15081,18 @@ function renderAccounts() {
           const gb = totalSavedForCat(g.id);
           return '<div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px"><span style="color:var(--muted)">' + g.icon + ' ' + g.name + '</span><span style="font-weight:600">' + fmtB(gb) + '</span></div>';
         }).join('') +
-        (Math.abs(unallocated) > 0.01 ? '<div style="display:flex;justify-content:space-between;font-size:12px;margin-top:4px;padding-top:4px;border-top:1px solid var(--surface2)"><span style="color:var(--orange)">Unallocated</span><span style="font-weight:600;color:var(--orange)">' + fmtB(unallocated) + '</span></div>' : '') +
+        (Math.abs(unallocated) > 0.01 ?
+          '<div style="display:flex;justify-content:space-between;align-items:center;font-size:12px;margin-top:4px;padding-top:4px;border-top:1px solid var(--surface2)">' +
+            '<span style="display:flex;align-items:center;gap:4px;color:var(--orange);font-weight:600">Unallocated' +
+              '<span onclick="event.stopPropagation();this.nextSibling.style.display=this.nextSibling.style.display===\'block\'?\'none\':\'block\'" style="cursor:pointer;color:var(--muted);font-size:11px;background:var(--surface2);border-radius:50%;width:16px;height:16px;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0">?</span>' +
+              '<span style="display:none;position:absolute;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:8px 10px;font-size:11px;color:var(--muted);max-width:220px;line-height:1.5;z-index:100;margin-top:20px;box-shadow:0 4px 16px rgba(0,0,0,0.15)">Money in this account not yet assigned to a savings goal. Link goals to this account in their Edit screen, or use Allocate to deposit directly.</span>' +
+            '</span>' +
+            '<div style="display:flex;align-items:center;gap:8px">' +
+              '<span style="font-weight:700;color:var(--orange)">' + fmtB(unallocated) + '</span>' +
+              '<button onclick="openAllocateSheet(' + unallocated.toFixed(2) + ', \'' + _viewingAccountId + '\')" style="background:rgba(240,168,96,0.15);border:1.5px solid rgba(240,168,96,0.4);border-radius:8px;padding:4px 10px;font-size:11px;font-weight:700;color:var(--orange);font-family:var(--font);cursor:pointer">Allocate</button>' +
+            '</div>' +
+          '</div>'
+        : '') +
       '</div>' : '') +
     '</div>';
 
