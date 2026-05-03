@@ -2079,9 +2079,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.5.21';
+const APP_VERSION = '2.5.22';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '03 May 2026 9:12 PM AEDT';
+const BUILD_TIME = '03 May 2026 9:47 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -15098,24 +15098,73 @@ function renderAccounts() {
           '<div style="font-size:12px;color:var(--muted);margin-top:2px">' + (balance < 0 ? 'Unpaid charges since last payment' : '✓ All paid up') + '</div>'
         : '<div style="font-size:32px;font-weight:800;letter-spacing:-1px;color:' + (balance < 0 ? 'var(--red)' : 'var(--text)') + '">' + fmtB(balance) + '</div>' +
           '<div style="font-size:12px;color:var(--muted);margin-top:2px">Current balance</div>') +
-      (linkedGoals.length > 0 ? '<div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--surface2)">' +
-        linkedGoals.map(g => {
-          const gb = totalSavedForCat(g.id);
-          return '<div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px"><span style="color:var(--muted)">' + g.icon + ' ' + g.name + '</span><span style="font-weight:600">' + fmtB(gb) + '</span></div>';
-        }).join('') +
-        (unallocated > 0.01 ?
-          '<div style="display:flex;justify-content:space-between;align-items:center;font-size:12px;margin-top:4px;padding-top:4px;border-top:1px solid var(--surface2)">' +
-            '<span style="display:flex;align-items:center;gap:4px;color:var(--orange);font-weight:600">Unallocated' +
-              '<span onclick="event.stopPropagation();var t=document.getElementById(\'unallocTip\');t.style.display=t.style.display===\'block\'?\'none\':\'block\'" style="cursor:pointer;color:var(--muted);font-size:11px;background:var(--surface2);border-radius:50%;width:16px;height:16px;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0">?</span>' +
-              '<div id="unallocTip" onclick="event.stopPropagation()" style="display:none;position:fixed;left:16px;right:16px;bottom:120px;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:12px 14px;font-size:12px;color:var(--muted);line-height:1.6;z-index:500;box-shadow:0 4px 24px rgba(0,0,0,0.2)">Money in this account not yet assigned to a savings goal. Link goals to this account in their Edit screen, or use Allocate to deposit directly.<br><button onclick="document.getElementById(\'unallocTip\').style.display=\'none\'" style="margin-top:8px;font-size:11px;font-weight:600;color:var(--accent);background:none;border:none;font-family:var(--font);cursor:pointer">Got it</button></div>' +
+      (acct.type === 'offset' ? (() => {
+        // ── Full offset breakdown: goals + linked accounts + unallocated ──
+        const linkedAccounts = (state.accounts||[]).filter(a => a.linkedOffsetAccountId === _viewingAccountId);
+        const hasItems = linkedGoals.length > 0 || linkedAccounts.length > 0;
+        if (!hasItems) return '';
+
+        const goalsTotal = linkedGoals.reduce((s,g) => s + totalSavedForCat(g.id), 0);
+        const accountsTotal = linkedAccounts.reduce((s,a) => s + getAccountBalance(a.id), 0);
+        const grandAllocated = goalsTotal + accountsTotal;
+        const unallocAmt = Math.round((balanceForUnalloc - grandAllocated) * 100) / 100;
+
+        let breakdown = '<div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--surface2)">';
+
+        // Goals section
+        if (linkedGoals.length > 0) {
+          breakdown += '<div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.07em;margin-bottom:6px">Goals</div>';
+          linkedGoals.forEach(g => {
+            const gb = totalSavedForCat(g.id);
+            breakdown += '<div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:5px">' +
+              '<span style="color:var(--muted)">' + g.icon + ' ' + g.name + '</span>' +
+              '<span style="font-weight:600">' + fmtB(gb) + '</span>' +
+            '</div>';
+          });
+        }
+
+        // Linked accounts section
+        if (linkedAccounts.length > 0) {
+          breakdown += '<div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.07em;margin-top:8px;margin-bottom:6px">Linked accounts</div>';
+          linkedAccounts.forEach(a => {
+            const ab = getAccountBalance(a.id);
+            breakdown += '<div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:5px">' +
+              '<span style="color:var(--muted)">' + (a.icon||'💼') + ' ' + a.name + '</span>' +
+              '<span style="font-weight:600">' + fmtB(ab) + '</span>' +
+            '</div>';
+          });
+        }
+
+        // Unallocated (only if positive)
+        if (unallocAmt > 0.01) {
+          breakdown += '<div style="display:flex;justify-content:space-between;align-items:center;font-size:13px;padding-top:6px;margin-top:4px;border-top:1px dashed var(--border)">' +
+            '<span style="display:flex;align-items:center;gap:4px;color:var(--orange)">' +
+              'Unallocated' +
+              '<span onclick="event.stopPropagation();var t=document.getElementById(\'unallocTip\');t.style.display=t.style.display===\'block\'?\'none\':\'block\'" style="cursor:pointer;color:var(--muted);font-size:10px;background:var(--surface2);border-radius:50%;width:15px;height:15px;display:inline-flex;align-items:center;justify-content:center">?</span>' +
+              '<div id="unallocTip" onclick="event.stopPropagation()" style="display:none;position:fixed;left:16px;right:16px;bottom:120px;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:12px 14px;font-size:12px;color:var(--muted);line-height:1.6;z-index:500;box-shadow:0 4px 24px rgba(0,0,0,0.2)">Money in this account not yet assigned to a savings goal or linked account.<br><button onclick="document.getElementById(\'unallocTip\').style.display=\'none\'" style="margin-top:8px;font-size:11px;font-weight:600;color:var(--accent);background:none;border:none;font-family:var(--font);cursor:pointer">Got it</button></div>' +
             '</span>' +
             '<div style="display:flex;align-items:center;gap:8px">' +
-              '<span style="font-weight:700;color:var(--orange)">' + fmtB(unallocated) + '</span>' +
-              '<button onclick="openAllocateSheet(' + unallocated.toFixed(2) + ', \'' + _viewingAccountId + '\')" style="background:rgba(240,168,96,0.15);border:1.5px solid rgba(240,168,96,0.4);border-radius:8px;padding:4px 10px;font-size:11px;font-weight:700;color:var(--orange);font-family:var(--font);cursor:pointer">Allocate</button>' +
+              '<span style="font-weight:700;color:var(--orange)">' + fmtB(unallocAmt) + '</span>' +
+              '<button onclick="openAllocateSheet(' + unallocAmt.toFixed(2) + ', \'' + _viewingAccountId + '\')" style="background:rgba(240,168,96,0.15);border:1.5px solid rgba(240,168,96,0.4);border-radius:8px;padding:4px 10px;font-size:11px;font-weight:700;color:var(--orange);font-family:var(--font);cursor:pointer">Allocate</button>' +
             '</div>' +
-          '</div>'
-        : '') +
-      '</div>' : '') +
+          '</div>';
+        }
+
+        // Total row
+        breakdown += '<div style="display:flex;justify-content:space-between;font-size:13px;font-weight:700;padding-top:8px;margin-top:6px;border-top:1px solid var(--surface2)">' +
+          '<span style="color:var(--text)">Total allocated</span>' +
+          '<span>' + fmtB(grandAllocated + (unallocAmt > 0.01 ? unallocAmt : 0)) + '</span>' +
+        '</div>';
+
+        breakdown += '</div>';
+        return breakdown;
+      })() : (linkedGoals.length > 0 ?
+        '<div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--surface2)">' +
+          linkedGoals.map(g => {
+            const gb = totalSavedForCat(g.id);
+            return '<div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px"><span style="color:var(--muted)">' + g.icon + ' ' + g.name + '</span><span style="font-weight:600">' + fmtB(gb) + '</span></div>';
+          }).join('') +
+        '</div>' : '')) +
     '</div>';
 
     // Action buttons — CC gets "Pay bill" instead of Income
