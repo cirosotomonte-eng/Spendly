@@ -2079,9 +2079,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.5.26';
+const APP_VERSION = '2.5.27';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '04 May 2026 8:06 AM AEDT';
+const BUILD_TIME = '05 May 2026 8:18 AM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -14049,17 +14049,12 @@ function getAccountBalance(accountId) {
 
   // CC payments and refunds received by this CC account (credit — reduces what's owed)
   if (isCreditCard) {
+    // ccPayment / ccRefund accountTransactions credit the CC balance (reduce what's owed)
+    // This is the single source of truth for CC balance correction — do NOT also reverse
+    // settled expense IDs here, as payCCBatch records both a ccPayments entry (for display)
+    // AND an accountTransaction (for balance) — reversing expenses too would double-count.
     (state.accountTransactions||[]).filter(t => (t.type === 'ccPayment' || t.type === 'ccRefund') && t.toAccountId === accountId && !t.deleted).forEach(t => {
       bal += t.amount;
-    });
-    // Also credit settled expenses — remove their balance impact once paid
-    const settledIds = new Set((state.ccPayments||[])
-      .filter(p => p.toCCAccountIds && p.toCCAccountIds.includes(accountId))
-      .flatMap(p => p.expenseIds||[]));
-    (state.expenses||[]).forEach(e => {
-      if (e.paymentAccountId === accountId && settledIds.has(e.id)) {
-        bal += e.amount; // reverse the deduction for settled expenses
-      }
     });
   }
 
