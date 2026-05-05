@@ -2079,9 +2079,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.5.31';
+const APP_VERSION = '2.5.32';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '05 May 2026 10:59 PM AEDT';
+const BUILD_TIME = '05 May 2026 11:21 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -5131,7 +5131,10 @@ function renderDashboard() {
     s + (d.type==='withdrawal'||d.type==='bill-payment' ? -d.amount : d.amount), 0);
 
   // ── Offset balance ──────────────────────────────────────────────────────
-  const offsetBal = getOffsetBalance();
+  // Use getAccountBalance for the offset account if one exists (matches Accounts tab)
+  // Fall back to getOffsetBalance() if no offset account is set up
+  const _offsetAcct = (state.accounts||[]).find(a => a.type === 'offset');
+  const offsetBal = _offsetAcct ? getAccountBalance(_offsetAcct.id) : getOffsetBalance();
 
   // ─────────────────────────────────────────────────────────────────────────
   // BUILD HTML
@@ -5953,7 +5956,11 @@ function buildSavingsCatTransactionRows(cat, cycleExps) {
   (state.savingsDeposits||[]).filter(d => {
     if (!linkedGoalIds.includes(d.catId)) return false;
     const dt = new Date(d.date + 'T00:00:00');
-    return dt >= cycleStart && dt <= cycleEnd;
+    if (!(dt >= cycleStart && dt <= cycleEnd)) return false;
+    // Exclude bill-payment type — these are auto-created when a goal covers an expense
+    // and already appear as COVERED expense rows; showing both causes duplicates
+    if (d.type === 'bill-payment') return false;
+    return true;
   }).forEach(d => items.push({ kind: 'deposit', date: d.date, d }));
 
   cycleExps.filter(e =>
