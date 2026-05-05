@@ -2079,9 +2079,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.5.29';
+const APP_VERSION = '2.5.30';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '05 May 2026 1:58 PM AEDT';
+const BUILD_TIME = '05 May 2026 8:11 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -14472,68 +14472,75 @@ function deleteTransfer() {
 // Finds the most recent transfer to this CC account and adjusts its amount
 // to match only the previous cycle total, correcting an overpayment.
 function fixCCOverpayment(ccAccountId) {
-  const settledIds = new Set((state.ccPayments||[]).flatMap(p => p.expenseIds||[]));
   const { cycleStart } = getCycleRange(0);
   const cycleStartStr = dateToStr(cycleStart);
 
-  const allCCExp = (state.expenses||[]).filter(e => {
-    if (!e.paymentAccountId || settledIds.has(e.id)) return false;
-    const acct = accountById(e.paymentAccountId);
-    return acct && acct.type === 'credit' && e.paymentAccountId === ccAccountId;
-  });
-  const prevExp = allCCExp.filter(e => e.date < cycleStartStr);
-  const prevTotal = Math.round(prevExp.reduce((s,e) => s + e.amount, 0) * 100) / 100;
+  // Find the most recent ccPayments RECORD (the settled expense list from payCCBatch)
+  const recentCCPayment = (state.ccPayments||[])
+    .filter(p => p.toCCAccountIds && p.toCCAccountIds.includes(ccAccountId) && !p._recalibrated)
+    .sort((a,b) => b.date.localeCompare(a.date))[0];
 
-  if (prevTotal <= 0) {
-    showToast('No previous cycle charges found to recalibrate against.', 3000);
-    return;
-  }
-
-  // Find the most recent transfer TO this CC account
+  // Also check for a plain transfer payment
   const recentTransfer = (state.accountTransactions||[])
     .filter(t => t.type === 'transfer' && t.toAccountId === ccAccountId && !t.deleted)
-    .sort((a,b) => b.date.localeCompare(a.date) || b.id.localeCompare(a.id))[0];
+    .sort((a,b) => b.date.localeCompare(a.date))[0];
 
-  if (!recentTransfer) {
-    showToast('No transfer payment found to fix.', 3000);
+  // The ccPayment accountTransaction (created by payCCBatch)
+  const recentCCPayTxn = (state.accountTransactions||[])
+    .filter(t => t.type === 'ccPayment' && t.toAccountId === ccAccountId && !t.deleted)
+    .sort((a,b) => b.date.localeCompare(a.date))[0];
+
+  const paymentTxn = recentCCPayTxn || recentTransfer;
+  if (!paymentTxn) {
+    showToast('No CC payment found to fix.', 3000);
     return;
   }
 
-  const diff = Math.round((recentTransfer.amount - prevTotal) * 100) / 100;
-  if (Math.abs(diff) < 0.01) {
-    showToast('Payment already matches previous cycle total. Nothing to fix.', 3000);
+  // Identify any settled expense IDs that are CURRENT cycle (wrongly settled)
+  const allSettledIds = recentCCPayment ? (recentCCPayment.expenseIds || []) : [];
+  const wronglySettled = allSettledIds.filter(id => {
+    const e = (state.expenses||[]).find(x => x.id === id);
+    return e && e.date >= cycleStartStr;
+  });
+  const wronglySettledTotal = Math.round(
+    wronglySettled.reduce((s,id) => {
+      const e = (state.expenses||[]).find(x => x.id === id);
+      return s + (e ? e.amount : 0);
+    }, 0) * 100) / 100;
+
+  if (wronglySettledTotal < 0.01 && Math.abs(paymentTxn.amount - (paymentTxn.amount)) < 0.01) {
+    showToast('No overpayment detected. Balance looks correct.', 3000);
+    return;
+  }
+
+  if (wronglySettledTotal < 0.01) {
+    showToast('No wrongly settled current-cycle charges found.', 3000);
     return;
   }
 
   const ccAcct = accountById(ccAccountId);
+  const correctAmount = Math.round((paymentTxn.amount - wronglySettledTotal) * 100) / 100;
+
   if (!confirm(
-    'Fix CC payment?\n' +
-    'Current payment: ' + fmtB(recentTransfer.amount) + '\n' +
-    'Previous cycle total: ' + fmtB(prevTotal) + '\n' +
-    'Difference: ' + fmtB(diff) + ' (overpayment)\n\n' +
-    'This will change the payment to ' + fmtB(prevTotal) + ' and mark ' +
-    prevExp.length + ' previous cycle charge' + (prevExp.length !== 1 ? 's' : '') + ' as settled.'
+    'Fix CC payment? ' +
+    wronglySettled.length + ' current-cycle charge' + (wronglySettled.length !== 1 ? 's' : '') +
+    ' (' + fmtB(wronglySettledTotal) + ') were wrongly included in your previous payment. ' +
+    'This will reduce the payment from ' + fmtB(paymentTxn.amount) +
+    ' to ' + fmtB(correctAmount) + ' and restore those charges to your current cycle.'
   )) return;
 
-  // Adjust transfer amount
-  recentTransfer.amount = prevTotal;
+  // 1. Reduce the payment transaction amount
+  paymentTxn.amount = correctAmount;
 
-  // Mark previous cycle expenses as settled (ccPayments entry only — no new accountTransaction)
-  if (!state.ccPayments) state.ccPayments = [];
-  state.ccPayments.push({
-    id: uid(),
-    date: recentTransfer.date,
-    amount: prevTotal,
-    fromAccountId: recentTransfer.fromAccountId,
-    toCCAccountIds: [ccAccountId],
-    expenseIds: prevExp.map(e => e.id),
-    note: 'Recalibrated CC payment · ' + (ccAcct ? ccAcct.name : 'CC'),
-    _recalibrated: true,
-  });
+  // 2. Remove wrongly settled IDs from the ccPayments record
+  if (recentCCPayment) {
+    recentCCPayment.expenseIds = (recentCCPayment.expenseIds||[]).filter(id => !wronglySettled.includes(id));
+    recentCCPayment.amount = correctAmount;
+  }
 
   saveState();
   renderAccounts();
-  showToast('✅ Payment recalibrated to ' + fmtB(prevTotal) + ' — ' + prevExp.length + ' charge' + (prevExp.length !== 1 ? 's' : '') + ' settled', 4000);
+  showToast('✅ Fixed — ' + wronglySettled.length + ' charge' + (wronglySettled.length !== 1 ? 's' : '') + ' (' + fmtB(wronglySettledTotal) + ') restored to current cycle', 4000);
 }
 
 // ── CC Previous Cycle Payment ─────────────────────────────────────────────────
