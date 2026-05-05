@@ -2079,9 +2079,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.5.27';
+const APP_VERSION = '2.5.28';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '05 May 2026 8:18 AM AEDT';
+const BUILD_TIME = '05 May 2026 1:35 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -4946,8 +4946,24 @@ function renderExpenseResults(resultsEl) {
         '</div>' +
         '<div class="item-meta" style="display:flex;align-items:center;gap:6px">' +
           '<span>' + cat.name + '</span>' +
-          (e.paymentMethod && e.paymentMethod !== 'cc' && EXP_PAYMENT_METHODS[e.paymentMethod] ?
-            '<span style="font-size:9px;background:var(--surface2);color:var(--muted);border-radius:4px;padding:1px 5px;font-weight:600">' + EXP_PAYMENT_METHODS[e.paymentMethod].icon + ' ' + EXP_PAYMENT_METHODS[e.paymentMethod].label + '</span>' : '') +
+          (() => {
+            if (!e.paymentMethod) return '';
+            if (e.paymentMethod === 'account' && e.paymentAccountId) {
+              const acct = accountById(e.paymentAccountId);
+              if (!acct) return '';
+              const isCreditAcct = acct.type === 'credit';
+              const bg = isCreditAcct ? 'rgba(255,92,92,0.12)' : 'rgba(79,142,247,0.12)';
+              const col = isCreditAcct ? 'var(--red)' : 'var(--accent)';
+              const icon = isCreditAcct ? '💳' : '🏦';
+              const shortName = acct.name.length > 14 ? acct.name.slice(0,13) + '…' : acct.name;
+              return '<span style="font-size:9px;background:' + bg + ';color:' + col + ';border-radius:4px;padding:1px 5px;font-weight:600">' + icon + ' ' + shortName + '</span>';
+            }
+            if (EXP_PAYMENT_METHODS[e.paymentMethod]) {
+              const m = EXP_PAYMENT_METHODS[e.paymentMethod];
+              return '<span style="font-size:9px;background:var(--surface2);color:var(--muted);border-radius:4px;padding:1px 5px;font-weight:600">' + m.icon + ' ' + m.label + '</span>';
+            }
+            return '';
+          })() +
         '</div>' +
         (e.goalCoveredAmount > 0 && e.transactionType !== 'saving' ? (() => {
           const goal = (() => {
