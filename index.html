@@ -2079,9 +2079,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.5.28';
+const APP_VERSION = '2.5.29';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '05 May 2026 1:35 PM AEDT';
+const BUILD_TIME = '05 May 2026 1:58 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -14468,6 +14468,137 @@ function deleteTransfer() {
   saveState(); closeModal('transferModal'); renderContent();
 }
 
+// ── Fix CC Overpayment ────────────────────────────────────────────────────────
+// Finds the most recent transfer to this CC account and adjusts its amount
+// to match only the previous cycle total, correcting an overpayment.
+function fixCCOverpayment(ccAccountId) {
+  const settledIds = new Set((state.ccPayments||[]).flatMap(p => p.expenseIds||[]));
+  const { cycleStart } = getCycleRange(0);
+  const cycleStartStr = dateToStr(cycleStart);
+
+  const allCCExp = (state.expenses||[]).filter(e => {
+    if (!e.paymentAccountId || settledIds.has(e.id)) return false;
+    const acct = accountById(e.paymentAccountId);
+    return acct && acct.type === 'credit' && e.paymentAccountId === ccAccountId;
+  });
+  const prevExp = allCCExp.filter(e => e.date < cycleStartStr);
+  const prevTotal = Math.round(prevExp.reduce((s,e) => s + e.amount, 0) * 100) / 100;
+
+  if (prevTotal <= 0) {
+    showToast('No previous cycle charges found to recalibrate against.', 3000);
+    return;
+  }
+
+  // Find the most recent transfer TO this CC account
+  const recentTransfer = (state.accountTransactions||[])
+    .filter(t => t.type === 'transfer' && t.toAccountId === ccAccountId && !t.deleted)
+    .sort((a,b) => b.date.localeCompare(a.date) || b.id.localeCompare(a.id))[0];
+
+  if (!recentTransfer) {
+    showToast('No transfer payment found to fix.', 3000);
+    return;
+  }
+
+  const diff = Math.round((recentTransfer.amount - prevTotal) * 100) / 100;
+  if (Math.abs(diff) < 0.01) {
+    showToast('Payment already matches previous cycle total. Nothing to fix.', 3000);
+    return;
+  }
+
+  const ccAcct = accountById(ccAccountId);
+  if (!confirm(
+    'Fix CC payment?\n' +
+    'Current payment: ' + fmtB(recentTransfer.amount) + '\n' +
+    'Previous cycle total: ' + fmtB(prevTotal) + '\n' +
+    'Difference: ' + fmtB(diff) + ' (overpayment)\n\n' +
+    'This will change the payment to ' + fmtB(prevTotal) + ' and mark ' +
+    prevExp.length + ' previous cycle charge' + (prevExp.length !== 1 ? 's' : '') + ' as settled.'
+  )) return;
+
+  // Adjust transfer amount
+  recentTransfer.amount = prevTotal;
+
+  // Mark previous cycle expenses as settled (ccPayments entry only — no new accountTransaction)
+  if (!state.ccPayments) state.ccPayments = [];
+  state.ccPayments.push({
+    id: uid(),
+    date: recentTransfer.date,
+    amount: prevTotal,
+    fromAccountId: recentTransfer.fromAccountId,
+    toCCAccountIds: [ccAccountId],
+    expenseIds: prevExp.map(e => e.id),
+    note: 'Recalibrated CC payment · ' + (ccAcct ? ccAcct.name : 'CC'),
+    _recalibrated: true,
+  });
+
+  saveState();
+  renderAccounts();
+  showToast('✅ Payment recalibrated to ' + fmtB(prevTotal) + ' — ' + prevExp.length + ' charge' + (prevExp.length !== 1 ? 's' : '') + ' settled', 4000);
+}
+
+// ── CC Previous Cycle Payment ─────────────────────────────────────────────────
+// Pays only previous-cycle unsettled charges, marks them as settled.
+// Called from the CC account detail view "Pay bill" button.
+function openPayCCPreviousCycle(ccAccountId) {
+  const settledIds = new Set((state.ccPayments||[]).flatMap(p => p.expenseIds||[]));
+  const { cycleStart } = getCycleRange(0);
+  const cycleStartStr = dateToStr(cycleStart);
+
+  // All unsettled CC expenses for this specific card
+  const allCCExp = (state.expenses||[]).filter(e => {
+    if (!e.paymentAccountId || settledIds.has(e.id)) return false;
+    const acct = accountById(e.paymentAccountId);
+    return acct && acct.type === 'credit' && e.paymentAccountId === ccAccountId;
+  });
+  const prevExp = allCCExp.filter(e => e.date < cycleStartStr);
+  const prevTotal = Math.round(prevExp.reduce((s,e) => s + e.amount, 0) * 100) / 100;
+
+  if (prevTotal <= 0) {
+    // No previous cycle charges — let user pay current cycle via generic modal
+    openCCPayment(ccAccountId);
+    return;
+  }
+
+  // Pick source account — prefer salary, then highest balance
+  const fromAccts = (state.accounts||[]).filter(a => a.type !== 'credit');
+  const fromAcct = fromAccts.find(a => a.type === 'transaction') || fromAccts.sort((a,b) => getAccountBalance(b.id) - getAccountBalance(a.id))[0];
+  const ccAcct = accountById(ccAccountId);
+  const fromBal = fromAcct ? getAccountBalance(fromAcct.id) : 0;
+
+  if (!confirm(
+    'Pay previous cycle to ' + (ccAcct ? ccAcct.name : 'CC') + '? ' +
+    prevExp.length + ' charge' + (prevExp.length !== 1 ? 's' : '') + ' - ' + fmtB(prevTotal) + '. ' +
+    'From: ' + (fromAcct ? fromAcct.name : '?') + ' (bal: ' + fmtB(fromBal) + ')'
+  )) return;
+
+  const now = todayStr();
+  const paymentId = uid();
+  if (!state.ccPayments) state.ccPayments = [];
+  if (!state.accountTransactions) state.accountTransactions = [];
+
+  // Mark expenses as settled
+  state.ccPayments.push({
+    id: paymentId, date: now, amount: prevTotal,
+    fromAccountId: fromAcct?.id,
+    toCCAccountIds: [ccAccountId],
+    expenseIds: prevExp.map(e => e.id),
+    note: 'CC payment to ' + (ccAcct ? ccAcct.name : 'CC'),
+  });
+
+  // Credit CC account + debit source account
+  state.accountTransactions.push({
+    id: uid(), type: 'ccPayment',
+    fromAccountId: fromAcct?.id, toAccountId: ccAccountId,
+    amount: prevTotal, date: now,
+    note: 'CC payment · ' + prevExp.length + ' charge' + (prevExp.length !== 1 ? 's' : ''),
+    ccPaymentId: paymentId,
+  });
+
+  saveState();
+  renderAccounts();
+  showToast('✅ Paid ' + fmtB(prevTotal) + ' — ' + prevExp.length + ' charge' + (prevExp.length !== 1 ? 's' : '') + ' settled', 3000);
+}
+
 function openCCPayment(ccAccountId) {
   const ccAcct = accountById(ccAccountId);
   if (!ccAcct) return;
@@ -15118,7 +15249,25 @@ function renderAccounts() {
       (acct.type === 'credit'
         ? '<div style="font-size:13px;color:var(--muted);margin-bottom:4px">You currently owe</div>' +
           '<div style="font-size:32px;font-weight:800;letter-spacing:-1px;color:' + (balance < 0 ? 'var(--red)' : 'var(--accent)') + '">' + fmtB(Math.abs(balance)) + '</div>' +
-          '<div style="font-size:12px;color:var(--muted);margin-top:2px">' + (balance < 0 ? 'Unpaid charges since last payment' : '✓ All paid up') + '</div>'
+          '<div style="font-size:12px;color:var(--muted);margin-top:2px">' + (balance < 0 ? 'Unpaid charges since last payment' : '✓ All paid up') + '</div>' +
+          (() => {
+            if (balance >= 0) return '';
+            // Show prev/curr cycle breakdown
+            const _settledIds = new Set((state.ccPayments||[]).flatMap(p => p.expenseIds||[]));
+            const { cycleStart: _cs } = getCycleRange(0);
+            const _csStr = dateToStr(_cs);
+            const _allExp = (state.expenses||[]).filter(e => e.paymentAccountId === acct.id && !_settledIds.has(e.id));
+            const _prev = _allExp.filter(e => e.date < _csStr);
+            const _curr = _allExp.filter(e => e.date >= _csStr);
+            const _prevTotal = Math.round(_prev.reduce((s,e) => s+e.amount, 0)*100)/100;
+            const _currTotal = Math.round(_curr.reduce((s,e) => s+e.amount, 0)*100)/100;
+            if (_prevTotal <= 0 && _currTotal <= 0) return '';
+            let rows = '<div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--surface2);display:flex;flex-direction:column;gap:5px">';
+            if (_prevTotal > 0) rows += '<div style="display:flex;justify-content:space-between;font-size:12px"><span style="color:var(--red);font-weight:600">⚠ Previous cycle (unpaid)</span><span style="color:var(--red);font-weight:700">-' + fmtB(_prevTotal) + '</span></div>';
+            if (_currTotal > 0) rows += '<div style="display:flex;justify-content:space-between;font-size:12px"><span style="color:var(--muted)">Current cycle</span><span style="font-weight:600">-' + fmtB(_currTotal) + '</span></div>';
+            rows += '</div>';
+            return rows;
+          })()
         : '<div style="font-size:32px;font-weight:800;letter-spacing:-1px;color:' + (balance < 0 ? 'var(--red)' : 'var(--text)') + '">' + fmtB(balance) + '</div>' +
           '<div style="font-size:12px;color:var(--muted);margin-top:2px">Current balance</div>') +
       (acct.type === 'offset' ? (() => {
@@ -15193,11 +15342,30 @@ function renderAccounts() {
     // Action buttons — CC gets "Pay bill" instead of Income
     if (acct.type === 'credit') {
       html += '<div style="display:flex;gap:8px;margin-bottom:14px">' +
-        '<button onclick="openCCPayment(\'' + acct.id + '\')" style="flex:1;background:' + (balance < 0 ? 'rgba(255,92,92,0.1)' : 'var(--accent-dim)') + ';color:' + (balance < 0 ? 'var(--red)' : 'var(--accent)') + ';border:2px solid ' + (balance < 0 ? 'rgba(255,92,92,0.3)' : 'var(--accent)') + ';border-radius:10px;padding:12px;font-size:13px;font-weight:700;font-family:var(--font);cursor:pointer">' +
+        '<button onclick="openPayCCPreviousCycle(\'' + acct.id + '\')" style="flex:1;background:' + (balance < 0 ? 'rgba(255,92,92,0.1)' : 'var(--accent-dim)') + ';color:' + (balance < 0 ? 'var(--red)' : 'var(--accent)') + ';border:2px solid ' + (balance < 0 ? 'rgba(255,92,92,0.3)' : 'var(--accent)') + ';border-radius:10px;padding:12px;font-size:13px;font-weight:700;font-family:var(--font);cursor:pointer">' +
           (balance < 0 ? '💳 Pay bill · ' + fmtB(Math.abs(balance)) : '✓ Nothing owed') +
         '</button>' +
         '<button onclick="openCCRefund(\'' + acct.id + '\')" style="background:rgba(52,199,89,0.1);color:#34C759;border:2px solid rgba(52,199,89,0.2);border-radius:10px;padding:12px 14px;font-size:13px;font-weight:700;font-family:var(--font);cursor:pointer;white-space:nowrap">↩ Refund</button>' +
-      '</div>';
+      '</div>' +
+      (() => {
+        // Show Fix payment button if there's a recent transfer that doesn't match previous cycle total
+        const _sIds = new Set((state.ccPayments||[]).flatMap(p => p.expenseIds||[]));
+        const { cycleStart: _fcs } = getCycleRange(0);
+        const _fcsStr = dateToStr(_fcs);
+        const _fPrev = (state.expenses||[]).filter(e => e.paymentAccountId === acct.id && !_sIds.has(e.id) && e.date < _fcsStr);
+        const _fPrevTotal = Math.round(_fPrev.reduce((s,e) => s+e.amount,0)*100)/100;
+        const _recentXfer = (state.accountTransactions||[]).filter(t => t.type==='transfer' && t.toAccountId===acct.id && !t.deleted).sort((a,b)=>b.date.localeCompare(a.date))[0];
+        if (_fPrevTotal > 0 && _recentXfer && Math.abs(_recentXfer.amount - _fPrevTotal) > 0.50) {
+          return '<div style="background:rgba(255,159,10,0.08);border:1.5px solid rgba(255,159,10,0.3);border-radius:10px;padding:10px 14px;margin-bottom:14px;display:flex;justify-content:space-between;align-items:center">' +
+            '<div>' +
+              '<div style="font-size:12px;font-weight:700;color:var(--orange)">⚠ Payment may include current cycle</div>' +
+              '<div style="font-size:11px;color:var(--muted);margin-top:2px">Previous cycle total: ' + fmtB(_fPrevTotal) + ' · Paid: ' + fmtB(_recentXfer.amount) + '</div>' +
+            '</div>' +
+            '<button onclick="fixCCOverpayment(\'' + acct.id + '\')" style="background:var(--orange);color:#fff;border:none;border-radius:8px;padding:7px 12px;font-size:12px;font-weight:700;font-family:var(--font);cursor:pointer;white-space:nowrap;margin-left:8px">Fix</button>' +
+          '</div>';
+        }
+        return '';
+      })();
     } else {
       html += '<div style="display:flex;gap:8px;margin-bottom:14px">' +
         '<button onclick="openAddIncome(\'' + acct.id + '\')" style="flex:1;background:rgba(52,199,89,0.1);color:#34C759;border:2px solid rgba(52,199,89,0.3);border-radius:10px;padding:10px;font-size:13px;font-weight:700;font-family:var(--font);cursor:pointer">+ Income</button>' +
