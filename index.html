@@ -2079,9 +2079,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.5.36';
+const APP_VERSION = '2.5.37';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '06 May 2026 11:20 AM AEDT';
+const BUILD_TIME = '06 May 2026 11:29 AM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -3849,8 +3849,15 @@ function switchMainTab(mainKey) {
   const cfg = getNavConfig();
   const tab = cfg.find(t => t.id === mainKey);
   if (!tab) return;
-  const lastInGroup = tab.sections.find(id => id === state.currentTab);
-  switchTab(lastInGroup || tab.sections[0]);
+  const currentMain = getCurrentMainTab();
+  if (currentMain === mainKey) {
+    // Already on this tab — reset to top-level view
+    _viewingAccountId = null;
+    switchTab(tab.sections[0]);
+  } else {
+    const lastInGroup = tab.sections.find(id => id === state.currentTab);
+    switchTab(lastInGroup || tab.sections[0]);
+  }
 }
 
 function renderTabs() {
