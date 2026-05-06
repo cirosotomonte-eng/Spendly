@@ -2079,9 +2079,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.5.37';
+const APP_VERSION = '2.5.38';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '06 May 2026 11:29 AM AEDT';
+const BUILD_TIME = '06 May 2026 11:36 AM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -3850,8 +3850,11 @@ function switchMainTab(mainKey) {
   const tab = cfg.find(t => t.id === mainKey);
   if (!tab) return;
   const currentMain = getCurrentMainTab();
-  if (currentMain === mainKey) {
-    // Already on this tab — reset to top-level view
+  // Reset to top-level if: already on this tab, OR the active section doesn't belong here
+  // (e.g. a stray 'dashboard' section was in insights causing currentMain='dashboard')
+  const sectionBelongsHere = tab.sections.includes(state.currentTab);
+  if (currentMain === mainKey || !sectionBelongsHere) {
+    // Reset to top-level view
     _viewingAccountId = null;
     switchTab(tab.sections[0]);
   } else {
@@ -4063,6 +4066,13 @@ function getNavConfig() {
       if (!existingTabIds.includes(defaultTab.id)) {
         // Insert at the correct position
         state.navConfig.splice(idx, 0, { ...defaultTab, sections: [...defaultTab.sections] });
+      }
+    });
+    // Remove 'dashboard' section from any tab that isn't the dashboard tab
+    // (can end up there via old custom configs that added a Home sub-tab to insights)
+    state.navConfig.forEach(t => {
+      if (t.id !== 'dashboard') {
+        t.sections = t.sections.filter(s => s !== 'dashboard');
       }
     });
     // Ensure all sections are present (handle new sections added in updates)
