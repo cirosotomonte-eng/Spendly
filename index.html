@@ -2079,9 +2079,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.5.32';
+const APP_VERSION = '2.5.34';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '05 May 2026 11:21 PM AEDT';
+const BUILD_TIME = '06 May 2026 10:17 AM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -4944,43 +4944,44 @@ function renderExpenseResults(resultsEl) {
            e.goalCoveredAmount > 0 && e.amount - e.goalCoveredAmount > 0.01 ? '<span style="font-size:9px;background:rgba(240,168,96,0.15);color:var(--orange);border-radius:4px;padding:1px 5px;font-weight:700;margin-left:5px;vertical-align:middle">SPLIT</span>' :
            e.linkedDepositId ? '<span style="font-size:9px;background:rgba(52,199,89,0.15);color:#34C759;border-radius:4px;padding:1px 5px;font-weight:700;margin-left:5px;vertical-align:middle">SAVING</span>' : '') +
         '</div>' +
-        '<div class="item-meta" style="display:flex;align-items:center;gap:6px">' +
-          '<span>' + cat.name + '</span>' +
-          (() => {
+        '<div class="item-meta">' + cat.name + '</div>' +
+        (() => {
+          // Line 3: payment method + covered — only if at least one exists
+          const payPart = (() => {
             if (!e.paymentMethod) return '';
             if (e.paymentMethod === 'account' && e.paymentAccountId) {
               const acct = accountById(e.paymentAccountId);
               if (!acct) return '';
-              const isCreditAcct = acct.type === 'credit';
-              const bg = isCreditAcct ? 'rgba(255,92,92,0.12)' : 'rgba(79,142,247,0.12)';
-              const col = isCreditAcct ? 'var(--red)' : 'var(--accent)';
-              const icon = isCreditAcct ? '💳' : '🏦';
+              const icon = acct.type === 'credit' ? '💳' : '🏦';
+              const col  = acct.type === 'credit' ? 'var(--red)' : 'var(--accent)';
               const shortName = acct.name.length > 14 ? acct.name.slice(0,13) + '…' : acct.name;
-              return '<span style="font-size:9px;background:' + bg + ';color:' + col + ';border-radius:4px;padding:1px 5px;font-weight:600">' + icon + ' ' + shortName + '</span>';
+              return '<span style="font-size:10px;color:' + col + ';font-weight:500">' + icon + ' ' + shortName + '</span>';
             }
             if (EXP_PAYMENT_METHODS[e.paymentMethod]) {
               const m = EXP_PAYMENT_METHODS[e.paymentMethod];
-              return '<span style="font-size:9px;background:var(--surface2);color:var(--muted);border-radius:4px;padding:1px 5px;font-weight:600">' + m.icon + ' ' + m.label + '</span>';
+              return '<span style="font-size:10px;color:var(--muted);font-weight:500">' + m.icon + ' ' + m.label + '</span>';
             }
             return '';
-          })() +
-        '</div>' +
-        (e.goalCoveredAmount > 0 && e.transactionType !== 'saving' ? (() => {
-          const goal = (() => {
-            if (e.linkedGoalId) return savingsCatById(e.linkedGoalId);
-            const c = catById(e.categoryId);
-            const ids = getLinkedGoalIds(c);
-            return ids.length > 0 ? savingsCatById(ids[0]) : null;
           })();
-          const goalName = goal ? goal.name : 'savings';
-          const shortfall = Math.max(0, Math.round((e.amount - e.goalCoveredAmount) * 100) / 100);
-          const isFullyCovered = shortfall < 0.01;
-          return '<div style="font-size:10px;color:#34C759;margin-top:3px;line-height:1.5">' +
-            (isFullyCovered
-              ? '💚 Covered by ' + goalName
-              : '💚 ' + fmt(e.goalCoveredAmount) + ' from ' + goalName + ' · <span style="color:var(--muted)">💳 ' + fmt(shortfall) + ' from budget</span>') +
-          '</div>';
-        })() : '') +
+          const covPart = (() => {
+            if (!(e.goalCoveredAmount > 0) || e.transactionType === 'saving') return '';
+            const goal = (() => {
+              if (e.linkedGoalId) return savingsCatById(e.linkedGoalId);
+              const c = catById(e.categoryId);
+              const ids = getLinkedGoalIds(c);
+              return ids.length > 0 ? savingsCatById(ids[0]) : null;
+            })();
+            const goalName = goal ? goal.name : 'savings';
+            const shortfall = Math.max(0, Math.round((e.amount - e.goalCoveredAmount) * 100) / 100);
+            const isFullyCovered = shortfall < 0.01;
+            return '<span style="font-size:10px;color:#34C759;font-weight:500">' +
+              (isFullyCovered ? '💚 Covered by ' + goalName : '💚 ' + fmt(e.goalCoveredAmount) + ' from ' + goalName) +
+              '</span>' +
+              (!isFullyCovered ? '<span style="font-size:10px;color:var(--muted)"> · 💳 ' + fmt(shortfall) + ' from budget</span>' : '');
+          })();
+          if (!payPart && !covPart) return '';
+          return '<div style="display:flex;align-items:center;gap:8px;margin-top:2px;flex-wrap:wrap">' + payPart + covPart + '</div>';
+        })() +
         '</div>' +
         '<div class="item-amount" style="color:' + (e.transactionType==='saving' ? '#34C759' : getSpendColor(e.categoryId)) + '">' + (e.transactionType==='saving' ? '+' : '-') + fmt(e.amount) + '</div></div></div>';
     });
@@ -15499,9 +15500,15 @@ function renderAccounts() {
         '</div>' +
         '<div style="text-align:right;flex-shrink:0">' +
           (acct.type === 'credit'
-            ? (bal < 0
-                ? '<div style="font-size:13px;font-weight:700;color:var(--red)">' + fmtB(Math.abs(bal)) + ' owed</div>'
-                : '<div style="font-size:13px;font-weight:700;color:#34C759">All paid up</div>')
+            ? (() => {
+                const _tSIds = new Set((state.ccPayments||[]).flatMap(p => p.expenseIds||[]));
+                const { cycleStart: _tccs } = getCycleRange(0);
+                const _tccsStr = dateToStr(_tccs);
+                const _tOwed = Math.round((state.expenses||[]).filter(e => e.paymentAccountId===acct.id && !_tSIds.has(e.id) && e.date>=_tccsStr).reduce((s,e)=>s+e.amount,0)*100)/100;
+                return _tOwed > 0
+                  ? '<div style="font-size:13px;font-weight:700;color:var(--red)">' + fmtB(_tOwed) + ' owed</div>'
+                  : '<div style="font-size:13px;font-weight:700;color:#34C759">All paid up</div>';
+              })()
             : '<div style="font-size:16px;font-weight:700;color:' + (bal<0?'var(--red)':'var(--text)') + '">' + fmtB(bal) + '</div>') +
         '</div>' +
         '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" style="flex-shrink:0;color:var(--muted)"><path d="M6 3l5 5-5 5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>' +
