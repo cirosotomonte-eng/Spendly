@@ -2079,9 +2079,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.5.38';
+const APP_VERSION = '2.5.39';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '06 May 2026 11:36 AM AEDT';
+const BUILD_TIME = '09 May 2026 9:39 AM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -4970,9 +4970,8 @@ function renderExpenseResults(resultsEl) {
               const acct = accountById(e.paymentAccountId);
               if (!acct) return '';
               const icon = acct.type === 'credit' ? '💳' : '🏦';
-              const col  = acct.type === 'credit' ? 'var(--red)' : 'var(--accent)';
               const shortName = acct.name.length > 14 ? acct.name.slice(0,13) + '…' : acct.name;
-              return '<span style="font-size:10px;color:' + col + ';font-weight:500">' + icon + ' ' + shortName + '</span>';
+              return '<span style="font-size:10px;color:var(--muted);font-weight:500">' + icon + ' ' + shortName + '</span>';
             }
             if (EXP_PAYMENT_METHODS[e.paymentMethod]) {
               const m = EXP_PAYMENT_METHODS[e.paymentMethod];
@@ -4991,7 +4990,7 @@ function renderExpenseResults(resultsEl) {
             const goalName = goal ? goal.name : 'savings';
             const shortfall = Math.max(0, Math.round((e.amount - e.goalCoveredAmount) * 100) / 100);
             const isFullyCovered = shortfall < 0.01;
-            return '<span style="font-size:10px;color:#34C759;font-weight:500">' +
+            return '<span style="font-size:10px;color:var(--muted);font-weight:500">' +
               (isFullyCovered ? '💚 Covered by ' + goalName : '💚 ' + fmt(e.goalCoveredAmount) + ' from ' + goalName) +
               '</span>' +
               (!isFullyCovered ? '<span style="font-size:10px;color:var(--muted)"> · 💳 ' + fmt(shortfall) + ' from budget</span>' : '');
