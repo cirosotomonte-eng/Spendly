@@ -2079,9 +2079,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.5.41';
+const APP_VERSION = '2.5.42';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '17 May 2026 4:54 PM AEDT';
+const BUILD_TIME = '17 May 2026 7:04 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -15288,8 +15288,10 @@ function renderAccounts() {
     // ── CYCLE RECONCILIATION PANEL ──────────────────────────────────────────
     // Only show on salary accounts when overspent
     let reconciliationHtml = '';
-    if (acct.isSalaryAccount && typeof pending !== 'undefined') {
+    if (acct.isSalaryAccount) {
       const _salBal = balance;
+      // Re-fetch pending here — `pending` from pendingSavingsHtml is block-scoped
+      const pending = (state.pendingPayments||[]).filter(p => p.salaryAccountId === _viewingAccountId && p.status === 'pending');
       const _sIds = new Set((state.ccPayments||[]).flatMap(p => p.expenseIds||[]));
       const { cycleStart: _rcs } = getCycleRange(0);
       const _rcsStr = dateToStr(_rcs);
