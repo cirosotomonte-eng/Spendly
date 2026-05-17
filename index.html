@@ -2079,9 +2079,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.5.42';
+const APP_VERSION = '2.5.43';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '17 May 2026 7:04 PM AEDT';
+const BUILD_TIME = '18 May 2026 8:44 AM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -4041,7 +4041,7 @@ function saveTabConfig() {
 
 function switchTab(tab) {
   if (tab !== 'expenses') expenseSearchQuery = '';
-  if (tab !== 'accounts') _viewingAccountId = null;
+  if (tab !== 'accounts') { _viewingAccountId = null; _salaryCycleOffset = 0; }
   state.currentTab = tab;
   renderContent();
 }
@@ -14712,6 +14712,7 @@ function setExpPaymentAccount(accountId) {
 
 // ── renderAccounts ────────────────────────────────────────────────────────────
 let _viewingAccountId = null;
+let _salaryCycleOffset = 0; // 0 = current cycle, -1 = previous, etc.
 
 // ── CC batch payment ──────────────────────────────────────────────────────────
 // ── CC Refund ─────────────────────────────────────────────────────────────────
@@ -14958,6 +14959,13 @@ function payCCBatch(btn) {
 }
 
 // ── Pending payment actions ───────────────────────────────────────────────────
+function navigateSalaryCycle(delta) {
+  // Don't go into future
+  if (_salaryCycleOffset + delta > 0) return;
+  _salaryCycleOffset += delta;
+  renderAccounts();
+}
+
 function payPendingItem(pendingId) {
   const p = (state.pendingPayments||[]).find(x => x.id === pendingId);
   if (!p) return;
@@ -15070,28 +15078,54 @@ function renderAccounts() {
     const unallocated = balanceForUnalloc - allocatedTotal;
 
     // ── Pending savings payments (salary accounts) ──────────────────────────
+    // ── Cycle-scoped salary pending + CC + reconciliation ──────────────────
     let pendingSavingsHtml = '';
-    if (acct.isSalaryAccount) {
-      const pending = (state.pendingPayments||[]).filter(p => p.salaryAccountId === _viewingAccountId && p.status === 'pending')
-        .slice().sort((a,b) => a.dueDate.localeCompare(b.dueDate));
-      const pendingTotal = pending.reduce((s,p) => s + p.amount, 0);
-      const ccAccts = (state.accounts||[]).filter(a => a.type === 'credit');
+    let pendingCCHtml = '';
+    let reconciliationHtml = '';
 
-      pendingSavingsHtml = '<div style="background:var(--surface);border-radius:var(--r);padding:14px;margin-bottom:14px">' +
+    if (acct.isSalaryAccount) {
+      const { cycleStart: _scs, cycleEnd: _sce } = getCycleRange(_salaryCycleOffset);
+      const _scsStr = dateToStr(_scs);
+      const _sceStr = dateToStr(_sce);
+      const _isCurrentCycle = _salaryCycleOffset === 0;
+
+      // Cycle label
+      const _cycleLabel = _scs.toLocaleDateString('en-AU',{day:'numeric',month:'short'}) + ' – ' + _sce.toLocaleDateString('en-AU',{day:'numeric',month:'short'});
+
+      // ── Cycle navigator ──────────────────────────────────────────────────
+      pendingSavingsHtml = '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;padding:8px 12px;background:var(--surface);border-radius:10px">' +
+        '<button onclick="navigateSalaryCycle(-1)" style="background:none;border:none;cursor:pointer;padding:4px 10px;font-size:18px;color:var(--accent);font-family:var(--font)">‹</button>' +
+        '<div style="text-align:center">' +
+          '<div style="font-size:12px;font-weight:700;color:var(--text)">' + (_isCurrentCycle ? '📅 Current cycle' : '📋 Previous cycle') + '</div>' +
+          '<div style="font-size:11px;color:var(--muted)">' + _cycleLabel + '</div>' +
+        '</div>' +
+        '<button onclick="navigateSalaryCycle(1)" style="background:none;border:none;cursor:pointer;padding:4px 10px;font-size:18px;color:' + (_isCurrentCycle ? 'var(--surface2)' : 'var(--accent)') + ';font-family:var(--font)"' + (_isCurrentCycle ? ' disabled' : '') + '>›</button>' +
+      '</div>';
+
+      // ── Pending payments (cycle-scoped) ───────────────────────────────────
+      const pending = (state.pendingPayments||[])
+        .filter(p => p.salaryAccountId === _viewingAccountId && p.status === 'pending' && p.dueDate >= _scsStr && p.dueDate <= _sceStr)
+        .slice().sort((a,b) => a.dueDate.localeCompare(b.dueDate));
+      const pendingPaid = (state.pendingPayments||[])
+        .filter(p => p.salaryAccountId === _viewingAccountId && p.status === 'paid' && p.dueDate >= _scsStr && p.dueDate <= _sceStr)
+        .slice().sort((a,b) => (b.paidDate||'').localeCompare(a.paidDate||''));
+      const pendingTotal = Math.round(pending.reduce((s,p) => s + p.amount, 0) * 100) / 100;
+
+      const ccAccts = (state.accounts||[]).filter(a => a.type === 'credit');
+      pendingSavingsHtml += '<div style="background:var(--surface);border-radius:var(--r);padding:14px;margin-bottom:14px">' +
         '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">' +
           '<div>' +
             '<div style="font-size:13px;font-weight:700;color:var(--text)">⏳ Pending payments</div>' +
-            '<div style="font-size:11px;color:var(--muted);margin-top:2px">' + pending.length + ' item' + (pending.length!==1?'s':'') + ' · ' + fmt(pendingTotal) + ' total</div>' +
+            '<div style="font-size:11px;color:var(--muted);margin-top:2px">' + pending.length + ' item' + (pending.length!==1?'s':'') + ' · ' + fmtB(pendingTotal) + '</div>' +
           '</div>';
 
-      // Pay CC button
       if (ccAccts.length > 0) {
         pendingSavingsHtml += '<button data-aid="' + _viewingAccountId + '" onclick="openPayCCFromSalary(this.dataset.aid)" style="font-size:11px;font-weight:600;color:var(--accent);background:var(--accent-dim);border:none;border-radius:8px;padding:6px 12px;font-family:var(--font);cursor:pointer">💳 Pay CC</button>';
       }
       pendingSavingsHtml += '</div>';
 
-      if (pending.length === 0) {
-        pendingSavingsHtml += '<div style="font-size:12px;color:var(--muted);font-style:italic;text-align:center;padding:8px 0">No pending payments — all settled ✅</div>';
+      if (pending.length === 0 && pendingPaid.length === 0) {
+        pendingSavingsHtml += '<div style="font-size:12px;color:var(--muted);font-style:italic;text-align:center;padding:8px 0">No pending payments this cycle ✅</div>';
       } else {
         pending.forEach((p, i) => {
           const goal = savingsCatById(p.goalId);
@@ -15107,8 +15141,8 @@ function renderAccounts() {
                 '</div>' +
                 '<div style="display:flex;align-items:center;gap:8px;flex-shrink:0">' +
                   '<div style="text-align:right">' +
-                    '<div style="font-size:14px;font-weight:700;color:var(--text)">' + fmt(p.amount) + '</div>' +
-                    (p.amount !== p.originalAmount ? '<div style="font-size:9px;color:var(--muted)">orig. ' + fmt(p.originalAmount) + '</div>' : '') +
+                    '<div style="font-size:14px;font-weight:700;color:var(--text)">' + fmtB(p.amount) + '</div>' +
+                    (p.originalAmount && p.amount !== p.originalAmount ? '<div style="font-size:9px;color:var(--muted)">orig. ' + fmtB(p.originalAmount) + '</div>' : '') +
                   '</div>' +
                   '<button data-pid="' + p.id + '" onclick="editPendingAmount(this.dataset.pid)" style="font-size:11px;color:var(--muted);background:var(--surface2);border:none;border-radius:6px;padding:4px 8px;font-family:var(--font);cursor:pointer">✏️</button>' +
                   '<button data-pid="' + p.id + '" onclick="payPendingItem(this.dataset.pid)" style="font-size:11px;font-weight:600;color:#fff;background:var(--accent);border:none;border-radius:6px;padding:4px 10px;font-family:var(--font);cursor:pointer">Pay</button>' +
@@ -15117,202 +15151,93 @@ function renderAccounts() {
               '</div>' +
             '</div>';
         });
-      }
 
-      // Show recently paid items (last 10)
-      const recentPaid = (state.pendingPayments||[]).filter(p => p.salaryAccountId === _viewingAccountId && p.status === 'paid')
-        .slice().sort((a,b) => b.paidDate.localeCompare(a.paidDate)).slice(0,5);
-      if (recentPaid.length > 0) {
-        pendingSavingsHtml += '<div style="border-top:1px solid var(--surface2);margin-top:10px;padding-top:10px">' +
-          '<div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:8px">Recently paid</div>';
-        recentPaid.forEach(p => {
-          const goal = savingsCatById(p.goalId);
-          const dt = new Date(p.paidDate + 'T00:00:00');
-          const dateLabel = dt.toLocaleDateString('en-AU', {day:'numeric', month:'short'});
-          pendingSavingsHtml += '<div style="display:flex;justify-content:space-between;align-items:center;padding:5px 0;font-size:12px">' +
-            '<span style="color:var(--muted)">' + (goal ? goal.icon + ' ' + goal.name : p.note) + ' · ' + dateLabel + '</span>' +
-            '<span style="color:#34C759;font-weight:600">+' + fmt(p.paidAmount||p.amount) + '</span>' +
-          '</div>';
-        });
-        pendingSavingsHtml += '</div>';
-      }
-
-      pendingSavingsHtml += '</div>';
-    }
-
-    // ── Pending CC float (for non-CC accounts) ──────────────────────────────
-    // Find CC expenses that are unpaid — these represent money that will eventually
-    // leave this account when the CC bill is paid
-    let pendingCCHtml = '';
-    if (acct.type !== 'credit') {
-      const ccAccts = (state.accounts||[]).filter(a => a.type === 'credit' && getAccountBalance(a.id) < 0);
-      if (ccAccts.length > 0) {
-        // Get settled expense IDs from ccPayments
-        const settledIds = new Set((state.ccPayments||[]).flatMap(p => p.expenseIds||[]));
-
-        // All unsettled CC expenses
-        const allCCExp = (state.expenses||[]).filter(e => {
-          if (!e.paymentAccountId) return false;
-          if (settledIds.has(e.id)) return false;
-          const payAcct = accountById(e.paymentAccountId);
-          return payAcct && payAcct.type === 'credit';
-        }).sort((a,b) => b.date.localeCompare(a.date));
-
-        if (allCCExp.length > 0) {
-          // Split by cycle boundary
-          const { cycleStart } = getCycleRange(0);
-          const cycleStartStr = dateToStr(cycleStart);
-          const prevExp = allCCExp.filter(e => e.date < cycleStartStr);
-          const currExp = allCCExp.filter(e => e.date >= cycleStartStr);
-          // Reduce totals by any refunds recorded against this CC account
-          const allRefunds = (state.accountTransactions||[]).filter(t => t.type === 'ccRefund' && t.toAccountId === ccAccts[0]?.id && !t.deleted);
-          const prevRefundItems = allRefunds.filter(r => r.date < cycleStartStr).sort((a,b) => b.date.localeCompare(a.date));
-          const currRefundItems = allRefunds.filter(r => r.date >= cycleStartStr).sort((a,b) => b.date.localeCompare(a.date));
-          const prevRefunds = prevRefundItems.reduce((s,r) => s + r.amount, 0);
-          const currRefunds = currRefundItems.reduce((s,r) => s + r.amount, 0);
-          const prevTotal = Math.max(0, prevExp.reduce((s,e) => s + e.amount, 0) - prevRefunds);
-          const currTotal = Math.max(0, currExp.reduce((s,e) => s + e.amount, 0) - currRefunds);
-          const grandTotal = prevTotal + currTotal;
-
-          const buildExpRow = (e, i, borderColor) => {
-            const cat = catById(e.categoryId);
-            const payAcct = accountById(e.paymentAccountId);
-            const goal = e.linkedGoalId ? savingsCatById(e.linkedGoalId) : null;
-            return '<div style="display:flex;align-items:center;gap:10px;padding:9px 0;' + (i>0?'border-top:1px solid '+borderColor:'') + '">' +
-              '<div style="flex:1;min-width:0">' +
-                '<div style="font-size:13px;font-weight:500">' + (e.name || (cat ? cat.name : 'Expense')) + '</div>' +
-                '<div style="font-size:11px;color:var(--muted);margin-top:1px">' +
-                  new Date(e.date+'T00:00:00').toLocaleDateString('en-AU',{day:'numeric',month:'short'}) +
-                  (cat ? ' · ' + cat.icon + ' ' + cat.name : '') +
-                '</div>' +
-              '</div>' +
-              '<div style="font-size:13px;font-weight:600;flex-shrink:0">-' + fmtB(e.amount) + '</div>' +
+        // Paid items for this cycle
+        if (pendingPaid.length > 0) {
+          pendingSavingsHtml += '<div style="border-top:1px solid var(--surface2);margin-top:10px;padding-top:10px">' +
+            '<div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:8px">Paid this cycle</div>';
+          pendingPaid.forEach(p => {
+            const goal = savingsCatById(p.goalId);
+            const dt = new Date((p.paidDate||p.dueDate) + 'T00:00:00');
+            const dateLabel = dt.toLocaleDateString('en-AU', {day:'numeric', month:'short'});
+            pendingSavingsHtml += '<div style="display:flex;justify-content:space-between;align-items:center;padding:5px 0;font-size:12px">' +
+              '<span style="color:var(--muted)">' + (goal ? goal.icon + ' ' + goal.name : p.note||'Saving') + ' · ' + dateLabel + '</span>' +
+              '<span style="color:#34C759;font-weight:600">✓ ' + fmtB(p.paidAmount||p.amount) + '</span>' +
             '</div>';
-          };
-
-          const prevCardId = 'ccPrev-' + _viewingAccountId;
-          const currCardId = 'ccCurr-' + _viewingAccountId;
-          pendingCCHtml = '';
-
-          // ── PREVIOUS CYCLE CARD ──
-          if (prevExp.length > 0) {
-            pendingCCHtml +=
-              '<div style="background:var(--surface);border:1.5px solid rgba(255,59,48,0.3);border-radius:var(--r);margin-bottom:10px;overflow:hidden">' +
-                // Header — always visible, tap to expand list
-                '<div style="padding:12px 14px;cursor:pointer" onclick="toggleCCList(\'' + prevCardId + '\')">' +
-                  '<div style="display:flex;justify-content:space-between;align-items:center">' +
-                    '<div>' +
-                      '<div style="font-size:12px;font-weight:700;color:var(--red);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:2px">Previous cycle</div>' +
-                      '<div style="font-size:11px;color:var(--muted)">' + prevExp.length + ' charge' + (prevExp.length!==1?'s':'') + (prevRefundItems.length > 0 ? ' · ' + prevRefundItems.length + ' refund' + (prevRefundItems.length!==1?'s':'') : '') + ' · before ' + cycleStart.toLocaleDateString('en-AU',{day:'numeric',month:'short'}) + '</div>' +
-                    '</div>' +
-                    '<div style="display:flex;align-items:center;gap:10px">' +
-                      '<div style="font-size:15px;font-weight:700;color:var(--red)">-' + fmtB(prevTotal) + '</div>' +
-                      '<svg id="' + prevCardId + '-chev" width="14" height="14" viewBox="0 0 12 12" fill="none" style="color:var(--muted);transition:transform 0.2s"><path d="M2 4l4 4 4-4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>' +
-                    '</div>' +
-                  '</div>' +
-                '</div>' +
-                // Collapsible list
-                '<div id="' + prevCardId + '" style="display:none;padding:0 14px;border-top:1px solid rgba(255,59,48,0.15)">' +
-                  prevExp.map((e,i) => buildExpRow(e, i, 'rgba(255,59,48,0.1)')).join('') +
-                  prevRefundItems.map((r,i) =>
-                    '<div style="display:flex;align-items:center;gap:10px;padding:9px 0;border-top:1px solid rgba(255,59,48,0.1)">' +
-                      '<div style="flex:1;min-width:0">' +
-                        '<div style="font-size:13px;font-weight:500;color:#34C759">↩ ' + (r.note || 'Refund') + '</div>' +
-                        '<div style="font-size:11px;color:var(--muted);margin-top:1px">' +
-                          new Date(r.date+'T00:00:00').toLocaleDateString('en-AU',{day:'numeric',month:'short'}) + ' · Refund / Credit' +
-                        '</div>' +
-                      '</div>' +
-                      '<div style="font-size:13px;font-weight:600;color:#34C759;flex-shrink:0">+' + fmtB(r.amount) + '</div>' +
-                    '</div>'
-                  ).join('') +
-                '</div>' +
-                // Footer — always visible
-                '<div style="padding:10px 14px;border-top:1px solid rgba(255,59,48,0.15);display:flex;justify-content:space-between;align-items:center">' +
-                  '<div style="font-size:12px;color:var(--muted)">Pay to settle</div>' +
-                  '<button data-amount="' + prevTotal + '" data-ids="' + prevExp.map(e=>e.id).join(',') + '" data-acid="' + _viewingAccountId + '" onclick="payCCBatch(this)" style="background:var(--red);color:#fff;border:none;border-radius:8px;padding:8px 16px;font-size:13px;font-weight:700;font-family:var(--font);cursor:pointer">💳 Pay ' + fmtB(prevTotal) + '</button>' +
-                '</div>' +
-              '</div>';
-          }
-
-          // ── CURRENT CYCLE CARD ──
-          if (currExp.length > 0) {
-            pendingCCHtml +=
-              '<div style="background:var(--surface);border:1.5px solid var(--border);border-radius:var(--r);margin-bottom:10px;overflow:hidden">' +
-                // Header — always visible, tap to expand list
-                '<div style="padding:12px 14px;cursor:pointer" onclick="toggleCCList(\'' + currCardId + '\')">' +
-                  '<div style="display:flex;justify-content:space-between;align-items:center">' +
-                    '<div>' +
-                      '<div style="font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:2px">Current cycle</div>' +
-                      '<div style="font-size:11px;color:var(--muted)">' + currExp.length + ' charge' + (currExp.length!==1?'s':'') + ' · from ' + cycleStart.toLocaleDateString('en-AU',{day:'numeric',month:'short'}) + '</div>' +
-                    '</div>' +
-                    '<div style="display:flex;align-items:center;gap:10px">' +
-                      '<div style="font-size:15px;font-weight:700;color:var(--text)">-' + fmtB(currTotal) + '</div>' +
-                      '<svg id="' + currCardId + '-chev" width="14" height="14" viewBox="0 0 12 12" fill="none" style="color:var(--muted);transition:transform 0.2s"><path d="M2 4l4 4 4-4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>' +
-                    '</div>' +
-                  '</div>' +
-                '</div>' +
-                // Collapsible list
-                '<div id="' + currCardId + '" style="display:none;padding:0 14px;border-top:1px solid var(--surface2)">' +
-                  currExp.map((e,i) => buildExpRow(e, i, 'var(--surface2)')).join('') +
-                  currRefundItems.map((r,i) =>
-                    '<div style="display:flex;align-items:center;gap:10px;padding:9px 0;border-top:1px solid var(--surface2)">' +
-                      '<div style="flex:1;min-width:0">' +
-                        '<div style="font-size:13px;font-weight:500;color:#34C759">↩ ' + (r.note || 'Refund') + '</div>' +
-                        '<div style="font-size:11px;color:var(--muted);margin-top:1px">' +
-                          new Date(r.date+'T00:00:00').toLocaleDateString('en-AU',{day:'numeric',month:'short'}) + ' · Refund / Credit' +
-                        '</div>' +
-                      '</div>' +
-                      '<div style="font-size:13px;font-weight:600;color:#34C759;flex-shrink:0">+' + fmtB(r.amount) + '</div>' +
-                    '</div>'
-                  ).join('') +
-                '</div>' +
-                // Footer — always visible, no pay button yet
-                '<div style="padding:10px 14px;border-top:1px solid var(--surface2);display:flex;justify-content:space-between;align-items:center">' +
-                  '<div style="font-size:12px;color:var(--muted)">Pay at end of cycle</div>' +
-                  '<div style="font-size:13px;font-weight:600;color:var(--muted)">-' + fmtB(currTotal) + '</div>' +
-                '</div>' +
-              '</div>';
-          }
-
-          // ── NET BALANCE ──
-          const effectiveBalance = balance - grandTotal;
-          pendingCCHtml += '<div style="background:var(--surface2);border-radius:10px;padding:10px 14px;display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">' +
-            '<div style="font-size:12px;color:var(--muted)">Balance after all CC paid</div>' +
-            '<div style="font-size:14px;font-weight:700;color:' + (effectiveBalance < 0 ? 'var(--red)' : 'var(--text)') + '">' + fmtB(effectiveBalance) + '</div>' +
-          '</div>';
-
+          });
+          pendingSavingsHtml += '</div>';
         }
       }
-    }
+      pendingSavingsHtml += '</div>';
 
-    // ── CYCLE RECONCILIATION PANEL ──────────────────────────────────────────
-    // Only show on salary accounts when overspent
-    let reconciliationHtml = '';
-    if (acct.isSalaryAccount) {
+      // ── CC charges (cycle-scoped) ─────────────────────────────────────────
+      if (ccAccts.length > 0) {
+        const _settledIds = new Set((state.ccPayments||[]).flatMap(p => p.expenseIds||[]));
+        const _allCCExp = (state.expenses||[]).filter(e => {
+          if (!e.paymentAccountId) return false;
+          const payAcct = accountById(e.paymentAccountId);
+          return payAcct && payAcct.type === 'credit' && e.date >= _scsStr && e.date <= _sceStr;
+        }).sort((a,b) => b.date.localeCompare(a.date));
+
+        if (_allCCExp.length > 0) {
+          const _allRefunds = (state.accountTransactions||[]).filter(t => t.type==='ccRefund' && !t.deleted && t.date >= _scsStr && t.date <= _sceStr);
+          const _totalRefunds = _allRefunds.reduce((s,r) => s + r.amount, 0);
+          const _settledExp = _allCCExp.filter(e => _settledIds.has(e.id));
+          const _unsettledExp = _allCCExp.filter(e => !_settledIds.has(e.id));
+          const _unsettledTotal = Math.round((_unsettledExp.reduce((s,e) => s+e.amount,0) - _totalRefunds) * 100) / 100;
+          const _totalCharges = Math.round(_allCCExp.reduce((s,e) => s+e.amount,0) * 100) / 100;
+
+          const _hasPrevUnsettled = _unsettledTotal > 0 && !_isCurrentCycle;
+
+          pendingCCHtml = '<div style="background:var(--surface);border-radius:var(--r);padding:14px;margin-bottom:14px;' + (_hasPrevUnsettled ? 'border:1.5px solid rgba(255,92,92,0.3)' : '') + '">' +
+            '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">' +
+              '<div>' +
+                '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:' + (_hasPrevUnsettled ? 'var(--red)' : 'var(--muted)') + '">' + (_isCurrentCycle ? 'Current cycle' : 'Previous cycle') + '</div>' +
+                '<div style="font-size:11px;color:var(--muted);margin-top:2px">' + _allCCExp.length + ' charge' + (_allCCExp.length!==1?'s':'') + (_allRefunds.length>0?' · ' + _allRefunds.length + ' refund'+(_allRefunds.length!==1?'s':''):'') + ' · before ' + _sce.toLocaleDateString('en-AU',{day:'numeric',month:'short'}) + '</div>' +
+              '</div>' +
+              '<div style="font-size:15px;font-weight:800;color:' + (_unsettledTotal > 0 ? 'var(--red)' : '#34C759') + '">-' + fmtB(_totalCharges) + '</div>' +
+            '</div>';
+
+          if (_unsettledTotal > 0.01) {
+            pendingCCHtml +=
+              '<div style="display:flex;justify-content:space-between;align-items:center;padding-top:10px;border-top:1px solid var(--surface2)">' +
+                '<div style="font-size:12px;color:var(--muted)">Pay to settle</div>' +
+                '<button data-aid="' + _viewingAccountId + '" onclick="openPayCCFromSalary(this.dataset.aid)" style="background:var(--red);color:#fff;border:none;border-radius:10px;padding:8px 16px;font-size:13px;font-weight:700;font-family:var(--font);cursor:pointer">💳 Pay ' + fmtB(_unsettledTotal) + '</button>' +
+              '</div>';
+          } else {
+            pendingCCHtml += '<div style="font-size:12px;color:#34C759;font-weight:600">✓ All settled</div>';
+          }
+
+          // Balance after CC paid
+          const _effectiveBal = Math.round((balance - _unsettledTotal) * 100) / 100;
+          pendingCCHtml += '</div>' +
+            '<div style="background:var(--surface2);border-radius:10px;padding:10px 14px;display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">' +
+              '<div style="font-size:12px;color:var(--muted)">Balance after CC paid</div>' +
+              '<div style="font-size:14px;font-weight:700;color:' + (_effectiveBal < 0 ? 'var(--red)' : 'var(--text)') + '">' + fmtB(_effectiveBal) + '</div>' +
+            '</div>';
+        }
+      }
+
+      // ── Reconciliation panel (cycle-scoped) ───────────────────────────────
       const _salBal = balance;
-      // Re-fetch pending here — `pending` from pendingSavingsHtml is block-scoped
-      const pending = (state.pendingPayments||[]).filter(p => p.salaryAccountId === _viewingAccountId && p.status === 'pending');
-      const _sIds = new Set((state.ccPayments||[]).flatMap(p => p.expenseIds||[]));
-      const { cycleStart: _rcs } = getCycleRange(0);
-      const _rcsStr = dateToStr(_rcs);
-      const _ccTotal = Math.round((state.expenses||[]).filter(e => {
-        if (!e.paymentAccountId || _sIds.has(e.id)) return false;
+      const _sIds2 = new Set((state.ccPayments||[]).flatMap(p => p.expenseIds||[]));
+      const _ccCycleTotal = Math.round((state.expenses||[]).filter(e => {
+        if (!e.paymentAccountId || _sIds2.has(e.id)) return false;
         const a = accountById(e.paymentAccountId);
-        return a && a.type === 'credit' && e.date >= _rcsStr;
+        return a && a.type === 'credit' && e.date >= _scsStr && e.date <= _sceStr;
       }).reduce((s,e) => s + e.amount, 0) * 100) / 100;
 
-      const _mortgageKeywords = ['mortgage', 'home savings'];
+      const _mortgageKW = ['mortgage', 'home savings'];
       const _eligiblePending = pending.filter(p => {
         const goal = savingsCatById(p.goalId);
-        const rec = (state.recurringSavings||[]).find(r => r.id === p.recurringId);
-        const name = ((goal ? goal.name : '') + ' ' + (rec ? rec.name : '')).toLowerCase();
-        return !_mortgageKeywords.some(k => name.includes(k));
+        const rec2 = (state.recurringSavings||[]).find(r => r.id === p.recurringId);
+        const name = ((goal ? goal.name : '') + ' ' + (rec2 ? rec2.name : '')).toLowerCase();
+        return !_mortgageKW.some(k => name.includes(k));
       });
       const _mortgagePending = pending.filter(p => !_eligiblePending.includes(p));
       const _eligibleTotal = Math.round(_eligiblePending.reduce((s,p) => s + p.amount, 0) * 100) / 100;
       const _mortgageTotal = Math.round(_mortgagePending.reduce((s,p) => s + p.amount, 0) * 100) / 100;
-      const _totalSavings = _eligibleTotal + _mortgageTotal;
-      const _shortfall = Math.round((_salBal - _ccTotal - _totalSavings) * 100) / 100;
+      const _shortfall = Math.round((_salBal - _ccCycleTotal - _eligibleTotal - _mortgageTotal) * 100) / 100;
 
       if (_shortfall < -0.01) {
         const _absShortfall = Math.abs(_shortfall);
@@ -15334,7 +15259,7 @@ function renderAccounts() {
             '<div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:12px">⚠️ Cycle reconciliation</div>' +
             '<div style="display:flex;flex-direction:column;gap:6px;margin-bottom:12px">' +
               '<div style="display:flex;justify-content:space-between;font-size:12px"><span style="color:var(--muted)">💰 Salary balance</span><span style="font-weight:600">' + fmtB(_salBal) + '</span></div>' +
-              '<div style="display:flex;justify-content:space-between;font-size:12px"><span style="color:var(--muted)">💳 CC this cycle</span><span style="font-weight:600;color:var(--red)">-' + fmtB(_ccTotal) + '</span></div>' +
+              '<div style="display:flex;justify-content:space-between;font-size:12px"><span style="color:var(--muted)">💳 CC this cycle</span><span style="font-weight:600;color:var(--red)">-' + fmtB(_ccCycleTotal) + '</span></div>' +
               '<div style="display:flex;justify-content:space-between;font-size:12px"><span style="color:var(--muted)">🏠 Mortgage (fixed)</span><span style="font-weight:600">-' + fmtB(_mortgageTotal) + '</span></div>' +
               '<div style="display:flex;justify-content:space-between;font-size:12px"><span style="color:var(--muted)">💼 Other savings</span><span style="font-weight:600">-' + fmtB(_eligibleTotal) + '</span></div>' +
               '<div style="border-top:1px solid rgba(255,92,92,0.2);margin-top:4px;padding-top:8px;display:flex;justify-content:space-between;font-size:13px">' +
@@ -15359,7 +15284,7 @@ function renderAccounts() {
     }
 
     let html = '<div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">' +
-      '<button onclick="_viewingAccountId=null;renderAccounts()" style="background:none;border:none;cursor:pointer;color:var(--accent);font-size:14px;font-weight:600;font-family:var(--font);padding:0;display:flex;align-items:center;gap:4px">' +
+      '<button onclick="_viewingAccountId=null;_salaryCycleOffset=0;renderAccounts()" style="background:none;border:none;cursor:pointer;color:var(--accent);font-size:14px;font-weight:600;font-family:var(--font);padding:0;display:flex;align-items:center;gap:4px">' +
         '<svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M10 3L5 8l5 5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>Accounts' +
       '</button>' +
     '</div>';
