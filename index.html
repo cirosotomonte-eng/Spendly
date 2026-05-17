@@ -2079,9 +2079,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.5.40';
+const APP_VERSION = '2.5.41';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '17 May 2026 4:43 PM AEDT';
+const BUILD_TIME = '17 May 2026 4:54 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -15281,89 +15281,78 @@ function renderAccounts() {
             '<div style="font-size:14px;font-weight:700;color:' + (effectiveBalance < 0 ? 'var(--red)' : 'var(--text)') + '">' + fmtB(effectiveBalance) + '</div>' +
           '</div>';
 
-          // ── CYCLE RECONCILIATION PANEL ──────────────────────────────────
-          // Only show when shortfall exists (overspent)
-          const _salBal = balance; // Salary account balance
-          const _ccTotal = currTotal; // CC this cycle
-          const _spendable = Math.round((_salBal - _ccTotal) * 100) / 100;
-          // All pending savings excluding mortgage
-          const _mortgageKeywords = ['mortgage', 'home savings'];
-          const _eligiblePending = pending.filter(p => {
-            const goal = savingsCatById(p.goalId);
-            const rec = (state.recurringSavings||[]).find(r => r.id === p.recurringId);
-            const name = ((goal ? goal.name : '') + ' ' + (rec ? rec.name : '')).toLowerCase();
-            return !_mortgageKeywords.some(k => name.includes(k));
-          });
-          const _mortgagePending = pending.filter(p => !_eligiblePending.includes(p));
-          const _eligibleTotal = Math.round(_eligiblePending.reduce((s,p) => s + p.amount, 0) * 100) / 100;
-          const _mortgageTotal = Math.round(_mortgagePending.reduce((s,p) => s + p.amount, 0) * 100) / 100;
-          const _totalSavings = _eligibleTotal + _mortgageTotal;
-          const _shortfall = Math.round((_spendable - _totalSavings) * 100) / 100;
-
-          if (_shortfall < -0.01) {
-            // Build per-item reduction breakdown
-            const _absShortfall = Math.abs(_shortfall);
-            let _remaining = _absShortfall;
-            const _reductions = _eligiblePending.map(p => {
-              const share = _eligibleTotal > 0 ? p.amount / _eligibleTotal : 0;
-              const reduction = Math.min(p.amount, Math.round(share * _absShortfall * 100) / 100);
-              return { p, reduction, newAmount: Math.max(0, Math.round((p.amount - reduction) * 100) / 100) };
-            });
-            // Correct rounding so reductions sum exactly to shortfall
-            const _sumReductions = Math.round(_reductions.reduce((s,r) => s + r.reduction, 0) * 100) / 100;
-            const _roundingDiff = Math.round((_absShortfall - _sumReductions) * 100) / 100;
-            if (_reductions.length > 0 && Math.abs(_roundingDiff) > 0) {
-              _reductions[0].reduction = Math.round((_reductions[0].reduction + _roundingDiff) * 100) / 100;
-              _reductions[0].newAmount = Math.max(0, Math.round((_reductions[0].p.amount - _reductions[0].reduction) * 100) / 100);
-            }
-
-            const _reductionIds = JSON.stringify(_reductions.map(r => ({ id: r.p.id, newAmount: r.newAmount })));
-
-            pendingCCHtml += '<div style="background:rgba(255,92,92,0.06);border:1.5px solid rgba(255,92,92,0.2);border-radius:12px;padding:14px;margin-bottom:14px">' +
-              '<div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:12px">⚠️ Cycle reconciliation</div>' +
-              // Summary rows
-              '<div style="display:flex;flex-direction:column;gap:6px;margin-bottom:12px">' +
-                '<div style="display:flex;justify-content:space-between;font-size:12px">' +
-                  '<span style="color:var(--muted)">💰 Salary balance</span>' +
-                  '<span style="font-weight:600">' + fmtB(_salBal) + '</span>' +
-                '</div>' +
-                '<div style="display:flex;justify-content:space-between;font-size:12px">' +
-                  '<span style="color:var(--muted)">💳 CC this cycle</span>' +
-                  '<span style="font-weight:600;color:var(--red)">-' + fmtB(_ccTotal) + '</span>' +
-                '</div>' +
-                '<div style="display:flex;justify-content:space-between;font-size:12px">' +
-                  '<span style="color:var(--muted)">🏠 Mortgage (fixed)</span>' +
-                  '<span style="font-weight:600">-' + fmtB(_mortgageTotal) + '</span>' +
-                '</div>' +
-                '<div style="display:flex;justify-content:space-between;font-size:12px">' +
-                  '<span style="color:var(--muted)">💼 Other savings</span>' +
-                  '<span style="font-weight:600">-' + fmtB(_eligibleTotal) + '</span>' +
-                '</div>' +
-                '<div style="border-top:1px solid rgba(255,92,92,0.2);margin-top:4px;padding-top:8px;display:flex;justify-content:space-between;font-size:13px">' +
-                  '<span style="font-weight:700;color:var(--red)">⚠ Shortfall</span>' +
-                  '<span style="font-weight:800;color:var(--red)">-' + fmtB(_absShortfall) + '</span>' +
-                '</div>' +
-              '</div>' +
-              // Per-item breakdown
-              '<div style="background:var(--surface);border-radius:8px;padding:10px 12px;margin-bottom:12px">' +
-                '<div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:8px">Proposed reductions</div>' +
-                _reductions.filter(r => r.reduction > 0.005).map(r => {
-                  const goal = savingsCatById(r.p.goalId);
-                  const name = goal ? goal.icon + ' ' + goal.name : r.p.note || 'Saving';
-                  return '<div style="display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-top:1px solid var(--surface2)">' +
-                    '<span style="font-size:12px;color:var(--text)">' + name + '</span>' +
-                    '<span style="font-size:12px">' +
-                      '<span style="color:var(--muted);text-decoration:line-through">' + fmtB(r.p.amount) + '</span>' +
-                      ' → <span style="font-weight:700;color:var(--text)">' + fmtB(r.newAmount) + '</span>' +
-                    '</span>' +
-                  '</div>';
-                }).join('') +
-              '</div>' +
-              // Distribute button
-              '<button data-reductions="' + _reductionIds.replace(/"/g, '&quot;') + '" onclick="distributeShortfall(this.dataset.reductions)" style="width:100%;background:var(--red);color:#fff;border:none;border-radius:10px;padding:12px;font-size:13px;font-weight:700;font-family:var(--font);cursor:pointer">Distribute shortfall across savings</button>' +
-            '</div>';
-          }
         }
+      }
+    }
+
+    // ── CYCLE RECONCILIATION PANEL ──────────────────────────────────────────
+    // Only show on salary accounts when overspent
+    let reconciliationHtml = '';
+    if (acct.isSalaryAccount && typeof pending !== 'undefined') {
+      const _salBal = balance;
+      const _sIds = new Set((state.ccPayments||[]).flatMap(p => p.expenseIds||[]));
+      const { cycleStart: _rcs } = getCycleRange(0);
+      const _rcsStr = dateToStr(_rcs);
+      const _ccTotal = Math.round((state.expenses||[]).filter(e => {
+        if (!e.paymentAccountId || _sIds.has(e.id)) return false;
+        const a = accountById(e.paymentAccountId);
+        return a && a.type === 'credit' && e.date >= _rcsStr;
+      }).reduce((s,e) => s + e.amount, 0) * 100) / 100;
+
+      const _mortgageKeywords = ['mortgage', 'home savings'];
+      const _eligiblePending = pending.filter(p => {
+        const goal = savingsCatById(p.goalId);
+        const rec = (state.recurringSavings||[]).find(r => r.id === p.recurringId);
+        const name = ((goal ? goal.name : '') + ' ' + (rec ? rec.name : '')).toLowerCase();
+        return !_mortgageKeywords.some(k => name.includes(k));
+      });
+      const _mortgagePending = pending.filter(p => !_eligiblePending.includes(p));
+      const _eligibleTotal = Math.round(_eligiblePending.reduce((s,p) => s + p.amount, 0) * 100) / 100;
+      const _mortgageTotal = Math.round(_mortgagePending.reduce((s,p) => s + p.amount, 0) * 100) / 100;
+      const _totalSavings = _eligibleTotal + _mortgageTotal;
+      const _shortfall = Math.round((_salBal - _ccTotal - _totalSavings) * 100) / 100;
+
+      if (_shortfall < -0.01) {
+        const _absShortfall = Math.abs(_shortfall);
+        const _reductions = _eligiblePending.map(p => {
+          const share = _eligibleTotal > 0 ? p.amount / _eligibleTotal : 0;
+          const reduction = Math.min(p.amount, Math.round(share * _absShortfall * 100) / 100);
+          return { p, reduction, newAmount: Math.max(0, Math.round((p.amount - reduction) * 100) / 100) };
+        });
+        const _sumR = Math.round(_reductions.reduce((s,r) => s + r.reduction, 0) * 100) / 100;
+        const _diff = Math.round((_absShortfall - _sumR) * 100) / 100;
+        if (_reductions.length > 0 && Math.abs(_diff) > 0) {
+          _reductions[0].reduction = Math.round((_reductions[0].reduction + _diff) * 100) / 100;
+          _reductions[0].newAmount = Math.max(0, Math.round((_reductions[0].p.amount - _reductions[0].reduction) * 100) / 100);
+        }
+        const _reductionIds = JSON.stringify(_reductions.map(r => ({ id: r.p.id, newAmount: r.newAmount })));
+
+        reconciliationHtml =
+          '<div style="background:rgba(255,92,92,0.06);border:1.5px solid rgba(255,92,92,0.2);border-radius:12px;padding:14px;margin-bottom:14px">' +
+            '<div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:12px">⚠️ Cycle reconciliation</div>' +
+            '<div style="display:flex;flex-direction:column;gap:6px;margin-bottom:12px">' +
+              '<div style="display:flex;justify-content:space-between;font-size:12px"><span style="color:var(--muted)">💰 Salary balance</span><span style="font-weight:600">' + fmtB(_salBal) + '</span></div>' +
+              '<div style="display:flex;justify-content:space-between;font-size:12px"><span style="color:var(--muted)">💳 CC this cycle</span><span style="font-weight:600;color:var(--red)">-' + fmtB(_ccTotal) + '</span></div>' +
+              '<div style="display:flex;justify-content:space-between;font-size:12px"><span style="color:var(--muted)">🏠 Mortgage (fixed)</span><span style="font-weight:600">-' + fmtB(_mortgageTotal) + '</span></div>' +
+              '<div style="display:flex;justify-content:space-between;font-size:12px"><span style="color:var(--muted)">💼 Other savings</span><span style="font-weight:600">-' + fmtB(_eligibleTotal) + '</span></div>' +
+              '<div style="border-top:1px solid rgba(255,92,92,0.2);margin-top:4px;padding-top:8px;display:flex;justify-content:space-between;font-size:13px">' +
+                '<span style="font-weight:700;color:var(--red)">⚠ Shortfall</span>' +
+                '<span style="font-weight:800;color:var(--red)">-' + fmtB(_absShortfall) + '</span>' +
+              '</div>' +
+            '</div>' +
+            '<div style="background:var(--surface);border-radius:8px;padding:10px 12px;margin-bottom:12px">' +
+              '<div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:8px">Proposed reductions</div>' +
+              _reductions.filter(r => r.reduction > 0.005).map(r => {
+                const goal = savingsCatById(r.p.goalId);
+                const name = goal ? goal.icon + ' ' + goal.name : r.p.note || 'Saving';
+                return '<div style="display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-top:1px solid var(--surface2)">' +
+                  '<span style="font-size:12px;color:var(--text)">' + name + '</span>' +
+                  '<span style="font-size:12px"><span style="color:var(--muted);text-decoration:line-through">' + fmtB(r.p.amount) + '</span> → <span style="font-weight:700;color:var(--text)">' + fmtB(r.newAmount) + '</span></span>' +
+                '</div>';
+              }).join('') +
+            '</div>' +
+            '<button data-reductions="' + _reductionIds.replace(/"/g, '&quot;') + '" onclick="distributeShortfall(this.dataset.reductions)" style="width:100%;background:var(--red);color:#fff;border:none;border-radius:10px;padding:12px;font-size:13px;font-weight:700;font-family:var(--font);cursor:pointer">Distribute shortfall across savings</button>' +
+          '</div>';
       }
     }
 
@@ -15534,6 +15523,7 @@ function renderAccounts() {
     html += recIncomeHtml;
     html += pendingSavingsHtml;
     html += pendingCCHtml;
+    html += reconciliationHtml;
 
     // For CC accounts, filter history to current cycle only
     const displayTxns = (acct.type === 'credit') ? (() => {
