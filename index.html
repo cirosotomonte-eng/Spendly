@@ -2079,9 +2079,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.5.47';
+const APP_VERSION = '2.5.48';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '19 May 2026 6:28 PM AEDT';
+const BUILD_TIME = '19 May 2026 9:14 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -15129,6 +15129,21 @@ function confirmPayCCFromSalary(salaryAccountId, ccData) {
 }
 
 // ── Delete / reverse a CC payment transaction ─────────────────────────────
+function markCCCycleSettled(idsStr) {
+  const ids = idsStr ? idsStr.split(',').filter(Boolean) : [];
+  if (ids.length === 0) { showToast('Nothing to settle', 2000); return; }
+  if (!confirm('Mark ' + ids.length + ' charge' + (ids.length!==1?'s':'') + ' as settled? No money will be transferred — use this if you have already paid externally.')) return;
+  if (!state.ccPayments) state.ccPayments = [];
+  state.ccPayments.push({
+    id: uid(), date: todayStr(), amount: 0,
+    expenseIds: ids, toCCAccountIds: [],
+    note: 'Manually marked as settled', _manual: true,
+  });
+  saveState();
+  renderAccounts();
+  showToast('✅ Previous cycle marked as settled', 2500);
+}
+
 function deleteCCTransaction(txnId, ccAccountId) {
   const txn = (state.accountTransactions||[]).find(t => t.id === txnId);
   if (!txn) return;
@@ -15373,10 +15388,11 @@ function renderAccounts() {
             '</div>';
 
           if (_unsettledTotal > 0.01) {
+            const _unsettledIds = _unsettledExp.map(e => e.id);
             pendingCCHtml +=
-              '<div style="display:flex;justify-content:space-between;align-items:center;padding-top:10px;border-top:1px solid var(--surface2)">' +
-                '<div style="font-size:12px;color:var(--muted)">Pay to settle</div>' +
-                '<button data-aid="' + _viewingAccountId + '" onclick="openPayCCFromSalary(this.dataset.aid)" style="background:var(--red);color:#fff;border:none;border-radius:10px;padding:8px 16px;font-size:13px;font-weight:700;font-family:var(--font);cursor:pointer">💳 Pay ' + fmtB(_unsettledTotal) + '</button>' +
+              '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding-top:10px;border-top:1px solid var(--surface2)">' +
+                '<button data-aid="' + _viewingAccountId + '" onclick="openPayCCFromSalary(this.dataset.aid)" style="flex:1;background:var(--red);color:#fff;border:none;border-radius:10px;padding:8px 12px;font-size:13px;font-weight:700;font-family:var(--font);cursor:pointer">💳 Pay ' + fmtB(_unsettledTotal) + '</button>' +
+                '<button data-ids="' + _unsettledIds.join(',') + '" onclick="markCCCycleSettled(this.dataset.ids)" style="flex:1;background:var(--surface2);color:var(--muted);border:none;border-radius:10px;padding:8px 12px;font-size:13px;font-weight:600;font-family:var(--font);cursor:pointer">✓ Mark settled</button>' +
               '</div>';
           } else {
             pendingCCHtml += '<div style="font-size:12px;color:#34C759;font-weight:600">✓ All settled</div>';
