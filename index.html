@@ -2079,9 +2079,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.5.43';
+const APP_VERSION = '2.5.45';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '18 May 2026 8:44 AM AEDT';
+const BUILD_TIME = '19 May 2026 6:01 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -15016,35 +15016,151 @@ function openPayCCFromSalary(salaryAccountId) {
   const salAcct = accountById(salaryAccountId);
   const salBal = getAccountBalance(salaryAccountId);
 
-  let options = ccAccts.map((a,i) => {
-    const owed = Math.abs(Math.min(getAccountBalance(a.id), 0));
-    return (i+1) + '. ' + a.name + ' — owes ' + fmt(owed);
-  }).join('\n');
+  const { cycleStart: _pcs, cycleEnd: _pce } = getCycleRange(_salaryCycleOffset);
+  const _pcsStr = dateToStr(_pcs);
+  const _pceStr = dateToStr(_pce);
+  const _sIds = new Set((state.ccPayments||[]).flatMap(p => p.expenseIds||[]));
 
-  const choice = parseInt(prompt('Pay which credit card?\n' + options));
-  if (isNaN(choice) || choice < 1 || choice > ccAccts.length) return;
-  const ccAcct = ccAccts[choice - 1];
-  const owed = Math.abs(Math.min(getAccountBalance(ccAcct.id), 0));
+  const cycleOwedPerCC = ccAccts.map(a => ({
+    acct: a,
+    owed: Math.round((state.expenses||[]).filter(e =>
+      e.paymentAccountId === a.id && !_sIds.has(e.id) && e.date >= _pcsStr && e.date <= _pceStr
+    ).reduce((s,e) => s + e.amount, 0) * 100) / 100,
+  }));
 
-  const amount = parseFloat(prompt('Amount to pay to ' + ccAcct.name + ' (balance owed: ' + fmt(owed) + ', salary balance: ' + fmt(salBal) + '):', owed.toFixed(2)));
-  if (isNaN(amount) || amount <= 0) return;
+  // Build and show modal
+  const overlay = document.createElement('div');
+  overlay.id = 'ccPayModal';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:flex-end;justify-content:center';
+
+  const defaultCC = cycleOwedPerCC[0];
+  const defaultAmt = defaultCC.owed;
+
+  overlay.innerHTML = `
+    <div style="background:var(--bg);border-radius:20px 20px 0 0;padding:24px 20px 36px;width:100%;max-width:480px;box-sizing:border-box">
+      <div style="font-size:16px;font-weight:700;margin-bottom:18px">💳 Pay credit card</div>
+
+      ${cycleOwedPerCC.length > 1 ? `
+        <div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:6px">Credit card</div>
+        <select id="ccPaySelect" style="width:100%;padding:10px 12px;border-radius:10px;border:1.5px solid var(--surface2);background:var(--surface);color:var(--text);font-size:14px;font-family:var(--font);margin-bottom:14px;box-sizing:border-box"
+          onchange="(function(){
+            const sel = document.getElementById('ccPaySelect');
+            const idx = parseInt(sel.value);
+            const owedArr = ${JSON.stringify(cycleOwedPerCC.map(x=>x.owed))};
+            document.getElementById('ccPayAmount').value = owedArr[idx].toFixed(2);
+          })()">
+          ${cycleOwedPerCC.map((x,i) => `<option value="${i}">${x.acct.icon||'💳'} ${x.acct.name} — ${fmt(x.owed)} owed</option>`).join('')}
+        </select>
+      ` : `
+        <div style="background:var(--surface);border-radius:10px;padding:10px 14px;margin-bottom:14px;display:flex;justify-content:space-between;align-items:center">
+          <span style="font-size:14px;font-weight:600">${defaultCC.acct.icon||'💳'} ${defaultCC.acct.name}</span>
+          <span style="font-size:13px;color:var(--red);font-weight:700">${fmt(defaultCC.owed)} owed</span>
+        </div>
+      `}
+
+      <div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:6px">Amount</div>
+      <input id="ccPayAmount" type="number" step="0.01" value="${defaultAmt.toFixed(2)}"
+        style="width:100%;padding:10px 12px;border-radius:10px;border:1.5px solid var(--surface2);background:var(--surface);color:var(--text);font-size:16px;font-family:var(--font);box-sizing:border-box;margin-bottom:6px">
+      <div style="font-size:11px;color:var(--muted);margin-bottom:18px">Salary balance: ${fmt(salBal)}</div>
+
+      <div style="display:flex;gap:10px">
+        <button onclick="document.getElementById('ccPayModal').remove()"
+          style="flex:1;padding:13px;border-radius:12px;border:1.5px solid var(--surface2);background:var(--surface);color:var(--text);font-size:14px;font-weight:600;font-family:var(--font);cursor:pointer">
+          Cancel
+        </button>
+        <button onclick="confirmPayCCFromSalary('${salaryAccountId}', ${JSON.stringify(cycleOwedPerCC.map(x=>({id:x.acct.id,owed:x.owed})))})"
+          style="flex:2;padding:13px;border-radius:12px;border:none;background:var(--accent);color:#fff;font-size:14px;font-weight:700;font-family:var(--font);cursor:pointer">
+          Pay
+        </button>
+      </div>
+    </div>`;
+
+  document.body.appendChild(overlay);
+  overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+  setTimeout(() => document.getElementById('ccPayAmount')?.focus(), 100);
+}
+
+function confirmPayCCFromSalary(salaryAccountId, ccData) {
+  const modal = document.getElementById('ccPayModal');
+  const amountEl = document.getElementById('ccPayAmount');
+  const amount = parseFloat(amountEl?.value);
+  if (isNaN(amount) || amount <= 0) { showToast('Enter a valid amount', 2000); return; }
+
+  const selectEl = document.getElementById('ccPaySelect');
+  const ccIdx = selectEl ? parseInt(selectEl.value) : 0;
+  const ccInfo = ccData[ccIdx];
+  const ccAcct = accountById(ccInfo.id);
+  const salAcct = accountById(salaryAccountId);
+  if (!ccAcct) return;
+
+  modal?.remove();
+
+  const { cycleStart: _pcs, cycleEnd: _pce } = getCycleRange(_salaryCycleOffset);
+  const _pcsStr = dateToStr(_pcs);
+  const _pceStr = dateToStr(_pce);
+  const _sIds = new Set((state.ccPayments||[]).flatMap(p => p.expenseIds||[]));
 
   if (!state.accountTransactions) state.accountTransactions = [];
-  // Debit from salary account
-  state.accountTransactions.push({
-    id: uid(), type: 'ccPayment', fromAccountId: salaryAccountId,
-    toAccountId: ccAcct.id, amount: amount, date: todayStr(),
-    note: 'CC payment to ' + ccAcct.name,
+  if (!state.ccPayments) state.ccPayments = [];
+
+  const paymentId = uid();
+  const settledExpIds = (state.expenses||[]).filter(e =>
+    e.paymentAccountId === ccAcct.id && !_sIds.has(e.id) && e.date >= _pcsStr && e.date <= _pceStr
+  ).map(e => e.id);
+
+  state.ccPayments.push({
+    id: paymentId, date: todayStr(), amount,
+    fromAccountId: salaryAccountId, toCCAccountIds: [ccAcct.id],
+    expenseIds: settledExpIds,
+    note: 'CC payment · ' + ccAcct.name,
   });
-  // Credit to CC account (reduces what's owed)
+
   state.accountTransactions.push({
-    id: uid(), type: 'transfer', fromAccountId: salaryAccountId,
-    toAccountId: ccAcct.id, amount: amount, date: todayStr(),
-    note: 'CC payment from ' + (salAcct ? salAcct.name : 'Salary'),
+    id: uid(), type: 'ccPayment',
+    fromAccountId: salaryAccountId, toAccountId: ccAcct.id,
+    amount, date: todayStr(),
+    note: 'CC payment · ' + ccAcct.name,
+    ccPaymentId: paymentId,
   });
+
   saveState();
   renderAccounts();
   showToast('✅ Paid ' + fmt(amount) + ' to ' + ccAcct.name, 2500);
+}
+
+// ── Reverse duplicate CC payment (data repair) ─────────────────────────────
+function reverseDuplicateCCPayment() {
+  const txns = (state.accountTransactions||[]).filter(t => !t.deleted);
+  const dupes = [];
+  txns.forEach(t => {
+    if (t.type !== 'transfer') return;
+    const ccAcct = accountById(t.toAccountId);
+    if (!ccAcct || ccAcct.type !== 'credit') return;
+    const match = txns.find(t2 =>
+      t2.id !== t.id && t2.type === 'ccPayment' &&
+      t2.toAccountId === t.toAccountId && t2.fromAccountId === t.fromAccountId &&
+      Math.abs(t2.amount - t.amount) < 0.01 && t2.date === t.date
+    );
+    if (match && !dupes.find(d => d.id === t.id)) dupes.push(t);
+  });
+
+  if (dupes.length === 0) {
+    showToast('No duplicate CC payments found.', 3000);
+    return;
+  }
+
+  const ccAcct = accountById(dupes[0].toAccountId);
+  const amt = dupes[0].amount;
+  if (!confirm(
+    'Found ' + dupes.length + ' duplicate transfer' + (dupes.length!==1?'s':'') +
+    ' of ' + fmt(amt) + ' to ' + (ccAcct ? ccAcct.name : 'CC') +
+    '.\nDelete the duplicate transfer entries? The ccPayment records will remain.'
+  )) return;
+
+  dupes.forEach(t => { t.deleted = true; });
+  saveState();
+  renderAccounts();
+  showToast('✅ ' + dupes.length + ' duplicate' + (dupes.length!==1?'s':' ') + ' removed — balance restored', 3000);
 }
 
 function renderAccounts() {
@@ -15093,6 +15209,15 @@ function renderAccounts() {
       const _cycleLabel = _scs.toLocaleDateString('en-AU',{day:'numeric',month:'short'}) + ' – ' + _sce.toLocaleDateString('en-AU',{day:'numeric',month:'short'});
 
       // ── Cycle navigator ──────────────────────────────────────────────────
+      const _hasDupe = (() => {
+        const _dt = (state.accountTransactions||[]).filter(t => !t.deleted);
+        return _dt.some(t => t.type === 'transfer' && t.fromAccountId === _viewingAccountId &&
+          (accountById(t.toAccountId)||{}).type === 'credit' &&
+          _dt.some(t2 => t2.id !== t.id && t2.type === 'ccPayment' &&
+            t2.toAccountId === t.toAccountId && t2.fromAccountId === t.fromAccountId &&
+            Math.abs(t2.amount - t.amount) < 0.01 && t2.date === t.date));
+      })();
+
       pendingSavingsHtml = '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;padding:8px 12px;background:var(--surface);border-radius:10px">' +
         '<button onclick="navigateSalaryCycle(-1)" style="background:none;border:none;cursor:pointer;padding:4px 10px;font-size:18px;color:var(--accent);font-family:var(--font)">‹</button>' +
         '<div style="text-align:center">' +
@@ -15100,7 +15225,16 @@ function renderAccounts() {
           '<div style="font-size:11px;color:var(--muted)">' + _cycleLabel + '</div>' +
         '</div>' +
         '<button onclick="navigateSalaryCycle(1)" style="background:none;border:none;cursor:pointer;padding:4px 10px;font-size:18px;color:' + (_isCurrentCycle ? 'var(--surface2)' : 'var(--accent)') + ';font-family:var(--font)"' + (_isCurrentCycle ? ' disabled' : '') + '>›</button>' +
-      '</div>';
+      '</div>' +
+      (_hasDupe ?
+        '<div style="background:rgba(255,59,48,0.08);border:1.5px solid rgba(255,59,48,0.3);border-radius:10px;padding:10px 14px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center">' +
+          '<div>' +
+            '<div style="font-size:12px;font-weight:700;color:var(--red)">⚠ Duplicate CC payment detected</div>' +
+            '<div style="font-size:11px;color:var(--muted);margin-top:2px">A transfer and ccPayment were both recorded — balance is incorrect</div>' +
+          '</div>' +
+          '<button onclick="reverseDuplicateCCPayment()" style="background:var(--red);color:#fff;border:none;border-radius:8px;padding:7px 12px;font-size:12px;font-weight:700;font-family:var(--font);cursor:pointer;margin-left:10px;white-space:nowrap">Fix now</button>' +
+        '</div>'
+      : '');
 
       // ── Pending payments (cycle-scoped) ───────────────────────────────────
       const pending = (state.pendingPayments||[])
