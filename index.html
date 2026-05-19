@@ -2079,9 +2079,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.5.46';
+const APP_VERSION = '2.5.47';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '19 May 2026 6:14 PM AEDT';
+const BUILD_TIME = '19 May 2026 6:28 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -15642,17 +15642,17 @@ function renderAccounts() {
         const isIn = t.direction === 'in';
         const isSaving = t.type === 'saving';
         const typeIcon = t.type === 'income' ? '💵' : t.type === 'transfer' ? '⇄' : t.type === 'saving' ? '💚' : t.type === 'ccRefund' ? '↩' : t.type === 'ccPayment' ? '💳' : '💳';
-        const canDelete = t.type === 'ccPayment' || t.type === 'transfer';
-        const clickAction = canDelete
-          ? 'deleteCCTransaction(\'' + t.id + '\',\'' + acct.id + '\')'
-          : t.type === 'income' ? 'openEditIncome(\'' + t.id + '\')' : t.type === 'transfer' ? 'openEditTransfer(\'' + t.id + '\')' : '';
-        html += '<div style="display:flex;align-items:center;gap:12px;padding:11px 14px;' + (i>0?'border-top:1px solid var(--surface2)':'') + (canDelete?';cursor:pointer':'') + '" ' + (clickAction?'onclick="'+clickAction+'"':'') + '>' +
+        const canDelete = t.type === 'ccPayment' || (t.type === 'transfer' && isIn);
+        const rowOnClick = !canDelete ? (t.type === 'income' ? 'openEditIncome(\'' + t.id + '\')' : '') : '';
+        html += '<div style="display:flex;align-items:center;gap:12px;padding:11px 14px;' + (i>0?'border-top:1px solid var(--surface2)':'') + '"' + (rowOnClick ? ' onclick="' + rowOnClick + '"' : '') + '>' +
           '<div style="width:36px;height:36px;border-radius:10px;background:' + (isIn?'rgba(52,199,89,0.12)':'rgba(255,92,92,0.1)') + ';display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">' + typeIcon + '</div>' +
           '<div style="flex:1;min-width:0">' +
             '<div style="font-size:13px;font-weight:600">' + t.label + '</div>' +
-            '<div style="font-size:11px;color:var(--muted)">' + new Date(t.date+'T00:00:00').toLocaleDateString('en-AU',{weekday:'short',day:'numeric',month:'short',year:'numeric'}) + (canDelete ? ' · <span style="color:var(--red)">tap to delete</span>' : '') + '</div>' +
+            '<div style="font-size:11px;color:var(--muted)">' + new Date(t.date+'T00:00:00').toLocaleDateString('en-AU',{weekday:'short',day:'numeric',month:'short',year:'numeric'}) + '</div>' +
           '</div>' +
-          '<div style="font-size:13px;font-weight:700;color:' + (isSaving?'rgba(52,199,89,0.8)':t.type==='ccRefund'?'#34C759':isIn?'#34C759':'var(--red)') + '">' + (isSaving?'-':isIn?'+':'-') + fmtB(t.amount) + '</div>' +
+          (canDelete
+            ? '<button onclick="deleteCCTransaction(\'' + t.id + '\',\'' + acct.id + '\')" style="flex-shrink:0;background:rgba(255,59,48,0.1);color:var(--red);border:1px solid rgba(255,59,48,0.25);border-radius:8px;padding:5px 10px;font-size:11px;font-weight:600;font-family:var(--font);cursor:pointer">Delete</button>'
+            : '<div style="font-size:13px;font-weight:700;color:' + (isSaving?'rgba(52,199,89,0.8)':t.type==='ccRefund'?'#34C759':isIn?'#34C759':'var(--red)') + '">' + (isSaving?'-':isIn?'+':'-') + fmtB(t.amount) + '</div>') +
         '</div>';
       });
       html += '</div>';
