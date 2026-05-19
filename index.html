@@ -2079,9 +2079,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.5.48';
+const APP_VERSION = '2.5.49';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '19 May 2026 9:14 PM AEDT';
+const BUILD_TIME = '19 May 2026 9:45 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -12256,11 +12256,15 @@ function getFiredRecurringSavingsTotal() {
   const { cycleStart, cycleEnd } = getCycleRange(0);
 
   // Standard deposits with a recurringId in this cycle
+  // Use cycleDate if present (set when paying a pending item) — this is the date the
+  // recurring saving was DUE, not when it was actually paid. This prevents a previous-cycle
+  // pending item paid today from being counted as a current-cycle saving.
   const depositTotal = (state.savingsDeposits||[])
     .filter(d => {
       if (!d.recurringId) return false;
       if (d.type === 'withdrawal' || d.type === 'bill-payment') return false;
-      const dt = new Date(d.date + 'T00:00:00');
+      const dateToCheck = d.cycleDate || d.date;
+      const dt = new Date(dateToCheck + 'T00:00:00');
       return dt >= cycleStart && dt <= cycleEnd;
     })
     .reduce((s, d) => s + d.amount, 0);
@@ -12293,13 +12297,19 @@ function getUpcomingRecurringSavings() {
       const key = dateToStr(d);
       if (visited.has(key)) break;
       visited.add(key);
-      // Include today only if not already deposited
+      // Check if this occurrence already has a deposit or pending payment covering it
+      // Use cycleDate on deposits (which records the due date, not payment date) to correctly
+      // detect previous-cycle items paid today
       const isDueToday = key === todayDateStr;
-      const alreadyFired = isDueToday && (
-        (state.savingsDeposits||[]).some(dep => dep.recurringId === r.id && dep.date === todayDateStr) ||
-        (state.pendingPayments||[]).some(p => p.recurringId === r.id && p.dueDate === todayDateStr && p.status !== 'cancelled')
+      const alreadyFired = (
+        (state.savingsDeposits||[]).some(dep => {
+          if (dep.recurringId !== r.id) return false;
+          const depCycleDate = dep.cycleDate || dep.date;
+          return depCycleDate === key;
+        }) ||
+        (state.pendingPayments||[]).some(p => p.recurringId === r.id && p.dueDate === key && p.status !== 'cancelled')
       );
-      if (d >= cycleStart && (d > today || (isDueToday && !alreadyFired))) {
+      if (d >= cycleStart && !alreadyFired && (d > today || isDueToday)) {
         const goal = savingsCatById(r.savingsGoalId);
         upcoming.push({ r, goal, date: key, dateObj: new Date(d) });
       }
@@ -14979,6 +14989,7 @@ function payPendingItem(pendingId) {
     id: depositId, catId: p.goalId, targetId: p.goalId,
     amount: p.amount, date: todayStr(), note: p.note || name,
     type: 'deposit', recurringId: p.recurringId, sourceAccountId: p.salaryAccountId,
+    cycleDate: p.dueDate, // which cycle this deposit belongs to (not when it was paid)
   });
   // Mark pending as paid
   p.status = 'paid';
