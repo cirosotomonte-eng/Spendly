@@ -2079,9 +2079,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.5.49';
+const APP_VERSION = '2.5.50';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '19 May 2026 9:45 PM AEDT';
+const BUILD_TIME = '19 May 2026 9:53 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -12475,7 +12475,7 @@ function migrateBudgetHistory() {
 function repairMissingRecurringExpenses() {
   // Always reset the lock for manual runs — user explicitly requested this
   _applyRecurringRunning = false;
-  applyRecurringExpenses(); applyRecurringSavings(); applyRecurringIncome(); migrateOffsetToAccount();
+  applyRecurringExpenses(); applyRecurringSavings(); applyRecurringIncome(); migrateOffsetToAccount(); backfillDepositCycleDates();
 }
 
 let _applyRecurringRunning = false;
@@ -14162,6 +14162,34 @@ function getAccountTransactions(accountId) {
 }
 
 // ── Offset migration ──────────────────────────────────────────────────────────
+function backfillDepositCycleDates() {
+  // Backfill cycleDate on existing deposits that were created by paying a pending item
+  // but before cycleDate was stored. Match by recurringId + approximate amount + sourceAccountId.
+  let patched = 0;
+  (state.savingsDeposits||[]).forEach(dep => {
+    if (dep.cycleDate) return; // already has it
+    if (!dep.recurringId) return; // not from a recurring saving
+    if (dep.type === 'withdrawal' || dep.type === 'bill-payment') return;
+
+    // Find a paid pending payment that matches this deposit
+    const match = (state.pendingPayments||[]).find(p =>
+      p.status === 'paid' &&
+      p.recurringId === dep.recurringId &&
+      Math.abs(p.paidAmount - dep.amount) < 0.01 &&
+      (p.paidDate === dep.date || !p.paidDate) &&
+      p.salaryAccountId === dep.sourceAccountId
+    );
+    if (match) {
+      dep.cycleDate = match.dueDate;
+      patched++;
+    }
+  });
+  if (patched > 0) {
+    console.log('backfillDepositCycleDates: patched', patched, 'deposits');
+    saveState();
+  }
+}
+
 function migrateOffsetToAccount() {
   if (!(state.offsetTransactions||[]).length) return;
   if ((state.accounts||[]).some(a => a.migratedFromOffset)) return; // already done
@@ -16714,14 +16742,14 @@ document.addEventListener('visibilitychange', () => {
       // Day has changed — reload from cloud first to get fresh data, then apply recurring
       _lastRecurringCheckDate = currentDate;
       loadState().then(() => {
-        applyRecurringExpenses(); applyRecurringSavings(); applyRecurringIncome(); migrateOffsetToAccount();
+        applyRecurringExpenses(); applyRecurringSavings(); applyRecurringIncome(); migrateOffsetToAccount(); backfillDepositCycleDates();
         recordTodayOffsetSaving();
         renderContent();
       });
     } else {
       // Same day — just apply recurring on existing state (do NOT reload from cloud —
       // that would overwrite any unsaved in-memory changes)
-      applyRecurringExpenses(); applyRecurringSavings(); applyRecurringIncome(); migrateOffsetToAccount();
+      applyRecurringExpenses(); applyRecurringSavings(); applyRecurringIncome(); migrateOffsetToAccount(); backfillDepositCycleDates();
       renderContent();
     }
   }
