@@ -2079,9 +2079,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.5.50';
+const APP_VERSION = '2.5.51';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '19 May 2026 9:53 PM AEDT';
+const BUILD_TIME = '19 May 2026 10:18 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -4042,6 +4042,7 @@ function saveTabConfig() {
 function switchTab(tab) {
   if (tab !== 'expenses') expenseSearchQuery = '';
   if (tab !== 'accounts') { _viewingAccountId = null; _salaryCycleOffset = 0; }
+  if (tab !== 'expenses') { _expSelectMode = false; _expSelected = new Set(); const b = document.getElementById('expSelectBar'); if (b) b.remove(); }
   state.currentTab = tab;
   renderContent();
 }
@@ -4679,6 +4680,83 @@ function renderRecurringSection() {
   container.innerHTML = html;
 }
 
+function toggleExpSelectMode() {
+  _expSelectMode = !_expSelectMode;
+  _expSelected = new Set();
+  renderExpenses();
+}
+
+function toggleExpenseSelect(id) {
+  if (_expSelected.has(id)) _expSelected.delete(id);
+  else _expSelected.add(id);
+  // Update checkbox + action bar without full re-render
+  const cb = document.getElementById('expchk-' + id);
+  if (cb) cb.style.background = _expSelected.has(id) ? 'var(--accent)' : 'var(--surface2)';
+  const bar = document.getElementById('expSelectBar');
+  if (bar) {
+    const n = _expSelected.size;
+    bar.querySelector('#expSelCount').textContent = n + ' selected';
+    bar.querySelector('#expSelMove').disabled = n === 0;
+    bar.querySelector('#expSelMove').style.opacity = n === 0 ? '0.4' : '1';
+  }
+}
+
+function openMoveExpensesDate() {
+  if (_expSelected.size === 0) return;
+  const overlay = document.createElement('div');
+  overlay.id = 'expMoveDateModal';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:flex-end;justify-content:center';
+  overlay.innerHTML = `
+    <div style="background:var(--bg);border-radius:20px 20px 0 0;padding:24px 20px 36px;width:100%;max-width:480px;box-sizing:border-box">
+      <div style="font-size:16px;font-weight:700;margin-bottom:6px">Move ${_expSelected.size} transaction${_expSelected.size!==1?'s':''}</div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:18px">Goal coverage will be recalculated for the new date.</div>
+      <div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:6px">New date</div>
+      <input id="expMoveDate" type="date" value="${todayStr()}"
+        style="width:100%;padding:10px 12px;border-radius:10px;border:1.5px solid var(--surface2);background:var(--surface);color:var(--text);font-size:16px;font-family:var(--font);box-sizing:border-box;margin-bottom:18px">
+      <div style="display:flex;gap:10px">
+        <button onclick="document.getElementById('expMoveDateModal').remove()"
+          style="flex:1;padding:13px;border-radius:12px;border:1.5px solid var(--surface2);background:var(--surface);color:var(--text);font-size:14px;font-weight:600;font-family:var(--font);cursor:pointer">Cancel</button>
+        <button onclick="confirmMoveExpenses()"
+          style="flex:2;padding:13px;border-radius:12px;border:none;background:var(--accent);color:#fff;font-size:14px;font-weight:700;font-family:var(--font);cursor:pointer">Move</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+}
+
+function confirmMoveExpenses() {
+  const newDate = document.getElementById('expMoveDate')?.value;
+  if (!newDate) return;
+  document.getElementById('expMoveDateModal')?.remove();
+
+  let moved = 0;
+  _expSelected.forEach(id => {
+    const e = (state.expenses||[]).find(x => x.id === id);
+    if (!e) return;
+    e.date = newDate;
+    // Recalculate goal coverage for new date
+    const cat = catById(e.categoryId);
+    const linkedGoalIds = getLinkedGoalIds(cat);
+    if (linkedGoalIds.length > 0) {
+      const goalId = e.linkedGoalId || linkedGoalIds[0];
+      const goalBal = totalSavedForCat(goalId);
+      const covered = Math.min(goalBal, e.amount);
+      e.goalCoveredAmount = Math.round(covered * 100) / 100;
+      e.linkedGoalId = goalId;
+    } else {
+      e.goalCoveredAmount = 0;
+      e.linkedGoalId = null;
+    }
+    moved++;
+  });
+
+  _expSelectMode = false;
+  _expSelected = new Set();
+  saveState();
+  renderExpenses();
+  showToast('✅ Moved ' + moved + ' transaction' + (moved!==1?'s':'') + ' to ' + newDate, 2500);
+}
+
 function renderExpenses() {
   const el = document.getElementById('content');
 
@@ -4694,11 +4772,12 @@ function renderExpenses() {
 
   // Qantas-style header with underline tab indicator and + add icon
   const addExpBtn = state.categories.length > 0 && !isFutureCycle() ? iconBtn(SVG_PLUS, 'openAddExpense()', 'Add transaction') : '';
+  const selectBtn = '<button onclick="toggleExpSelectMode()" style="padding:6px 12px;border-radius:8px;border:1.5px solid var(--surface2);background:' + (_expSelectMode ? 'var(--accent)' : 'var(--surface)') + ';color:' + (_expSelectMode ? '#fff' : 'var(--muted)') + ';font-size:12px;font-weight:600;font-family:var(--font);cursor:pointer">' + (_expSelectMode ? '✕ Cancel' : 'Select') + '</button>';
   const subTabBar =
     '<div style="margin-bottom:4px">' +
       '<div style="display:flex;align-items:center;justify-content:space-between;padding-bottom:12px;border-bottom:1px solid var(--border);margin-bottom:14px">' +
         '<div style="font-size:26px;font-weight:700;letter-spacing:-0.5px;color:var(--text)">Expenses</div>' +
-        '<div style="display:flex;gap:8px;align-items:center">' + addExpBtn + '</div>' +
+        '<div style="display:flex;gap:8px;align-items:center">' + selectBtn + (!_expSelectMode ? addExpBtn : '') + '</div>' +
       '</div>' +
       '<div style="display:flex;border-bottom:1px solid var(--surface2);margin-bottom:14px">' +
         '<button id="expSubTabLog" onclick="setExpensesSubTab(\'log\')" style="flex:1;padding:10px 0;border:none;background:none;font-size:14px;font-weight:600;font-family:var(--font);cursor:pointer;color:' + (_expensesSubTab==='log'?'var(--accent)':'var(--muted)') + ';border-bottom:2px solid ' + (_expensesSubTab==='log'?'var(--accent)':'transparent') + ';margin-bottom:-1px;transition:all 0.15s">Daily</button>' +
@@ -4720,8 +4799,21 @@ function renderExpenses() {
       '<div id="expPaymentFilter" style="margin-bottom:10px"></div>' +
       '<div id="recurringCollapsible"></div>' +
       '<div id="expenseResults"></div>' +
+      (_expSelectMode ? '<div style="height:70px"></div>' : '') +
     '</div>' +
     '<div id="expPaneRecurring" style="display:none"></div>';
+
+  // Sticky action bar for selection mode
+  const oldBar = document.getElementById('expSelectBar');
+  if (oldBar) oldBar.remove();
+  if (_expSelectMode) {
+    const bar = document.createElement('div');
+    bar.id = 'expSelectBar';
+    bar.style.cssText = 'position:fixed;bottom:80px;left:0;right:0;z-index:100;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 16px;background:var(--bg);border-top:1px solid var(--surface2);box-shadow:0 -2px 12px rgba(0,0,0,0.15)';
+    bar.innerHTML = '<div style="font-size:13px;font-weight:600;color:var(--text)"><span id="expSelCount">0 selected</span></div>' +
+      '<button id="expSelMove" onclick="openMoveExpensesDate()" disabled style="opacity:0.4;background:var(--accent);color:#fff;border:none;border-radius:10px;padding:9px 18px;font-size:13px;font-weight:700;font-family:var(--font);cursor:pointer">📅 Change date</button>';
+    document.body.appendChild(bar);
+  }
 
   if (_expensesSubTab === 'recurring') {
     document.getElementById('expPaneLog').style.display = 'none';
@@ -4950,11 +5042,21 @@ function renderExpenseResults(resultsEl) {
     html += '<div class="section-label" style="display:flex;align-items:center;gap:5px">' + label + colourGuideIcon + '</div>';
     groups[date].sort((a,b)=>b.id.localeCompare(a.id)).forEach(e => {
       const cat = catById(e.categoryId) || { name:'Unknown', icon:'\u2753', color:'#888' };
-      html += '<div class="swipe-wrapper" id="sw-' + e.id + '">' +
-        '<div class="delete-bg" onclick="quickDeleteExpense(\'' + e.id + '\')">'+
-        '<svg width="22" height="22" viewBox="0 0 22 22" fill="none"><path d="M5 7h12M9 7V5h4v2M10 11v4M12 11v4M6 7l1 11h8l1-11" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>' +
-        '</div>' +
-        '<div class="list-item" onclick="openEditExpense(\'' + e.id + '\')">' +
+      if (_expSelectMode) {
+        const isChecked = _expSelected.has(e.id);
+        html += '<div style="display:flex;align-items:center;gap:10px;padding:4px 0" onclick="toggleExpenseSelect(\'' + e.id + '\')">' +
+          '<div id="expchk-' + e.id + '" style="width:22px;height:22px;border-radius:50%;flex-shrink:0;background:' + (isChecked ? 'var(--accent)' : 'var(--surface2)') + ';border:2px solid ' + (isChecked ? 'var(--accent)' : 'var(--surface2)') + ';display:flex;align-items:center;justify-content:center">' +
+            (isChecked ? '<svg width="12" height="12" viewBox="0 0 12 12"><path d="M2 6l3 3 5-5" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>' : '') +
+          '</div>' +
+          '<div style="flex:1">' +
+            '<div class="list-item" style="pointer-events:none">';
+      } else {
+        html += '<div class="swipe-wrapper" id="sw-' + e.id + '">' +
+          '<div class="delete-bg" onclick="quickDeleteExpense(\'' + e.id + '\')">'+
+          '<svg width="22" height="22" viewBox="0 0 22 22" fill="none"><path d="M5 7h12M9 7V5h4v2M10 11v4M12 11v4M6 7l1 11h8l1-11" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>' +
+          '</div>' +
+          '<div class="list-item" onclick="openEditExpense(\'' + e.id + '\')">';
+      }
         '<div class="cat-icon">' + cat.icon + '</div>' +
         '<div class="item-info"><div class="item-name">' + (e.name || cat.name) +
           (e.transactionType==='saving' ? '<span style="font-size:9px;background:rgba(52,199,89,0.15);color:#34C759;border-radius:4px;padding:1px 5px;font-weight:700;margin-left:5px;vertical-align:middle">SAVING</span>' :
@@ -4999,7 +5101,9 @@ function renderExpenseResults(resultsEl) {
           return '<div style="display:flex;align-items:center;gap:8px;margin-top:2px;flex-wrap:wrap">' + payPart + covPart + '</div>';
         })() +
         '</div>' +
-        '<div class="item-amount" style="color:' + (e.transactionType==='saving' ? '#34C759' : getSpendColor(e.categoryId)) + '">' + (e.transactionType==='saving' ? '+' : '-') + fmt(e.amount) + '</div></div></div>';
+        '<div class="item-amount" style="color:' + (e.transactionType==='saving' ? '#34C759' : getSpendColor(e.categoryId)) + '">' + (e.transactionType==='saving' ? '+' : '-') + fmt(e.amount) + '</div></div>' +
+        (_expSelectMode ? '' : '</div>') + '</div>';
+      if (_expSelectMode) html += '</div></div>';
     });
   });
   resultsEl.innerHTML = html;
@@ -14750,7 +14854,9 @@ function setExpPaymentAccount(accountId) {
 
 // ── renderAccounts ────────────────────────────────────────────────────────────
 let _viewingAccountId = null;
-let _salaryCycleOffset = 0; // 0 = current cycle, -1 = previous, etc.
+let _salaryCycleOffset = 0;
+let _expSelectMode = false;
+let _expSelected = new Set(); // 0 = current cycle, -1 = previous, etc.
 
 // ── CC batch payment ──────────────────────────────────────────────────────────
 // ── CC Refund ─────────────────────────────────────────────────────────────────
