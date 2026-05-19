@@ -2079,9 +2079,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.5.52';
+const APP_VERSION = '2.5.53';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '19 May 2026 10:28 PM AEDT';
+const BUILD_TIME = '19 May 2026 11:02 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -12367,10 +12367,12 @@ function getFiredRecurringSavingsTotal() {
     })
     .reduce((s, d) => s + d.amount, 0);
 
-  // Pending payments created this cycle (salary account flow) — both pending and paid
+  // Pending payments in this cycle that are still UNPAID — paid ones already have a
+  // matching savingsDeposit counted in depositTotal above, so excluding them prevents
+  // double-counting paid pending items.
   const pendingTotal = (state.pendingPayments||[])
     .filter(p => {
-      if (p.status === 'cancelled') return false;
+      if (p.status !== 'pending') return false; // exclude paid/cancelled
       const dt = new Date(p.dueDate + 'T00:00:00');
       return dt >= cycleStart && dt <= cycleEnd;
     })
