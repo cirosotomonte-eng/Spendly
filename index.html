@@ -2079,9 +2079,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.5.51';
+const APP_VERSION = '2.5.52';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '19 May 2026 10:18 PM AEDT';
+const BUILD_TIME = '19 May 2026 10:28 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -5042,21 +5042,16 @@ function renderExpenseResults(resultsEl) {
     html += '<div class="section-label" style="display:flex;align-items:center;gap:5px">' + label + colourGuideIcon + '</div>';
     groups[date].sort((a,b)=>b.id.localeCompare(a.id)).forEach(e => {
       const cat = catById(e.categoryId) || { name:'Unknown', icon:'\u2753', color:'#888' };
-      if (_expSelectMode) {
-        const isChecked = _expSelected.has(e.id);
-        html += '<div style="display:flex;align-items:center;gap:10px;padding:4px 0" onclick="toggleExpenseSelect(\'' + e.id + '\')">' +
-          '<div id="expchk-' + e.id + '" style="width:22px;height:22px;border-radius:50%;flex-shrink:0;background:' + (isChecked ? 'var(--accent)' : 'var(--surface2)') + ';border:2px solid ' + (isChecked ? 'var(--accent)' : 'var(--surface2)') + ';display:flex;align-items:center;justify-content:center">' +
-            (isChecked ? '<svg width="12" height="12" viewBox="0 0 12 12"><path d="M2 6l3 3 5-5" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>' : '') +
-          '</div>' +
-          '<div style="flex:1">' +
-            '<div class="list-item" style="pointer-events:none">';
-      } else {
-        html += '<div class="swipe-wrapper" id="sw-' + e.id + '">' +
-          '<div class="delete-bg" onclick="quickDeleteExpense(\'' + e.id + '\')">'+
-          '<svg width="22" height="22" viewBox="0 0 22 22" fill="none"><path d="M5 7h12M9 7V5h4v2M10 11v4M12 11v4M6 7l1 11h8l1-11" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>' +
-          '</div>' +
-          '<div class="list-item" onclick="openEditExpense(\'' + e.id + '\')">';
-      }
+      const _isChecked = _expSelectMode && _expSelected.has(e.id);
+      html += (_expSelectMode
+        ? '<div style="display:flex;align-items:center;gap:10px;padding:4px 0;cursor:pointer" onclick="toggleExpenseSelect(\'' + e.id + '\')">' +
+            '<div id="expchk-' + e.id + '" style="width:22px;height:22px;border-radius:50%;flex-shrink:0;background:' + (_isChecked ? 'var(--accent)' : 'var(--surface2)') + ';display:flex;align-items:center;justify-content:center">' +
+              (_isChecked ? '<svg width="12" height="12" viewBox="0 0 12 12"><path d="M2 6l3 3 5-5" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>' : '') +
+            '</div>' +
+            '<div style="flex:1"><div class="list-item" style="pointer-events:none">'
+        : '<div class="swipe-wrapper" id="sw-' + e.id + '">' +
+            '<div class="delete-bg" onclick="quickDeleteExpense(\'' + e.id + '\')"><svg width="22" height="22" viewBox="0 0 22 22" fill="none"><path d="M5 7h12M9 7V5h4v2M10 11v4M12 11v4M6 7l1 11h8l1-11" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></div>' +
+            '<div class="list-item" onclick="openEditExpense(\'' + e.id + '\')">') +
         '<div class="cat-icon">' + cat.icon + '</div>' +
         '<div class="item-info"><div class="item-name">' + (e.name || cat.name) +
           (e.transactionType==='saving' ? '<span style="font-size:9px;background:rgba(52,199,89,0.15);color:#34C759;border-radius:4px;padding:1px 5px;font-weight:700;margin-left:5px;vertical-align:middle">SAVING</span>' :
@@ -5101,9 +5096,8 @@ function renderExpenseResults(resultsEl) {
           return '<div style="display:flex;align-items:center;gap:8px;margin-top:2px;flex-wrap:wrap">' + payPart + covPart + '</div>';
         })() +
         '</div>' +
-        '<div class="item-amount" style="color:' + (e.transactionType==='saving' ? '#34C759' : getSpendColor(e.categoryId)) + '">' + (e.transactionType==='saving' ? '+' : '-') + fmt(e.amount) + '</div></div>' +
-        (_expSelectMode ? '' : '</div>') + '</div>';
-      if (_expSelectMode) html += '</div></div>';
+        '<div class="item-amount" style="color:' + (e.transactionType==='saving' ? '#34C759' : getSpendColor(e.categoryId)) + '">' + (e.transactionType==='saving' ? '+' : '-') + fmt(e.amount) + '</div>' +
+        '</div>' + (_expSelectMode ? '</div></div>' : '</div>') + '</div>';
     });
   });
   resultsEl.innerHTML = html;
