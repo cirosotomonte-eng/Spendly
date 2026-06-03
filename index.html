@@ -1781,6 +1781,7 @@ async function applyUpdate() {
       <button type="button" onclick="setAcctType('savings')"     id="acctTypeSavings"     style="padding:9px;border-radius:10px;border:2px solid var(--border);background:var(--surface2);color:var(--muted);font-weight:600;font-family:var(--font);cursor:pointer;font-size:12px">💰 Savings</button>
       <button type="button" onclick="setAcctType('offset')"      id="acctTypeOffset"      style="padding:9px;border-radius:10px;border:2px solid var(--border);background:var(--surface2);color:var(--muted);font-weight:600;font-family:var(--font);cursor:pointer;font-size:12px">🏠 Offset</button>
       <button type="button" onclick="setAcctType('credit')"      id="acctTypeCredit"      style="padding:9px;border-radius:10px;border:2px solid var(--border);background:var(--surface2);color:var(--muted);font-weight:600;font-family:var(--font);cursor:pointer;font-size:12px">💳 Credit Card</button>
+      <button type="button" onclick="setAcctType('super')"       id="acctTypeSuper"       style="padding:9px;border-radius:10px;border:2px solid var(--border);background:var(--surface2);color:var(--muted);font-weight:600;font-family:var(--font);cursor:pointer;font-size:12px">🏦 Super</button>
     </div>
     <label>Opening balance ($)</label>
     <input type="number" inputmode="decimal" id="acctOpeningBalance" placeholder="0.00" step="0.01">
@@ -2079,9 +2080,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.5.55';
+const APP_VERSION = '2.5.57';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '20 May 2026 6:40 PM AEDT';
+const BUILD_TIME = '03 Jun 2026 7:51 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -2385,12 +2386,9 @@ function setSyncStatus(s) {
     el.title = 'Saved to cloud'; el.style.cursor = 'default'; el.onclick = null;
     el.style.background = ''; el.style.borderRadius = ''; el.style.padding = '';
   } else if (s === 'error') {
-    el.innerHTML = SVG_WARN + '<span style="font-size:10px;font-weight:700;margin-left:3px;vertical-align:middle">Tap to retry</span>';
-    el.style.color = 'var(--orange)';
-    el.style.background = 'rgba(240,168,96,0.15)';
-    el.style.borderRadius = '8px';
-    el.style.border = '1px solid rgba(240,168,96,0.4)';
-    el.style.padding = '4px 8px';
+    el.innerHTML = SVG_WARN;
+    el.style.color = 'var(--muted)';
+    el.style.background = ''; el.style.borderRadius = ''; el.style.border = ''; el.style.padding = '';
     el.title = 'Sync failed — tap to retry';
     el.style.cursor = 'pointer';
     el.onclick = async () => {
@@ -2623,18 +2621,15 @@ function saveState() {
   try { localStorage.setItem(BACKUP_KEY, data); } catch(e) {}
   try { sessionStorage.setItem(BACKUP_KEY2, data); } catch(e) {}
   try { localStorage.setItem(BACKUP_TS_KEY, new Date().toISOString()); } catch(e) {}
-  // Cloud sync — immediate sync + trailing debounce for rapid-fire batching
-  // Immediate ensures data is safe even if app is killed right after saving
-  // Trailing debounce catches any follow-up saves (e.g. recurring apply) into one write
+  // Cloud sync — debounce only (localStorage save above is instant, so data is always safe)
+  // flushSyncNow() handles the background/close case as the safety net
   if (SPENDLY_MODE === 'cloud' && getCurrentUserId()) {
     clearTimeout(syncTimer);
-    syncToSupabase(persistState); // immediate — no waiting
     syncTimer = setTimeout(() => {
-      // Re-read state for the trailing write to capture anything that happened after
       const { currentTab, viewingCycleOffset, mortgageCycleOffset, editingExpenseId, editingCatId, ...latestState } = state;
       latestState._savedAt = new Date().toISOString();
       syncToSupabase(latestState);
-    }, 1500);
+    }, 1200);
   }
 }
 
@@ -14144,6 +14139,7 @@ const ACCOUNT_TYPES = {
   savings:     { label: 'Savings',     icon: '💰' },
   offset:      { label: 'Offset',      icon: '🏠' },
   credit:      { label: 'Credit Card', icon: '💳' },
+  super:       { label: 'Super',       icon: '🏦' },
 };
 
 let _editingAccountId = null;
@@ -14328,8 +14324,60 @@ function setAcctType(type) {
     btn.style.fontWeight = active ? '700' : '600';
   });
   // Show salary section only for transaction/savings account types
+  // Show salary section only for transaction/savings account types
   const salarySection = document.getElementById('acctSalarySection');
   if (salarySection) salarySection.style.display = (type === 'transaction' || type === 'savings') ? '' : 'none';
+  // Super fields
+  let superSec = document.getElementById('superSection');
+  if (type === 'super' && !superSec) {
+    superSec = document.createElement('div');
+    superSec.id = 'superSection';
+    const insertAfter = document.getElementById('acctSalarySection') || document.getElementById('acctSaveBtn')?.parentElement;
+    if (insertAfter) insertAfter.parentElement.insertBefore(superSec, insertAfter.nextSibling);
+    superSec.innerHTML = `
+      <div style="margin-top:14px"><label style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em">Current age</label>
+        <input type="number" id="superCurrentAge" min="18" max="70" value="30" style="width:100%;padding:9px 12px;border-radius:10px;border:1.5px solid var(--surface2);background:var(--surface);color:var(--text);font-size:15px;font-family:var(--font);box-sizing:border-box;margin-top:4px"></div>
+      <div style="margin-top:10px"><label style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em">Retirement age</label>
+        <input type="number" id="superRetirementAge" min="55" max="75" value="67" style="width:100%;padding:9px 12px;border-radius:10px;border:1.5px solid var(--surface2);background:var(--surface);color:var(--text);font-size:15px;font-family:var(--font);box-sizing:border-box;margin-top:4px"></div>
+      <div style="margin-top:10px"><label style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em">Annual return (%)</label>
+        <input type="number" id="superReturnRate" step="0.1" value="7" style="width:100%;padding:9px 12px;border-radius:10px;border:1.5px solid var(--surface2);background:var(--surface);color:var(--text);font-size:15px;font-family:var(--font);box-sizing:border-box;margin-top:4px"></div>
+      <div style="margin-top:10px"><label style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em">Inflation rate (%)</label>
+        <input type="number" id="superInflationRate" step="0.1" value="2.5" style="width:100%;padding:9px 12px;border-radius:10px;border:1.5px solid var(--surface2);background:var(--surface);color:var(--text);font-size:15px;font-family:var(--font);box-sizing:border-box;margin-top:4px"></div>
+      <div style="margin-top:12px;padding:12px;background:var(--surface2);border-radius:10px">
+        <div style="font-size:12px;font-weight:700;margin-bottom:8px">Employer contributions</div>
+        <div style="display:flex;gap:8px;margin-bottom:8px">
+          <button type="button" id="superEmpPctBtn" onclick="setSuperContribType('pct')" style="flex:1;padding:7px;border-radius:8px;border:2px solid var(--accent);background:var(--accent-dim);color:var(--accent);font-size:12px;font-weight:600;font-family:var(--font);cursor:pointer">% of salary</button>
+          <button type="button" id="superEmpFixedBtn" onclick="setSuperContribType('fixed')" style="flex:1;padding:7px;border-radius:8px;border:1.5px solid var(--border);background:var(--surface);color:var(--muted);font-size:12px;font-weight:600;font-family:var(--font);cursor:pointer">Fixed $</button>
+        </div>
+        <div id="superEmpPctFields">
+          <div style="display:flex;gap:8px">
+            <div style="flex:1"><label style="font-size:10px;color:var(--muted)">Gross annual salary ($)</label><input type="number" id="superGrossSalary" value="0" style="width:100%;padding:8px 10px;border-radius:8px;border:1.5px solid var(--surface2);background:var(--surface);color:var(--text);font-size:14px;font-family:var(--font);box-sizing:border-box;margin-top:3px"></div>
+            <div style="width:80px"><label style="font-size:10px;color:var(--muted)">Rate %</label><input type="number" id="superEmpPct" step="0.1" value="11.5" style="width:100%;padding:8px 10px;border-radius:8px;border:1.5px solid var(--surface2);background:var(--surface);color:var(--text);font-size:14px;font-family:var(--font);box-sizing:border-box;margin-top:3px"></div>
+          </div>
+        </div>
+        <div id="superEmpFixedFields" style="display:none">
+          <label style="font-size:10px;color:var(--muted)">Monthly amount ($)</label>
+          <input type="number" id="superEmpFixed" value="0" style="width:100%;padding:8px 10px;border-radius:8px;border:1.5px solid var(--surface2);background:var(--surface);color:var(--text);font-size:14px;font-family:var(--font);box-sizing:border-box;margin-top:3px">
+        </div>
+      </div>
+      <div style="margin-top:10px;padding:12px;background:var(--surface2);border-radius:10px">
+        <div style="font-size:12px;font-weight:700;margin-bottom:6px">Salary sacrifice (optional)</div>
+        <label style="font-size:10px;color:var(--muted)">Additional monthly amount ($)</label>
+        <input type="number" id="superSalarySacrifice" value="0" style="width:100%;padding:8px 10px;border-radius:8px;border:1.5px solid var(--surface2);background:var(--surface);color:var(--text);font-size:14px;font-family:var(--font);box-sizing:border-box;margin-top:3px">
+      </div>`;
+  }
+  if (superSec) superSec.style.display = type === 'super' ? '' : 'none';
+}
+
+function setSuperContribType(t) {
+  document.getElementById('superEmpPctFields').style.display = t === 'pct' ? '' : 'none';
+  document.getElementById('superEmpFixedFields').style.display = t === 'fixed' ? '' : 'none';
+  document.getElementById('superEmpPctBtn').style.border = t === 'pct' ? '2px solid var(--accent)' : '1.5px solid var(--border)';
+  document.getElementById('superEmpPctBtn').style.background = t === 'pct' ? 'var(--accent-dim)' : 'var(--surface)';
+  document.getElementById('superEmpPctBtn').style.color = t === 'pct' ? 'var(--accent)' : 'var(--muted)';
+  document.getElementById('superEmpFixedBtn').style.border = t === 'fixed' ? '2px solid var(--accent)' : '1.5px solid var(--border)';
+  document.getElementById('superEmpFixedBtn').style.background = t === 'fixed' ? 'var(--accent-dim)' : 'var(--surface)';
+  document.getElementById('superEmpFixedBtn').style.color = t === 'fixed' ? 'var(--accent)' : 'var(--muted)';
 }
 
 function toggleSalaryFields() {
@@ -14400,17 +14448,29 @@ function saveAccount() {
   const openingBalance = parseFloat(document.getElementById('acctOpeningBalance').value) || 0;
   const openingDate = document.getElementById('acctOpeningDate').value || todayStr();
   const color = getSelectedColorFrom('acctColorGrid');
-  const icon = ACCOUNT_TYPES[_acctType]?.icon || '🏦';
+  const icon = _acctType === 'super' ? '🏦' : (ACCOUNT_TYPES[_acctType]?.icon || '🏦');
+  // Collect super fields if applicable
+  const superFields = _acctType === 'super' ? {
+    currentAge: parseInt(document.getElementById('superCurrentAge')?.value) || 30,
+    retirementAge: parseInt(document.getElementById('superRetirementAge')?.value) || 67,
+    returnRate: parseFloat(document.getElementById('superReturnRate')?.value) || 7,
+    inflationRate: parseFloat(document.getElementById('superInflationRate')?.value) || 2.5,
+    employerContribType: document.getElementById('superEmpFixedFields')?.style.display === 'none' ? 'pct' : 'fixed',
+    grossSalary: parseFloat(document.getElementById('superGrossSalary')?.value) || 0,
+    employerContribPct: parseFloat(document.getElementById('superEmpPct')?.value) || 11.5,
+    employerContribFixed: parseFloat(document.getElementById('superEmpFixed')?.value) || 0,
+    salarysacrifice: parseFloat(document.getElementById('superSalarySacrifice')?.value) || 0,
+  } : {};
   if (!state.accounts) state.accounts = [];
   if (_editingAccountId) {
     const idx = state.accounts.findIndex(a => a.id === _editingAccountId);
     const isSalaryE = !!(document.getElementById('acctIsSalary')?.checked);
     const linkedOffsetE = isSalaryE ? (document.getElementById('acctLinkedOffset')?.value || '') : '';
-    if (idx >= 0) state.accounts[idx] = { ...state.accounts[idx], name, type: _acctType, icon, color, openingBalance, openingDate, isSalaryAccount: isSalaryE, linkedOffsetAccountId: linkedOffsetE||null };
+    if (idx >= 0) state.accounts[idx] = { ...state.accounts[idx], name, type: _acctType, icon, color, openingBalance, openingDate, isSalaryAccount: isSalaryE, linkedOffsetAccountId: linkedOffsetE||null, ...superFields };
   } else {
     const isSalary = !!(document.getElementById('acctIsSalary')?.checked);
     const linkedOffset = isSalary ? (document.getElementById('acctLinkedOffset')?.value || '') : '';
-    state.accounts.push({ id: uid(), name, type: _acctType, icon, color, openingBalance, openingDate, isSalaryAccount: isSalary, linkedOffsetAccountId: linkedOffset||null });
+    state.accounts.push({ id: uid(), name, type: _acctType, icon, color, openingBalance, openingDate, isSalaryAccount: isSalary, linkedOffsetAccountId: linkedOffset||null, ...superFields });
   }
   saveState(); closeModal('accountModal'); renderContent();
 }
@@ -15121,6 +15181,45 @@ function payCCBatch(btn) {
 }
 
 // ── Pending payment actions ───────────────────────────────────────────────────
+// ── Super account functions ──────────────────────────────────────────────────
+function openUpdateSuperBalance(acctId) {
+  const acct = accountById(acctId);
+  if (!acct) return;
+  const current = acct.currentBalance || acct.openingBalance || 0;
+  const overlay = document.createElement('div');
+  overlay.id = 'superBalModal';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:flex-end;justify-content:center';
+  overlay.innerHTML = `
+    <div style="background:var(--bg);border-radius:20px 20px 0 0;padding:24px 20px 36px;width:100%;max-width:480px;box-sizing:border-box">
+      <div style="font-size:16px;font-weight:700;margin-bottom:6px">🏦 Update super balance</div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:16px">Current: ${fmt(current)}</div>
+      <div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:6px">New balance</div>
+      <input id="superBalInput" type="number" step="0.01" value="${current.toFixed(2)}"
+        style="width:100%;padding:10px 12px;border-radius:10px;border:1.5px solid var(--surface2);background:var(--surface);color:var(--text);font-size:16px;font-family:var(--font);box-sizing:border-box;margin-bottom:18px">
+      <div style="display:flex;gap:10px">
+        <button onclick="document.getElementById('superBalModal').remove()"
+          style="flex:1;padding:13px;border-radius:12px;border:1.5px solid var(--surface2);background:var(--surface);color:var(--text);font-size:14px;font-weight:600;font-family:var(--font);cursor:pointer">Cancel</button>
+        <button onclick="confirmUpdateSuperBalance('${acctId}')"
+          style="flex:2;padding:13px;border-radius:12px;border:none;background:var(--accent);color:#fff;font-size:14px;font-weight:700;font-family:var(--font);cursor:pointer">Update</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+  setTimeout(() => document.getElementById('superBalInput')?.focus(), 100);
+}
+
+function confirmUpdateSuperBalance(acctId) {
+  const val = parseFloat(document.getElementById('superBalInput')?.value);
+  if (isNaN(val) || val < 0) { showToast('Enter a valid balance', 2000); return; }
+  const acct = accountById(acctId);
+  if (!acct) return;
+  acct.currentBalance = Math.round(val * 100) / 100;
+  document.getElementById('superBalModal')?.remove();
+  saveState();
+  renderAccounts();
+  showToast('✅ Super balance updated to ' + fmt(val), 2500);
+}
+
 function navigateSalaryCycle(delta) {
   // Don't go into future
   if (_salaryCycleOffset + delta > 0) return;
@@ -15948,6 +16047,123 @@ function renderAccounts() {
     return;
   }
 
+
+    // ── Super account detail view ─────────────────────────────────────────────
+    if (acct.type === 'super') {
+      const s = acct;
+      const currentBal = s.currentBalance || s.openingBalance || 0;
+      const currentAge = s.currentAge || 30;
+      const retirementAge = s.retirementAge || 67;
+      const returnRate = (s.returnRate !== undefined ? s.returnRate : 7) / 100;
+      const inflationRate = (s.inflationRate !== undefined ? s.inflationRate : 2.5) / 100;
+      const yearsToRetire = Math.max(0, retirementAge - currentAge);
+      const grossSalary = s.employerContribType === 'pct'
+        ? (s.grossSalary || 0)
+        : 0;
+      const employerMonthly = s.employerContribType === 'pct'
+        ? (grossSalary * (s.employerContribPct || 11.5) / 100) / 12
+        : (s.employerContribFixed || 0);
+      const sacrificeMonthly = s.salarysacrifice || 0;
+      const totalMonthly = employerMonthly + sacrificeMonthly;
+      const totalAnnual = totalMonthly * 12;
+
+      // Project year by year
+      const projYears = [];
+      let bal = currentBal;
+      for (let y = 0; y <= yearsToRetire; y++) {
+        projYears.push({ year: y, age: currentAge + y, nominal: Math.round(bal), real: Math.round(bal / Math.pow(1 + inflationRate, y)) });
+        bal = (bal + totalAnnual) * (1 + returnRate);
+      }
+      const retirementNominal = projYears[yearsToRetire]?.nominal || currentBal;
+      const retirementReal = projYears[yearsToRetire]?.real || currentBal;
+
+      // What-if: extra $200/month salary sacrifice
+      const whatIfExtra = 200;
+      let balWhatIf = currentBal;
+      for (let y = 0; y < yearsToRetire; y++) {
+        balWhatIf = (balWhatIf + totalAnnual + whatIfExtra * 12) * (1 + returnRate);
+      }
+      const whatIfNominal = Math.round(balWhatIf);
+
+      // Build chart data (simplified bar heights)
+      const maxBal = retirementNominal;
+      const chartPoints = projYears.filter((_,i) => i % Math.max(1, Math.floor(yearsToRetire/10)) === 0 || i === yearsToRetire);
+
+      let h = '';
+      h += '<div style="background:var(--surface);border-radius:var(--r);padding:16px;margin-bottom:14px">';
+      h += '<div style="font-size:11px;color:var(--muted);margin-bottom:4px">Current balance</div>';
+      h += '<div style="font-size:32px;font-weight:800;letter-spacing:-1px">' + fmtB(currentBal) + '</div>';
+      h += '<div style="font-size:12px;color:var(--muted);margin-top:4px">Age ' + currentAge + ' · Retiring at ' + retirementAge + ' (' + yearsToRetire + ' years)</div>';
+      h += '<button onclick="openUpdateSuperBalance(\'' + acct.id + '\')" style="margin-top:10px;background:var(--accent-dim);color:var(--accent);border:none;border-radius:8px;padding:6px 14px;font-size:12px;font-weight:600;font-family:var(--font);cursor:pointer">Update balance</button>';
+      h += '</div>';
+
+      // Projection summary cards
+      h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px">';
+      h += '<div style="background:var(--surface);border-radius:12px;padding:14px">';
+      h += '<div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:4px">At retirement</div>';
+      h += '<div style="font-size:20px;font-weight:800;color:var(--accent)">' + fmtB(retirementNominal) + '</div>';
+      h += '<div style="font-size:10px;color:var(--muted);margin-top:2px">nominal</div></div>';
+      h += '<div style="background:var(--surface);border-radius:12px;padding:14px">';
+      h += '<div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:4px">Today\'s dollars</div>';
+      h += '<div style="font-size:20px;font-weight:800;color:#34C759">' + fmtB(retirementReal) + '</div>';
+      h += '<div style="font-size:10px;color:var(--muted);margin-top:2px">inflation-adjusted</div></div>';
+      h += '</div>';
+
+      // Contributions breakdown
+      h += '<div style="background:var(--surface);border-radius:12px;padding:14px;margin-bottom:14px">';
+      h += '<div style="font-size:12px;font-weight:700;margin-bottom:10px">Monthly contributions</div>';
+      h += '<div style="display:flex;justify-content:space-between;font-size:12px;padding:4px 0"><span style="color:var(--muted)">Employer (' + (s.employerContribType === 'pct' ? (s.employerContribPct||11.5) + '%)' : 'fixed') + '</span><span style="font-weight:600">+' + fmtB(employerMonthly) + '</span></div>';
+      if (sacrificeMonthly > 0) {
+        h += '<div style="display:flex;justify-content:space-between;font-size:12px;padding:4px 0"><span style="color:var(--muted)">Salary sacrifice</span><span style="font-weight:600">+' + fmtB(sacrificeMonthly) + '</span></div>';
+      }
+      h += '<div style="border-top:1px solid var(--surface2);margin-top:6px;padding-top:6px;display:flex;justify-content:space-between;font-size:13px"><span style="font-weight:700">Total / month</span><span style="font-weight:800;color:var(--accent)">+' + fmtB(totalMonthly) + '</span></div>';
+      h += '</div>';
+
+      // Growth chart
+      if (chartPoints.length > 1) {
+        h += '<div style="background:var(--surface);border-radius:12px;padding:14px;margin-bottom:14px">';
+        h += '<div style="font-size:12px;font-weight:700;margin-bottom:12px">Projection</div>';
+        h += '<div style="display:flex;align-items:flex-end;gap:3px;height:80px">';
+        chartPoints.forEach(p => {
+          const pct = maxBal > 0 ? Math.max(4, Math.round((p.nominal / maxBal) * 80)) : 4;
+          h += '<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:2px">';
+          h += '<div style="width:100%;background:var(--accent);border-radius:3px 3px 0 0;height:' + pct + 'px"></div>';
+          h += '<div style="font-size:8px;color:var(--muted)">'+p.age+'</div>';
+          h += '</div>';
+        });
+        h += '</div>';
+        h += '<div style="display:flex;justify-content:space-between;margin-top:8px;font-size:10px;color:var(--muted)">';
+        h += '<span>' + fmtB(currentBal) + ' now</span><span>' + fmtB(retirementNominal) + ' at ' + retirementAge + '</span>';
+        h += '</div></div>';
+      }
+
+      // What-if
+      h += '<div style="background:rgba(79,142,247,0.06);border:1.5px solid rgba(79,142,247,0.2);border-radius:12px;padding:14px;margin-bottom:14px">';
+      h += '<div style="font-size:12px;font-weight:700;color:var(--accent);margin-bottom:6px">💡 What if you add $' + whatIfExtra + '/mo salary sacrifice?</div>';
+      h += '<div style="font-size:12px;color:var(--muted)">At retirement: <span style="color:var(--accent);font-weight:700">' + fmtB(whatIfNominal) + '</span> (+' + fmtB(whatIfNominal - retirementNominal) + ' more)</div>';
+      h += '</div>';
+
+      // Assumptions
+      h += '<div style="background:var(--surface);border-radius:12px;padding:14px;margin-bottom:14px">';
+      h += '<div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:8px">Assumptions</div>';
+      h += '<div style="display:flex;justify-content:space-between;font-size:12px;padding:3px 0"><span style="color:var(--muted)">Annual return</span><span>' + (returnRate*100).toFixed(1) + '%</span></div>';
+      h += '<div style="display:flex;justify-content:space-between;font-size:12px;padding:3px 0"><span style="color:var(--muted)">Inflation</span><span>' + (inflationRate*100).toFixed(1) + '%</span></div>';
+      h += '<div style="display:flex;justify-content:space-between;font-size:12px;padding:3px 0"><span style="color:var(--muted)">Contributions</span><span>Monthly</span></div>';
+      h += '<button onclick="openEditAccount(\'' + acct.id + '\')" style="margin-top:10px;background:var(--surface2);color:var(--muted);border:none;border-radius:8px;padding:6px 14px;font-size:12px;font-weight:600;font-family:var(--font);cursor:pointer">Edit assumptions & contributions</button>';
+      h += '</div>';
+
+      el.innerHTML = tabHeader(acct.name, {
+        tabKey: 'accounts',
+        searchPlaceholder: '',
+        onSearch: false,
+        actions: [],
+        backAction: '_viewingAccountId=null;_salaryCycleOffset=0;renderAccounts()',
+        backLabel: 'Accounts',
+      });
+      document.getElementById('content').innerHTML += h;
+      return;
+    }
+
   // ── Account list view ────────────────────────────────────────────────────
   let html = tabHeader('Accounts', {
     tabKey: 'accounts',
@@ -15979,14 +16195,14 @@ function renderAccounts() {
   '</div>';
 
   // Group by type
-  const typeOrder = ['transaction','savings','offset','credit'];
+  const typeOrder = ['transaction','savings','offset','credit','super'];
   typeOrder.forEach(type => {
     const group = accts.filter(a => a.type === type);
     if (!group.length) return;
     html += '<div class="section-label">' + ACCOUNT_TYPES[type].label + '</div>';
     html += '<div style="background:var(--surface);border-radius:var(--r);overflow:hidden;margin-bottom:12px">';
     group.forEach((acct, i) => {
-      const bal = acct.type === 'offset' ? getTrueOffsetBalance() : getAccountBalance(acct.id);
+      const bal = acct.type === 'offset' ? getTrueOffsetBalance() : acct.type === 'super' ? (acct.currentBalance || acct.openingBalance || 0) : getAccountBalance(acct.id);
       html += '<div style="display:flex;align-items:center;gap:12px;padding:13px 14px;' + (i>0?'border-top:1px solid var(--surface2)':'') + ';cursor:pointer" onclick="_viewingAccountId=\'' + acct.id + '\';renderAccounts()">' +
         '<div style="width:42px;height:42px;border-radius:12px;background:' + acct.color + '22;display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0">' + acct.icon + '</div>' +
         '<div style="flex:1;min-width:0">' +
@@ -16033,7 +16249,9 @@ function renderNetWorth() {
   const propertyEquity = Math.max(propertyValue - mortgageBalance, 0);
   const offsetBalance = getOffsetBalance();
   const portfolioValue = (state.portfolio||[]).reduce((s,h)=>s+h.units*h.currentPrice,0);
-  const superBalance = sup.balance || 0;
+  // Include both old state.super and new account-based super
+  const superAcctBalance = (state.accounts||[]).filter(a => a.type === 'super').reduce((s,a) => s + (a.currentBalance || a.openingBalance || 0), 0);
+  const superBalance = superAcctBalance || sup.balance || 0;
   const netWorth = propertyEquity + offsetBalance + portfolioValue + superBalance;
 
   // Super projection
