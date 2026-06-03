@@ -2080,9 +2080,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.5.58';
+const APP_VERSION = '2.5.59';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '03 Jun 2026 8:04 PM AEDT';
+const BUILD_TIME = '03 Jun 2026 8:22 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -15182,6 +15182,79 @@ function payCCBatch(btn) {
 
 // ── Pending payment actions ───────────────────────────────────────────────────
 // ── Super account functions ──────────────────────────────────────────────────
+// ── Super contribution functions ──────────────────────────────────────────────
+function openEditSuperContrib(contribId) {
+  const c = (state.superContributions||[]).find(x => x.id === contribId);
+  if (!c) return;
+  const overlay = document.createElement('div');
+  overlay.id = 'superContribModal';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:flex-end;justify-content:center';
+  overlay.innerHTML = `
+    <div style="background:var(--bg);border-radius:20px 20px 0 0;padding:24px 20px 36px;width:100%;max-width:480px;box-sizing:border-box">
+      <div style="font-size:16px;font-weight:700;margin-bottom:4px">Edit contribution</div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:16px">${c.label}</div>
+
+      <div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:6px">Employer contribution ($)</div>
+      <input id="superContribEmployer" type="number" step="0.01" value="${c.employer.toFixed(2)}"
+        style="width:100%;padding:10px 12px;border-radius:10px;border:1.5px solid var(--surface2);background:var(--surface);color:var(--text);font-size:15px;font-family:var(--font);box-sizing:border-box;margin-bottom:12px">
+
+      <div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:6px">Salary sacrifice ($)</div>
+      <input id="superContribSacrifice" type="number" step="0.01" value="${c.sacrifice.toFixed(2)}"
+        style="width:100%;padding:10px 12px;border-radius:10px;border:1.5px solid var(--surface2);background:var(--surface);color:var(--text);font-size:15px;font-family:var(--font);box-sizing:border-box;margin-bottom:6px">
+
+      <div id="superContribNetPreview" style="font-size:12px;color:var(--muted);margin-bottom:18px">Net: calculating…</div>
+
+      <div style="display:flex;gap:10px">
+        <button onclick="document.getElementById('superContribModal').remove()"
+          style="flex:1;padding:13px;border-radius:12px;border:1.5px solid var(--surface2);background:var(--surface);color:var(--text);font-size:14px;font-weight:600;font-family:var(--font);cursor:pointer">Cancel</button>
+        <button onclick="saveEditSuperContrib('${contribId}')"
+          style="flex:2;padding:13px;border-radius:12px;border:none;background:var(--accent);color:#fff;font-size:14px;font-weight:700;font-family:var(--font);cursor:pointer">Save</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+
+  // Live net preview
+  const updatePreview = () => {
+    const emp = parseFloat(document.getElementById('superContribEmployer')?.value) || 0;
+    const sac = parseFloat(document.getElementById('superContribSacrifice')?.value) || 0;
+    const preview = document.getElementById('superContribNetPreview');
+    if (preview) preview.textContent = 'Net addition to balance: +' + fmt(Math.round((emp+sac)*100)/100);
+  };
+  setTimeout(() => {
+    document.getElementById('superContribEmployer')?.addEventListener('input', updatePreview);
+    document.getElementById('superContribSacrifice')?.addEventListener('input', updatePreview);
+    updatePreview();
+  }, 50);
+}
+
+function saveEditSuperContrib(contribId) {
+  const c = (state.superContributions||[]).find(x => x.id === contribId);
+  if (!c) return;
+  const emp = parseFloat(document.getElementById('superContribEmployer')?.value) || 0;
+  const sac = parseFloat(document.getElementById('superContribSacrifice')?.value) || 0;
+  c.employer = Math.round(emp * 100) / 100;
+  c.sacrifice = Math.round(sac * 100) / 100;
+  c.net = Math.round((emp + sac) * 100) / 100;
+  document.getElementById('superContribModal')?.remove();
+  saveState();
+  renderAccounts();
+}
+
+function confirmSuperContrib(contribId) {
+  const c = (state.superContributions||[]).find(x => x.id === contribId);
+  if (!c) return;
+  const acct = accountById(c.acctId);
+  if (!acct) return;
+  const currentBal = acct.currentBalance || acct.openingBalance || 0;
+  acct.currentBalance = Math.round((currentBal + c.net) * 100) / 100;
+  c.status = 'paid';
+  c.paidAt = new Date().toISOString();
+  saveState();
+  renderAccounts();
+  showToast('✅ +' + fmt(c.net) + ' added to ' + acct.name + ' · New balance: ' + fmt(acct.currentBalance), 3000);
+}
+
 function openUpdateSuperBalance(acctId) {
   const acct = accountById(acctId);
   if (!acct) return;
@@ -15682,6 +15755,64 @@ function renderAccounts() {
         backAction: '_viewingAccountId=null;_salaryCycleOffset=0;renderAccounts()',
         backLabel: 'Accounts',
       });
+      // ── Pending super contributions ─────────────────────────────────────
+      if (!state.superContributions) state.superContributions = [];
+      const pendingContribs = state.superContributions.filter(c => c.acctId === acct.id && c.status === 'pending');
+      const paidContribs = state.superContributions.filter(c => c.acctId === acct.id && c.status === 'paid').slice(-6).reverse();
+
+      // Auto-generate next pending if none exists
+      const today = new Date();
+      const thisMonth = today.getFullYear() + '-' + String(today.getMonth()+1).padStart(2,'0');
+      const alreadyHasThisMonth = (state.superContributions||[]).some(c => c.acctId === acct.id && c.month === thisMonth);
+      if (!alreadyHasThisMonth && totalMonthly > 0) {
+        const newContrib = {
+          id: uid(), acctId: acct.id, month: thisMonth,
+          label: today.toLocaleDateString('en-AU',{month:'long',year:'numeric'}),
+          employer: Math.round(employerMonthly * 100) / 100,
+          sacrifice: Math.round(sacrificeMonthly * 100) / 100,
+          net: Math.round(totalMonthly * 100) / 100,
+          status: 'pending',
+          createdAt: new Date().toISOString(),
+        };
+        state.superContributions.push(newContrib);
+        saveState();
+        pendingContribs.push(newContrib);
+      }
+
+      if (pendingContribs.length > 0) {
+        h += '<div style="background:var(--surface);border-radius:var(--r);padding:14px;margin-bottom:14px">';
+        h += '<div style="font-size:13px;font-weight:700;margin-bottom:12px">⏳ Pending contributions</div>';
+        pendingContribs.forEach(c => {
+          h += '<div style="background:var(--surface2);border-radius:10px;padding:12px;margin-bottom:8px">';
+          h += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">';
+          h += '<div style="font-size:13px;font-weight:700">' + c.label + '</div>';
+          h += '<div style="font-size:16px;font-weight:800;color:#34C759">+' + fmtB(c.net) + '</div>';
+          h += '</div>';
+          h += '<div style="font-size:11px;color:var(--muted);margin-bottom:10px">';
+          if (c.employer > 0) h += 'Employer: +' + fmtB(c.employer);
+          if (c.sacrifice > 0) h += ' · Sacrifice: +' + fmtB(c.sacrifice);
+          h += '</div>';
+          h += '<div style="display:flex;gap:8px">';
+          h += '<button onclick="openEditSuperContrib(\'' + c.id + '\')" style="flex:1;background:var(--surface);color:var(--muted);border:1.5px solid var(--surface2);border-radius:8px;padding:8px;font-size:12px;font-weight:600;font-family:var(--font);cursor:pointer">✏️ Edit</button>';
+          h += '<button onclick="confirmSuperContrib(\'' + c.id + '\')" style="flex:2;background:#34C759;color:#fff;border:none;border-radius:8px;padding:8px;font-size:12px;font-weight:700;font-family:var(--font);cursor:pointer">✓ Confirm & add to balance</button>';
+          h += '</div></div>';
+        });
+        h += '</div>';
+      }
+
+      // Recent confirmed contributions
+      if (paidContribs.length > 0) {
+        h += '<div style="background:var(--surface);border-radius:var(--r);padding:14px;margin-bottom:14px">';
+        h += '<div style="font-size:12px;font-weight:700;color:var(--muted);margin-bottom:10px">Recent contributions</div>';
+        paidContribs.forEach((c,i) => {
+          h += '<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;' + (i>0?'border-top:1px solid var(--surface2)':'') + '">';
+          h += '<span style="font-size:12px;color:var(--muted)">' + c.label + '</span>';
+          h += '<span style="font-size:12px;font-weight:600;color:#34C759">+' + fmtB(c.net) + '</span>';
+          h += '</div>';
+        });
+        h += '</div>';
+      }
+
       document.getElementById('content').innerHTML += h;
       return;
     }
