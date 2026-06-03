@@ -2080,9 +2080,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.5.57';
+const APP_VERSION = '2.5.58';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '03 Jun 2026 7:51 PM AEDT';
+const BUILD_TIME = '03 Jun 2026 8:04 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -15569,6 +15569,123 @@ function renderAccounts() {
     const acct = accountById(_viewingAccountId);
     if (!acct) { _viewingAccountId = null; renderAccounts(); return; }
     const balance = acct.type === 'offset' ? getTrueOffsetBalance() : getAccountBalance(_viewingAccountId);
+
+    // ── Super account detail view ─────────────────────────────────────────────
+    if (acct.type === 'super') {
+      const s = acct;
+      const currentBal = s.currentBalance || s.openingBalance || 0;
+      const currentAge = s.currentAge || 30;
+      const retirementAge = s.retirementAge || 67;
+      const returnRate = (s.returnRate !== undefined ? s.returnRate : 7) / 100;
+      const inflationRate = (s.inflationRate !== undefined ? s.inflationRate : 2.5) / 100;
+      const yearsToRetire = Math.max(0, retirementAge - currentAge);
+      const grossSalary = s.employerContribType === 'pct'
+        ? (s.grossSalary || 0)
+        : 0;
+      const employerMonthly = s.employerContribType === 'pct'
+        ? (grossSalary * (s.employerContribPct || 11.5) / 100) / 12
+        : (s.employerContribFixed || 0);
+      const sacrificeMonthly = s.salarysacrifice || 0;
+      const totalMonthly = employerMonthly + sacrificeMonthly;
+      const totalAnnual = totalMonthly * 12;
+
+      // Project year by year
+      const projYears = [];
+      let bal = currentBal;
+      for (let y = 0; y <= yearsToRetire; y++) {
+        projYears.push({ year: y, age: currentAge + y, nominal: Math.round(bal), real: Math.round(bal / Math.pow(1 + inflationRate, y)) });
+        bal = (bal + totalAnnual) * (1 + returnRate);
+      }
+      const retirementNominal = projYears[yearsToRetire]?.nominal || currentBal;
+      const retirementReal = projYears[yearsToRetire]?.real || currentBal;
+
+      // What-if: extra $200/month salary sacrifice
+      const whatIfExtra = 200;
+      let balWhatIf = currentBal;
+      for (let y = 0; y < yearsToRetire; y++) {
+        balWhatIf = (balWhatIf + totalAnnual + whatIfExtra * 12) * (1 + returnRate);
+      }
+      const whatIfNominal = Math.round(balWhatIf);
+
+      // Build chart data (simplified bar heights)
+      const maxBal = retirementNominal;
+      const chartPoints = projYears.filter((_,i) => i % Math.max(1, Math.floor(yearsToRetire/10)) === 0 || i === yearsToRetire);
+
+      let h = '';
+      h += '<div style="background:var(--surface);border-radius:var(--r);padding:16px;margin-bottom:14px">';
+      h += '<div style="font-size:11px;color:var(--muted);margin-bottom:4px">Current balance</div>';
+      h += '<div style="font-size:32px;font-weight:800;letter-spacing:-1px">' + fmtB(currentBal) + '</div>';
+      h += '<div style="font-size:12px;color:var(--muted);margin-top:4px">Age ' + currentAge + ' · Retiring at ' + retirementAge + ' (' + yearsToRetire + ' years)</div>';
+      h += '<button onclick="openUpdateSuperBalance(\'' + acct.id + '\')" style="margin-top:10px;background:var(--accent-dim);color:var(--accent);border:none;border-radius:8px;padding:6px 14px;font-size:12px;font-weight:600;font-family:var(--font);cursor:pointer">Update balance</button>';
+      h += '</div>';
+
+      // Projection summary cards
+      h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px">';
+      h += '<div style="background:var(--surface);border-radius:12px;padding:14px">';
+      h += '<div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:4px">At retirement</div>';
+      h += '<div style="font-size:20px;font-weight:800;color:var(--accent)">' + fmtB(retirementNominal) + '</div>';
+      h += '<div style="font-size:10px;color:var(--muted);margin-top:2px">nominal</div></div>';
+      h += '<div style="background:var(--surface);border-radius:12px;padding:14px">';
+      h += '<div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:4px">Today\'s dollars</div>';
+      h += '<div style="font-size:20px;font-weight:800;color:#34C759">' + fmtB(retirementReal) + '</div>';
+      h += '<div style="font-size:10px;color:var(--muted);margin-top:2px">inflation-adjusted</div></div>';
+      h += '</div>';
+
+      // Contributions breakdown
+      h += '<div style="background:var(--surface);border-radius:12px;padding:14px;margin-bottom:14px">';
+      h += '<div style="font-size:12px;font-weight:700;margin-bottom:10px">Monthly contributions</div>';
+      h += '<div style="display:flex;justify-content:space-between;font-size:12px;padding:4px 0"><span style="color:var(--muted)">Employer (' + (s.employerContribType === 'pct' ? (s.employerContribPct||11.5) + '%)' : 'fixed') + '</span><span style="font-weight:600">+' + fmtB(employerMonthly) + '</span></div>';
+      if (sacrificeMonthly > 0) {
+        h += '<div style="display:flex;justify-content:space-between;font-size:12px;padding:4px 0"><span style="color:var(--muted)">Salary sacrifice</span><span style="font-weight:600">+' + fmtB(sacrificeMonthly) + '</span></div>';
+      }
+      h += '<div style="border-top:1px solid var(--surface2);margin-top:6px;padding-top:6px;display:flex;justify-content:space-between;font-size:13px"><span style="font-weight:700">Total / month</span><span style="font-weight:800;color:var(--accent)">+' + fmtB(totalMonthly) + '</span></div>';
+      h += '</div>';
+
+      // Growth chart
+      if (chartPoints.length > 1) {
+        h += '<div style="background:var(--surface);border-radius:12px;padding:14px;margin-bottom:14px">';
+        h += '<div style="font-size:12px;font-weight:700;margin-bottom:12px">Projection</div>';
+        h += '<div style="display:flex;align-items:flex-end;gap:3px;height:80px">';
+        chartPoints.forEach(p => {
+          const pct = maxBal > 0 ? Math.max(4, Math.round((p.nominal / maxBal) * 80)) : 4;
+          h += '<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:2px">';
+          h += '<div style="width:100%;background:var(--accent);border-radius:3px 3px 0 0;height:' + pct + 'px"></div>';
+          h += '<div style="font-size:8px;color:var(--muted)">'+p.age+'</div>';
+          h += '</div>';
+        });
+        h += '</div>';
+        h += '<div style="display:flex;justify-content:space-between;margin-top:8px;font-size:10px;color:var(--muted)">';
+        h += '<span>' + fmtB(currentBal) + ' now</span><span>' + fmtB(retirementNominal) + ' at ' + retirementAge + '</span>';
+        h += '</div></div>';
+      }
+
+      // What-if
+      h += '<div style="background:rgba(79,142,247,0.06);border:1.5px solid rgba(79,142,247,0.2);border-radius:12px;padding:14px;margin-bottom:14px">';
+      h += '<div style="font-size:12px;font-weight:700;color:var(--accent);margin-bottom:6px">💡 What if you add $' + whatIfExtra + '/mo salary sacrifice?</div>';
+      h += '<div style="font-size:12px;color:var(--muted)">At retirement: <span style="color:var(--accent);font-weight:700">' + fmtB(whatIfNominal) + '</span> (+' + fmtB(whatIfNominal - retirementNominal) + ' more)</div>';
+      h += '</div>';
+
+      // Assumptions
+      h += '<div style="background:var(--surface);border-radius:12px;padding:14px;margin-bottom:14px">';
+      h += '<div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:8px">Assumptions</div>';
+      h += '<div style="display:flex;justify-content:space-between;font-size:12px;padding:3px 0"><span style="color:var(--muted)">Annual return</span><span>' + (returnRate*100).toFixed(1) + '%</span></div>';
+      h += '<div style="display:flex;justify-content:space-between;font-size:12px;padding:3px 0"><span style="color:var(--muted)">Inflation</span><span>' + (inflationRate*100).toFixed(1) + '%</span></div>';
+      h += '<div style="display:flex;justify-content:space-between;font-size:12px;padding:3px 0"><span style="color:var(--muted)">Contributions</span><span>Monthly</span></div>';
+      h += '<button onclick="openEditAccount(\'' + acct.id + '\')" style="margin-top:10px;background:var(--surface2);color:var(--muted);border:none;border-radius:8px;padding:6px 14px;font-size:12px;font-weight:600;font-family:var(--font);cursor:pointer">Edit assumptions & contributions</button>';
+      h += '</div>';
+
+      el.innerHTML = tabHeader(acct.name, {
+        tabKey: 'accounts',
+        searchPlaceholder: '',
+        onSearch: false,
+        actions: [],
+        backAction: '_viewingAccountId=null;_salaryCycleOffset=0;renderAccounts()',
+        backLabel: 'Accounts',
+      });
+      document.getElementById('content').innerHTML += h;
+      return;
+    }
+
     const txns = getAccountTransactions(_viewingAccountId);
     const typeInfo = ACCOUNT_TYPES[acct.type] || ACCOUNT_TYPES.transaction;
 
@@ -16048,121 +16165,6 @@ function renderAccounts() {
   }
 
 
-    // ── Super account detail view ─────────────────────────────────────────────
-    if (acct.type === 'super') {
-      const s = acct;
-      const currentBal = s.currentBalance || s.openingBalance || 0;
-      const currentAge = s.currentAge || 30;
-      const retirementAge = s.retirementAge || 67;
-      const returnRate = (s.returnRate !== undefined ? s.returnRate : 7) / 100;
-      const inflationRate = (s.inflationRate !== undefined ? s.inflationRate : 2.5) / 100;
-      const yearsToRetire = Math.max(0, retirementAge - currentAge);
-      const grossSalary = s.employerContribType === 'pct'
-        ? (s.grossSalary || 0)
-        : 0;
-      const employerMonthly = s.employerContribType === 'pct'
-        ? (grossSalary * (s.employerContribPct || 11.5) / 100) / 12
-        : (s.employerContribFixed || 0);
-      const sacrificeMonthly = s.salarysacrifice || 0;
-      const totalMonthly = employerMonthly + sacrificeMonthly;
-      const totalAnnual = totalMonthly * 12;
-
-      // Project year by year
-      const projYears = [];
-      let bal = currentBal;
-      for (let y = 0; y <= yearsToRetire; y++) {
-        projYears.push({ year: y, age: currentAge + y, nominal: Math.round(bal), real: Math.round(bal / Math.pow(1 + inflationRate, y)) });
-        bal = (bal + totalAnnual) * (1 + returnRate);
-      }
-      const retirementNominal = projYears[yearsToRetire]?.nominal || currentBal;
-      const retirementReal = projYears[yearsToRetire]?.real || currentBal;
-
-      // What-if: extra $200/month salary sacrifice
-      const whatIfExtra = 200;
-      let balWhatIf = currentBal;
-      for (let y = 0; y < yearsToRetire; y++) {
-        balWhatIf = (balWhatIf + totalAnnual + whatIfExtra * 12) * (1 + returnRate);
-      }
-      const whatIfNominal = Math.round(balWhatIf);
-
-      // Build chart data (simplified bar heights)
-      const maxBal = retirementNominal;
-      const chartPoints = projYears.filter((_,i) => i % Math.max(1, Math.floor(yearsToRetire/10)) === 0 || i === yearsToRetire);
-
-      let h = '';
-      h += '<div style="background:var(--surface);border-radius:var(--r);padding:16px;margin-bottom:14px">';
-      h += '<div style="font-size:11px;color:var(--muted);margin-bottom:4px">Current balance</div>';
-      h += '<div style="font-size:32px;font-weight:800;letter-spacing:-1px">' + fmtB(currentBal) + '</div>';
-      h += '<div style="font-size:12px;color:var(--muted);margin-top:4px">Age ' + currentAge + ' · Retiring at ' + retirementAge + ' (' + yearsToRetire + ' years)</div>';
-      h += '<button onclick="openUpdateSuperBalance(\'' + acct.id + '\')" style="margin-top:10px;background:var(--accent-dim);color:var(--accent);border:none;border-radius:8px;padding:6px 14px;font-size:12px;font-weight:600;font-family:var(--font);cursor:pointer">Update balance</button>';
-      h += '</div>';
-
-      // Projection summary cards
-      h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px">';
-      h += '<div style="background:var(--surface);border-radius:12px;padding:14px">';
-      h += '<div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:4px">At retirement</div>';
-      h += '<div style="font-size:20px;font-weight:800;color:var(--accent)">' + fmtB(retirementNominal) + '</div>';
-      h += '<div style="font-size:10px;color:var(--muted);margin-top:2px">nominal</div></div>';
-      h += '<div style="background:var(--surface);border-radius:12px;padding:14px">';
-      h += '<div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:4px">Today\'s dollars</div>';
-      h += '<div style="font-size:20px;font-weight:800;color:#34C759">' + fmtB(retirementReal) + '</div>';
-      h += '<div style="font-size:10px;color:var(--muted);margin-top:2px">inflation-adjusted</div></div>';
-      h += '</div>';
-
-      // Contributions breakdown
-      h += '<div style="background:var(--surface);border-radius:12px;padding:14px;margin-bottom:14px">';
-      h += '<div style="font-size:12px;font-weight:700;margin-bottom:10px">Monthly contributions</div>';
-      h += '<div style="display:flex;justify-content:space-between;font-size:12px;padding:4px 0"><span style="color:var(--muted)">Employer (' + (s.employerContribType === 'pct' ? (s.employerContribPct||11.5) + '%)' : 'fixed') + '</span><span style="font-weight:600">+' + fmtB(employerMonthly) + '</span></div>';
-      if (sacrificeMonthly > 0) {
-        h += '<div style="display:flex;justify-content:space-between;font-size:12px;padding:4px 0"><span style="color:var(--muted)">Salary sacrifice</span><span style="font-weight:600">+' + fmtB(sacrificeMonthly) + '</span></div>';
-      }
-      h += '<div style="border-top:1px solid var(--surface2);margin-top:6px;padding-top:6px;display:flex;justify-content:space-between;font-size:13px"><span style="font-weight:700">Total / month</span><span style="font-weight:800;color:var(--accent)">+' + fmtB(totalMonthly) + '</span></div>';
-      h += '</div>';
-
-      // Growth chart
-      if (chartPoints.length > 1) {
-        h += '<div style="background:var(--surface);border-radius:12px;padding:14px;margin-bottom:14px">';
-        h += '<div style="font-size:12px;font-weight:700;margin-bottom:12px">Projection</div>';
-        h += '<div style="display:flex;align-items:flex-end;gap:3px;height:80px">';
-        chartPoints.forEach(p => {
-          const pct = maxBal > 0 ? Math.max(4, Math.round((p.nominal / maxBal) * 80)) : 4;
-          h += '<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:2px">';
-          h += '<div style="width:100%;background:var(--accent);border-radius:3px 3px 0 0;height:' + pct + 'px"></div>';
-          h += '<div style="font-size:8px;color:var(--muted)">'+p.age+'</div>';
-          h += '</div>';
-        });
-        h += '</div>';
-        h += '<div style="display:flex;justify-content:space-between;margin-top:8px;font-size:10px;color:var(--muted)">';
-        h += '<span>' + fmtB(currentBal) + ' now</span><span>' + fmtB(retirementNominal) + ' at ' + retirementAge + '</span>';
-        h += '</div></div>';
-      }
-
-      // What-if
-      h += '<div style="background:rgba(79,142,247,0.06);border:1.5px solid rgba(79,142,247,0.2);border-radius:12px;padding:14px;margin-bottom:14px">';
-      h += '<div style="font-size:12px;font-weight:700;color:var(--accent);margin-bottom:6px">💡 What if you add $' + whatIfExtra + '/mo salary sacrifice?</div>';
-      h += '<div style="font-size:12px;color:var(--muted)">At retirement: <span style="color:var(--accent);font-weight:700">' + fmtB(whatIfNominal) + '</span> (+' + fmtB(whatIfNominal - retirementNominal) + ' more)</div>';
-      h += '</div>';
-
-      // Assumptions
-      h += '<div style="background:var(--surface);border-radius:12px;padding:14px;margin-bottom:14px">';
-      h += '<div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:8px">Assumptions</div>';
-      h += '<div style="display:flex;justify-content:space-between;font-size:12px;padding:3px 0"><span style="color:var(--muted)">Annual return</span><span>' + (returnRate*100).toFixed(1) + '%</span></div>';
-      h += '<div style="display:flex;justify-content:space-between;font-size:12px;padding:3px 0"><span style="color:var(--muted)">Inflation</span><span>' + (inflationRate*100).toFixed(1) + '%</span></div>';
-      h += '<div style="display:flex;justify-content:space-between;font-size:12px;padding:3px 0"><span style="color:var(--muted)">Contributions</span><span>Monthly</span></div>';
-      h += '<button onclick="openEditAccount(\'' + acct.id + '\')" style="margin-top:10px;background:var(--surface2);color:var(--muted);border:none;border-radius:8px;padding:6px 14px;font-size:12px;font-weight:600;font-family:var(--font);cursor:pointer">Edit assumptions & contributions</button>';
-      h += '</div>';
-
-      el.innerHTML = tabHeader(acct.name, {
-        tabKey: 'accounts',
-        searchPlaceholder: '',
-        onSearch: false,
-        actions: [],
-        backAction: '_viewingAccountId=null;_salaryCycleOffset=0;renderAccounts()',
-        backLabel: 'Accounts',
-      });
-      document.getElementById('content').innerHTML += h;
-      return;
-    }
 
   // ── Account list view ────────────────────────────────────────────────────
   let html = tabHeader('Accounts', {
