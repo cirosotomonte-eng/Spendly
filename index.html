@@ -2080,9 +2080,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.5.59';
+const APP_VERSION = '2.5.60';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '03 Jun 2026 8:22 PM AEDT';
+const BUILD_TIME = '03 Jun 2026 8:48 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -2173,6 +2173,14 @@ function getSB() {
   if (!_sb) {
     _sb = window.supabase.createClient(SB_URL, SB_KEY, {
       auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false }
+    });
+    // Keep _sbSession in sync whenever Supabase refreshes the token automatically
+    _sb.auth.onAuthStateChange((event, session) => {
+      if (event === 'TOKEN_REFRESHED' || event === 'SIGNED_IN') {
+        _sbSession = session;
+      } else if (event === 'SIGNED_OUT') {
+        _sbSession = null;
+      }
     });
   }
   return _sb;
@@ -16994,25 +17002,32 @@ async function init() {
       // First attempt
       let { data: { session } } = await getSB().auth.getSession();
 
-      // If no session, try to restore from any Supabase tokens persisted in localStorage
-      // (Supabase stores keys like sb-<ref>-auth-token)
+      // If no session, try to restore using refresh token from localStorage
+      // Supabase stores tokens under key: sb-<ref>-auth-token
       if (!session) {
         try {
           const lsKey = Object.keys(localStorage).find(k => k.startsWith('sb-') && k.endsWith('-auth-token'));
           if (lsKey) {
             const stored = JSON.parse(localStorage.getItem(lsKey));
-            if (stored && stored.access_token && stored.refresh_token) {
-              const { data } = await getSB().auth.setSession({
-                access_token: stored.access_token,
-                refresh_token: stored.refresh_token
-              });
-              session = data.session;
+            if (stored && stored.refresh_token) {
+              // Force a token refresh — this handles expired access tokens
+              const { data, error } = await getSB().auth.refreshSession({ refresh_token: stored.refresh_token });
+              if (!error && data.session) {
+                session = data.session;
+              } else if (stored.access_token) {
+                // Fallback: try setSession with existing tokens
+                const { data: d2 } = await getSB().auth.setSession({
+                  access_token: stored.access_token,
+                  refresh_token: stored.refresh_token
+                });
+                session = d2.session;
+              }
             }
           }
         } catch(e2) { /* ignore restore attempt errors */ }
       }
 
-      // If still no session, wait 800ms and retry once — handles race on first load after deploy
+      // If still no session, wait 800ms and retry once — handles race on first load
       if (!session) {
         await new Promise(r => setTimeout(r, 800));
         const retry = await getSB().auth.getSession();
@@ -17025,6 +17040,9 @@ async function init() {
         clearTimeout(safetyTimer);
         return;
       }
+      // Mark PIN as bypassed for this session — user already authenticated via
+      // Supabase (either fresh login or silent token refresh). No need to PIN again.
+      try { sessionStorage.setItem('spendly_pin_bypassed', '1'); } catch(e) {}
       await loadState();
       state.currentTab = 'expenses';
       updateHeader();
