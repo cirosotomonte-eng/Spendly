@@ -2080,9 +2080,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.5.60';
+const APP_VERSION = '2.5.62';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '03 Jun 2026 8:48 PM AEDT';
+const BUILD_TIME = '08 Jun 2026 10:52 AM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -2624,11 +2624,7 @@ function saveState() {
   const { currentTab, viewingCycleOffset, mortgageCycleOffset, editingExpenseId, editingCatId, ...persistState } = state;
   persistState._savedAt = new Date().toISOString(); // timestamp for conflict detection
   const data = JSON.stringify(persistState);
-  // Always save locally first (instant)
-  try { localStorage.setItem(STORAGE_KEY, data); } catch(e) {}
-  try { localStorage.setItem(BACKUP_KEY, data); } catch(e) {}
-  try { sessionStorage.setItem(BACKUP_KEY2, data); } catch(e) {}
-  try { localStorage.setItem(BACKUP_TS_KEY, new Date().toISOString()); } catch(e) {}
+  // State is stored in Supabase only — localStorage no longer used for state
   // Cloud sync — debounce only (localStorage save above is instant, so data is always safe)
   // flushSyncNow() handles the background/close case as the safety net
   if (SPENDLY_MODE === 'cloud' && getCurrentUserId()) {
@@ -2664,7 +2660,8 @@ async function flushSyncNow() {
 }
 
 async function loadState() {
-  // In cloud mode — try Supabase first
+  // In cloud mode — Supabase is ALWAYS the source of truth.
+  // localStorage is a write-through cache only and never overrides Supabase.
   if (SPENDLY_MODE === 'cloud') {
     const cloudData = await loadFromSupabase();
     if (cloudData && typeof cloudData === 'object') {
@@ -2673,143 +2670,70 @@ async function loadState() {
         (cloudData.expenses && cloudData.expenses.length > 0) ||
         (cloudData.savingsCategories && cloudData.savingsCategories.length > 0);
       if (hasData) {
-        // Check if localStorage has MORE expenses than cloud — possible data loss scenario
-        try {
-          const localRaw = localStorage.getItem(STORAGE_KEY) || localStorage.getItem(BACKUP_KEY);
-          if (localRaw) {
-            const localData = JSON.parse(localRaw);
-            const cloudExpCount = (cloudData.expenses || []).length;
-            const localExpCount = (localData.expenses || []).length;
-            const cloudRecSavCount = (cloudData.recurringSavings || []).length;
-            const localRecSavCount = (localData.recurringSavings || []).length;
-            const cloudPendingCount = (cloudData.pendingPayments || []).length;
-            const localPendingCount = (localData.pendingPayments || []).length;
-            // Trigger if local has more data OR if local _savedAt is strictly newer than cloud
-            const localSavedAt = localData._savedAt || null;
-            const cloudSavedAt = cloudData._savedAt || null;
-            const localNewerByTs = localSavedAt && cloudSavedAt && localSavedAt > cloudSavedAt;
-            const localAhead = localExpCount > cloudExpCount + 1
-              || localRecSavCount > cloudRecSavCount + 1
-              || localPendingCount > cloudPendingCount + 1
-              || localNewerByTs; // local has newer _savedAt means unsaved changes exist
-            if (localAhead) {
-              state = { ...state, ...cloudData };
-              if (!state.setupDone) { state.setupDone = true; }
-              localStorage.setItem(ONBOARDED_KEY, '1');
-              setSyncStatus('saved');
-              setTimeout(() => setSyncStatus('idle'), 2000);
-              // Show recovery banner after UI loads
-              // Store recovery data and show banner after lock screen is dismissed
-              // (showing during PIN screen means tap events are intercepted by the lock screen)
-              window._pendingRecoveryBanner = {
-                localData,
-                cloud: {exp:cloudExpCount, rec:cloudRecSavCount, pend:cloudPendingCount},
-                local: {exp:localExpCount, rec:localRecSavCount, pend:localPendingCount}
-              };
-              // If no lock screen active, show immediately after a short delay
-              if (!document.getElementById('lockScreen') || document.getElementById('lockScreen').classList.contains('hidden')) {
-                setTimeout(() => {
-                  if (window._pendingRecoveryBanner) {
-                    const p = window._pendingRecoveryBanner;
-                    window._pendingRecoveryBanner = null;
-                    showRecoveryBanner(p.localData, p.cloud, p.local);
-                  }
-                }, 500);
-              }
-              return;
-            }
-          }
-        } catch(e) {}
+        // Always use Supabase data — overwrite localStorage cache with it
         state = { ...state, ...cloudData };
         if (!state.setupDone) { state.setupDone = true; }
         localStorage.setItem(ONBOARDED_KEY, '1');
-        // Save to localStorage only (not back to Supabase — we just loaded from there)
-        try { localStorage.setItem(STORAGE_KEY, JSON.stringify(cloudData)); } catch(e) {}
-        try { localStorage.setItem(BACKUP_KEY, JSON.stringify(cloudData)); } catch(e) {}
         setSyncStatus('saved');
         setTimeout(() => setSyncStatus('idle'), 2000);
         return;
       }
     }
-  }
-  // Local mode or cloud fallback — read from localStorage
-  const sources = [
-    () => localStorage.getItem(STORAGE_KEY),
-    () => localStorage.getItem(BACKUP_KEY),
-    () => sessionStorage.getItem(BACKUP_KEY2),
-  ];
-  for (const src of sources) {
-    try {
-      const saved = src();
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (parsed && (parsed.budget > 0 || (parsed.categories && parsed.categories.length > 0) || (parsed.expenses && parsed.expenses.length > 0))) {
-          state = { ...state, ...parsed };
-          // Don't call saveState() here — no changes were made, nothing to upload
-          return;
-        }
-      }
-    } catch(e) {}
-  }
-  for (const src of sources) {
-    try {
-      const saved = src();
-      if (saved) { state = { ...state, ...JSON.parse(saved) }; return; }
-    } catch(e) {}
-  }
-}
-
-function showRecoveryBanner(localData, cloud, local) {
-  const existing = document.getElementById('recoveryBanner');
-  if (existing) return;
-  // Build diff summary
-  const diffs = [];
-  if (local.exp > cloud.exp + 1) diffs.push((local.exp - cloud.exp) + ' expense' + (local.exp - cloud.exp !== 1 ? 's' : ''));
-  if (local.rec > cloud.rec + 1) diffs.push((local.rec - cloud.rec) + ' recurring saving' + (local.rec - cloud.rec !== 1 ? 's' : ''));
-  if (local.pend > cloud.pend + 1) diffs.push((local.pend - cloud.pend) + ' pending payment' + (local.pend - cloud.pend !== 1 ? 's' : ''));
-  const diffStr = diffs.length > 0 ? diffs.join(', ') : 'some changes';
-  const banner = document.createElement('div');
-  banner.id = 'recoveryBanner';
-  banner.style.cssText = 'position:fixed;bottom:90px;left:16px;right:16px;z-index:9000;background:var(--surface);border:2px solid var(--orange);border-radius:16px;padding:14px 16px;box-shadow:0 4px 24px rgba(0,0,0,0.3)';
-  banner.innerHTML =
-    '<div style="font-size:14px;font-weight:700;margin-bottom:4px">⚠️ Local data is ahead of cloud</div>' +
-    '<div style="font-size:12px;color:var(--muted);margin-bottom:12px;line-height:1.5">Your device has <strong style="color:var(--text)">' + diffStr + '</strong> not yet in Supabase. Tap Restore to use your local data.</div>' +
-    '<div style="display:flex;gap:8px">' +
-      '<button onclick="recoverFromLocal()" style="flex:1;background:var(--accent);border:none;border-radius:10px;padding:10px;font-size:13px;font-weight:700;color:#fff;font-family:var(--font);cursor:pointer">Restore local data</button>' +
-      '<button onclick="document.getElementById(\'recoveryBanner\').remove()" style="background:var(--surface2);border:none;border-radius:10px;padding:10px 14px;font-size:13px;color:var(--muted);font-family:var(--font);cursor:pointer">Dismiss</button>' +
-    '</div>';
-  document.body.appendChild(banner);
-}
-
-function recoverFromLocal() {
-  // Read directly from localStorage at time of restore — more reliable than stored variable
-  const sources = [
-    localStorage.getItem(STORAGE_KEY),
-    localStorage.getItem(BACKUP_KEY),
-    sessionStorage.getItem(BACKUP_KEY2),
-  ];
-  let best = null;
-  let bestCount = 0;
-  for (const raw of sources) {
-    if (!raw) continue;
-    try {
-      const parsed = JSON.parse(raw);
-      const count = (parsed.expenses || []).length;
-      if (count > bestCount) { best = parsed; bestCount = count; }
-    } catch(e) {}
-  }
-  if (!best || bestCount === 0) {
-    showToast('❌ No local data found to restore', 3000);
+    // Supabase returned empty/no data — new user
     return;
   }
-  state = { ...state, ...best };
-  saveState();
-  updateHeader();
-  renderContent();
-  const banner = document.getElementById('recoveryBanner');
-  if (banner) banner.remove();
-  showToast('✅ Restored ' + bestCount + ' expenses from local data and synced to cloud', 4000);
+  // Cloud mode only — nothing to load from localStorage
 }
+
+
+async function flushSyncNow() {
+  // Force immediate sync when app is backgrounded
+  if (SPENDLY_MODE !== 'cloud' || !getCurrentUserId()) return;
+  // DO NOT clear syncTimer — flushSyncBeacon runs concurrently as primary
+  const { currentTab, viewingCycleOffset, mortgageCycleOffset, editingExpenseId, editingCatId, ...persistState } = state;
+  persistState._savedAt = new Date().toISOString();
+  const userId = getCurrentUserId();
+  const now = persistState._savedAt;
+  try {
+    const res = await fetch(SB_URL + '/rest/v1/spendly_data', {
+      method: 'POST',
+      headers: { ...getAuthHeaders(), 'Prefer': 'resolution=merge-duplicates,return=minimal' },
+      body: JSON.stringify({ id: 'main', user_id: userId, data: persistState, updated_at: now })
+    });
+    if (res.ok) {
+      _lastKnownServerTimestamp = now;
+      _lastSuccessfulSyncTime = now;
+      try { localStorage.setItem('spendly_last_sync', now); } catch(e) {}
+    }
+  } catch(e) { /* beacon is the primary — this is the belt */ }
+}
+
+async function loadState() {
+  // In cloud mode — Supabase is ALWAYS the source of truth.
+  // localStorage is a write-through cache only and never overrides Supabase.
+  if (SPENDLY_MODE === 'cloud') {
+    const cloudData = await loadFromSupabase();
+    if (cloudData && typeof cloudData === 'object') {
+      const hasData = cloudData.budget > 0 ||
+        (cloudData.categories && cloudData.categories.length > 0) ||
+        (cloudData.expenses && cloudData.expenses.length > 0) ||
+        (cloudData.savingsCategories && cloudData.savingsCategories.length > 0);
+      if (hasData) {
+        // Always use Supabase data — overwrite localStorage cache with it
+        state = { ...state, ...cloudData };
+        if (!state.setupDone) { state.setupDone = true; }
+        localStorage.setItem(ONBOARDED_KEY, '1');
+        setSyncStatus('saved');
+        setTimeout(() => setSyncStatus('idle'), 2000);
+        return;
+      }
+    }
+    // Supabase returned empty/no data — new user
+    return;
+  }
+  // Cloud mode only — nothing to load from localStorage
+}
+
 
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -17185,7 +17109,7 @@ function checkDataLoss() {
   const hasData = state.budget > 0 || (state.categories && state.categories.length > 0) || (state.expenses && state.expenses.length > 0);
   if (hasData) return;
   if (syncStatus === 'saved' || syncStatus === 'saving') return;
-  const lastSaved = localStorage.getItem(BACKUP_TS_KEY);
+  const lastSaved = null; // localStorage backup removed
   if (!lastSaved) return;
 }
 setTimeout(checkDataLoss, 4000);
