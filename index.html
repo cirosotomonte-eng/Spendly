@@ -2080,9 +2080,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.5.63';
+const APP_VERSION = '2.5.64';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '08 Jun 2026 11:02 AM AEDT';
+const BUILD_TIME = '09 Jun 2026 9:32 AM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -8018,7 +8018,19 @@ function showLockScreen() {
 function hideLockScreen() {
   const ls = document.getElementById('lockScreen');
   ls.style.opacity = '0';
-  setTimeout(() => { ls.style.display = 'none'; ls.style.pointerEvents = 'none'; }, 300);
+  setTimeout(() => {
+    ls.style.display = 'none';
+    ls.style.pointerEvents = 'none';
+    // Force iOS to discard the stale blur snapshot by triggering a repaint
+    // on the app container — without this, the blur layer lingers until next tap
+    const app = document.getElementById('app') || document.body;
+    app.style.transform = 'translateZ(0)';
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        app.style.transform = '';
+      });
+    });
+  }, 300);
 }
 function showLockSetup() {
   // Called from onboarding step 1 button
