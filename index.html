@@ -2080,9 +2080,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.5.64';
+const APP_VERSION = '2.5.65';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '09 Jun 2026 9:32 AM AEDT';
+const BUILD_TIME = '10 Jun 2026 9:48 AM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -6881,8 +6881,12 @@ function _setCatOffset(val) {
 // Returns array of linked goal IDs for a category (handles old single-ID and new array)
 function getLinkedGoalIds(cat) {
   if (!cat) return [];
-  if (Array.isArray(cat.linkedSavingsGoalIds)) return cat.linkedSavingsGoalIds.filter(id => savingsCatById(id));
-  if (cat.linkedSavingsGoalId) return [cat.linkedSavingsGoalId].filter(id => savingsCatById(id));
+  const activeGoal = id => {
+    const g = savingsCatById(id);
+    return g && g.status !== 'closed';
+  };
+  if (Array.isArray(cat.linkedSavingsGoalIds)) return cat.linkedSavingsGoalIds.filter(activeGoal);
+  if (cat.linkedSavingsGoalId) return [cat.linkedSavingsGoalId].filter(activeGoal);
   return [];
 }
 
@@ -6890,7 +6894,7 @@ function _populateLinkedGoalDropdown(selectedIds) {
   const selected = Array.isArray(selectedIds) ? selectedIds : (selectedIds ? [selectedIds] : []);
   const wrap = document.getElementById('catLinkedGoalsWrap');
   if (!wrap) return;
-  const goals = state.savingsCategories || [];
+  const goals = (state.savingsCategories || []).filter(g => g.status !== 'closed');
   if (goals.length === 0) {
     wrap.innerHTML = '<div style="font-size:12px;color:var(--muted)">No savings goals yet — create one in the Savings tab first.</div>';
     return;
@@ -7255,23 +7259,27 @@ let _editingSavingExpenseId = null;
 function _populateSavingGoalDropdown() {
   const sel = document.getElementById('savingGoal');
   if (!sel) return;
-  // Collect all categories that have a linked savings goal
-  const linkedCats = (state.categories || []).filter(c => c.linkedSavingsGoalId);
-  // Also include standalone savings categories
-  const savingsCats = state.savingsCategories || [];
+  // Collect all categories that have a linked savings goal — exclude closed goals
+  const linkedCats = (state.categories || []).filter(c => {
+    if (!c.linkedSavingsGoalId) return false;
+    const g = savingsCatById(c.linkedSavingsGoalId);
+    return g && g.status !== 'closed';
+  });
+  // Active savings categories only
+  const savingsCats = (state.savingsCategories || []).filter(sc => sc.status !== 'closed');
 
   sel.innerHTML = '';
-  // Group 1: savings categories (goals)
+  // Group 1: savings categories (goals) — active only
   savingsCats.forEach(sc => {
     const o = document.createElement('option');
     o.value = 'savings:' + sc.id;
     o.textContent = (sc.icon || '💰') + ' ' + sc.name;
     sel.appendChild(o);
   });
-  // Group 2: expense categories linked to a goal
+  // Group 2: expense categories linked to an active goal
   linkedCats.forEach(c => {
     const goal = savingsCatById(c.linkedSavingsGoalId);
-    if (goal) {
+    if (goal && goal.status !== 'closed') {
       const o = document.createElement('option');
       o.value = 'linked:' + c.id;
       o.textContent = (c.icon || '💰') + ' ' + c.name + ' → ' + goal.name;
