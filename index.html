@@ -2080,7 +2080,7 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.5.65';
+const APP_VERSION = '2.5.66';
 const BUILD_DATE = '2026-03-29';
 const BUILD_TIME = '10 Jun 2026 9:48 AM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
@@ -11818,6 +11818,8 @@ function saveRecurring() {
   } else {
     state.recurringExpenses.push(rec);
   }
+  // Reset lastActiveDate so applyRecurring doesn't generate spurious catchups
+  state.lastActiveDate = todayStr();
   saveState();
   closeModal('recurringModal');
   updateHeader();
@@ -12729,7 +12731,7 @@ function applyRecurringExpenses() {
         showToast('✅ ' + todayAdded.length + ' recurring expense' + (todayAdded.length !== 1 ? 's' : '') + ' logged for today', 3500);
       }
       if (catchUpAdded.length > 0) {
-        showToast('📅 ' + catchUpAdded.length + ' missed recurring transaction' + (catchUpAdded.length !== 1 ? 's' : '') + ' caught up from previous days', 4500);
+        showToast('📅 ' + catchUpAdded.length + ' missed recurring transaction' + (catchUpAdded.length !== 1 ? 's' : '') + ' applied', 4000);
       }
     }, 600);
     if (autoOffsetFired.length > 0) {
