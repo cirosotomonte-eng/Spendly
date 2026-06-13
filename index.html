@@ -2080,9 +2080,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.5.73';
+const APP_VERSION = '2.5.74';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '13 Jun 2026 2:33 PM AEDT';
+const BUILD_TIME = '13 Jun 2026 2:56 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -4848,7 +4848,7 @@ function renderExpenses() {
     '<div id="expenseSearchBar" style="display:inline-flex;align-items:center;gap:6px;margin-bottom:10px;background:var(--surface);border-radius:var(--r);padding:0 14px;border:1.5px solid ' + (query ? 'var(--accent)' : 'transparent') + ';height:34px;width:100%;box-sizing:border-box">' +
       '<svg width="13" height="13" viewBox="0 0 15 15" fill="none" style="flex-shrink:0;opacity:0.4"><circle cx="6" cy="6" r="4.5" stroke="currentColor" stroke-width="1.5"/><path d="M10 10l3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>' +
       '<input id="expenseSearchInput" type="text" placeholder="Search expenses\u2026" value="' + (query ? query.replace(/"/g,'&quot;') : '') + '" oninput="debounceSearch(this.value)" style="flex:1;background:none;border:none;outline:none;color:var(--text);font-size:16px;font-family:var(--font);padding:0;margin:0;height:100%">' +
-      '<button id="expenseSearchClear" onclick="clearExpenseSearch()" style="display:' + (query ? '' : 'none') + ';background:none;border:none;color:var(--muted);font-size:16px;cursor:pointer;padding:0;line-height:1;flex-shrink:0">\u00d7</button>' +
+      '<button id="expenseSearchClear" onclick="clearExpenseSearch()" style="display:' + (query ? 'flex' : 'none') + ';align-items:center;justify-content:center;background:var(--surface2);border:none;color:var(--muted);font-size:14px;font-weight:700;cursor:pointer;padding:0;width:22px;height:22px;border-radius:50%;flex-shrink:0;line-height:1">\u00d7</button>' +
     '</div>';
 
   // Recurring collapsible only shows when not searching
