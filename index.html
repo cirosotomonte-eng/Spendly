@@ -2080,9 +2080,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.5.79';
+const APP_VERSION = '2.5.80';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '13 Jun 2026 3:46 PM AEDT';
+const BUILD_TIME = '13 Jun 2026 4:04 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -2827,6 +2827,8 @@ function startBackgroundPoll() {
         const cloudData = await loadFromSupabase();
         if (cloudData && typeof cloudData === 'object') {
           state = { ...state, ...cloudData };
+          // Do NOT re-run applyRecurring* here — that would create duplicate transactions
+          // Just update the UI to reflect the latest server state
           updateHeader();
           renderContent();
         }
@@ -2856,7 +2858,12 @@ document.addEventListener('visibilitychange', () => {
         const serverTs = rows[0].updated_at;
         if (serverTs && serverTs > _lastKnownServerTimestamp) {
           const cloudData = await loadFromSupabase();
-          if (cloudData) { state = { ...state, ...cloudData }; updateHeader(); renderContent(); }
+          if (cloudData) {
+            state = { ...state, ...cloudData };
+            // Do NOT re-run applyRecurring* — only refresh UI
+            updateHeader();
+            renderContent();
+          }
         }
       } catch(e) {}
     }, 500);
@@ -12178,11 +12185,16 @@ function applyRecurringSavings() {
       const usePendingFlow = sourceAcct && sourceAcct.isSalaryAccount;
 
       if (usePendingFlow) {
-        // Check not already pending or paid for this date
+        // Check not already pending/paid for this date, OR already deposited with this cycleDate
         const alreadyPending = (state.pendingPayments||[]).some(p =>
           p.recurringId === r.id && p.dueDate === checkDateStr
         );
         if (alreadyPending) return;
+        // Also check if a deposit already covers this cycle date (paid via payPendingItem)
+        const alreadyDeposited = (state.savingsDeposits||[]).some(d =>
+          d.recurringId === r.id && (d.cycleDate === checkDateStr || d.date === checkDateStr)
+        );
+        if (alreadyDeposited) return;
         if (!state.pendingPayments) state.pendingPayments = [];
         // Guard: never create a pending payment without a goalId
         const _goalId = r.savingsGoalId || r.targetId || r.catId;
@@ -12206,7 +12218,7 @@ function applyRecurringSavings() {
 
       // Standard flow — auto-fire deposit into goal
       const alreadyExists = (state.savingsDeposits||[]).some(d =>
-        d.recurringId === r.id && d.date === checkDateStr
+        d.recurringId === r.id && (d.date === checkDateStr || d.cycleDate === checkDateStr)
       );
       if (alreadyExists) return;
       if (!state.savingsDeposits) state.savingsDeposits = [];
