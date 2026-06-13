@@ -2080,9 +2080,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.5.78';
+const APP_VERSION = '2.5.79';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '13 Jun 2026 3:40 PM AEDT';
+const BUILD_TIME = '13 Jun 2026 3:46 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -15476,26 +15476,47 @@ function payPendingItem(pendingId) {
 
 // ── Repair orphaned savings deposits (catId: null) ────────────────────────────
 function repairOrphanedDeposits() {
-  const orphans = (state.savingsDeposits||[]).filter(d => !d.catId && d.recurringId && d.type !== 'withdrawal');
+  const orphans = (state.savingsDeposits||[]).filter(d => !d.catId && d.type !== 'withdrawal' && d.type !== 'bill-payment');
+  if (orphans.length === 0) { showToast('No orphaned deposits found', 2000); return; }
+
   if (orphans.length === 0) { showToast('No orphaned deposits found', 2000); return; }
 
   let fixed = 0;
+  let manualNeeded = 0;
   orphans.forEach(d => {
-    const rec = (state.recurringSavings||[]).find(r => r.id === d.recurringId);
-    const goalId = rec && (rec.savingsGoalId || rec.targetId || rec.catId);
+    // Try matching via recurringId first
+    let goalId = null;
+    if (d.recurringId) {
+      const rec = (state.recurringSavings||[]).find(r => r.id === d.recurringId);
+      goalId = rec && (rec.savingsGoalId || rec.targetId || rec.catId);
+    }
+    // Fallback: find any active savings goal linked to offset with matching recent deposits
+    if (!goalId) {
+      const offsetAcct = (state.accounts||[]).find(a => a.type === 'offset');
+      if (offsetAcct) {
+        const linkedGoals = (state.savingsCategories||[]).filter(g => g.linkedAccountId === offsetAcct.id && g.status !== 'closed');
+        // Use the goal with most deposits as the best guess
+        if (linkedGoals.length === 1) goalId = linkedGoals[0].id;
+      }
+    }
     if (goalId) {
       d.catId = goalId;
       d.targetId = goalId;
       fixed++;
+    } else {
+      manualNeeded++;
     }
   });
 
   if (fixed > 0) {
     saveState();
     renderAccounts();
-    showToast('✅ Fixed ' + fixed + ' orphaned deposit' + (fixed!==1?'s':'') + ' — offset balance restored', 4000);
+    const msg = manualNeeded > 0
+      ? '✅ Fixed ' + fixed + ' deposit' + (fixed!==1?'s':'') + '. ' + manualNeeded + ' need manual review.'
+      : '✅ Fixed ' + fixed + ' deposit' + (fixed!==1?'s':'') + ' — offset balance restored';
+    showToast(msg, 4000);
   } else {
-    showToast('Could not auto-fix deposits — recurring rules not found', 3000);
+    showToast('Could not auto-fix — open each recurring saving and ensure a goal is selected', 4000);
   }
 }
 
@@ -15820,9 +15841,9 @@ function renderAccounts() {
 
     // ── Orphaned deposits banner for offset accounts ──────────────────────────
     if (acct.type === 'offset') {
-      const _linkedSalaryIds = new Set((state.accounts||[]).filter(a => a.linkedOffsetAccountId === _viewingAccountId).map(a => a.id));
+      // Find ANY deposits without a catId — these are orphaned regardless of source
       const _orphanedDeps = (state.savingsDeposits||[]).filter(d =>
-        !d.catId && d.recurringId && d.type !== 'withdrawal' && _linkedSalaryIds.has(d.sourceAccountId)
+        !d.catId && d.type !== 'withdrawal' && d.type !== 'bill-payment'
       );
       if (_orphanedDeps.length > 0) {
         window._offsetOrphanBanner = true;
