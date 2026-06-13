@@ -2080,9 +2080,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.5.69';
+const APP_VERSION = '2.5.71';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '13 Jun 2026 1:18 PM AEDT';
+const BUILD_TIME = '13 Jun 2026 1:45 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -2673,7 +2673,6 @@ async function loadState() {
         // Always use Supabase data — overwrite localStorage cache with it
         state = { ...state, ...cloudData };
         if (!state.setupDone) { state.setupDone = true; }
-        localStorage.setItem(ONBOARDED_KEY, '1');
         setSyncStatus('saved');
         setTimeout(() => setSyncStatus('idle'), 2000);
 
@@ -2748,7 +2747,6 @@ async function loadState() {
         // Always use Supabase data — overwrite localStorage cache with it
         state = { ...state, ...cloudData };
         if (!state.setupDone) { state.setupDone = true; }
-        localStorage.setItem(ONBOARDED_KEY, '1');
         setSyncStatus('saved');
         setTimeout(() => setSyncStatus('idle'), 2000);
         return;
@@ -8042,7 +8040,6 @@ function wbFinish() {
   }
   state.setupDone = true;
   saveState();
-  localStorage.setItem(ONBOARDED_KEY, '1');
   const ws = document.getElementById('welcomeScreen');
   ws.classList.add('fade-out');
   setTimeout(() => { ws.style.display = 'none'; showLockSetup(); }, 500);
@@ -8051,25 +8048,23 @@ function wbFinish() {
 function wbSubmitName() {} // legacy — no longer needed
 
 function initWelcome() {
-  // Check localStorage OR state.setupDone (set when Supabase data loaded successfully)
-  // On a fresh browser/device, localStorage won't have the key but Supabase data will have setupDone=true
-  const onboarded = localStorage.getItem(ONBOARDED_KEY) || state.setupDone ||
+  // If logged in to Supabase, user is always onboarded — never show welcome screen
+  // Welcome screen only shows for true first-time users with no session and no local data
+  const hasSession = !!getCurrentUserId();
+  const hasData = state.setupDone ||
     (state.categories && state.categories.length > 0) ||
     (state.expenses && state.expenses.length > 0);
-  if (onboarded) {
-    // Ensure localStorage is set for next time
-    try { localStorage.setItem(ONBOARDED_KEY, '1'); } catch(e) {}
-  }
+  // Session-based only — no localStorage dependency for onboarding state
+  const onboarded = hasSession || hasData;
+
+  const ws = document.getElementById('welcomeScreen');
   if (!onboarded) {
-    const ws = document.getElementById('welcomeScreen');
     ws.style.display = 'flex';
     ws.style.opacity = '1';
     wbAnimate();
     return true;
   }
-  // Already onboarded — keep hidden, no flash
-  localStorage.setItem(ONBOARDED_KEY, '1');
-  const ws = document.getElementById('welcomeScreen');
+  // Onboarded — hide welcome screen and set localStorage flag for next time
   ws.style.display = 'none';
   ws.style.opacity = '0';
   return false;
