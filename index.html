@@ -2080,9 +2080,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.5.80';
+const APP_VERSION = '2.5.81';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '13 Jun 2026 4:04 PM AEDT';
+const BUILD_TIME = '13 Jun 2026 4:09 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -15487,6 +15487,91 @@ function payPendingItem(pendingId) {
 }
 
 // ── Repair orphaned savings deposits (catId: null) ────────────────────────────
+// ── Find and remove duplicate savings deposits ────────────────────────────────
+function findDuplicateSavingsDeposits() {
+  const deps = (state.savingsDeposits||[]).filter(d =>
+    d.recurringId && d.type !== 'withdrawal' && d.type !== 'bill-payment'
+  );
+
+  // Group by recurringId + cycleDate (the canonical "which period does this cover")
+  const groups = {};
+  deps.forEach(d => {
+    const key = d.recurringId + '|' + (d.cycleDate || d.date);
+    if (!groups[key]) groups[key] = [];
+    groups[key].push(d);
+  });
+
+  // Find groups with more than one deposit
+  const dupes = [];
+  Object.values(groups).forEach(group => {
+    if (group.length > 1) {
+      // Keep the one with cycleDate set (most intentional), delete the rest
+      const sorted = group.slice().sort((a,b) => {
+        if (a.cycleDate && !b.cycleDate) return -1;
+        if (!a.cycleDate && b.cycleDate) return 1;
+        return (b.date||'').localeCompare(a.date||'');
+      });
+      // sorted[0] = keep, sorted[1..] = duplicates
+      sorted.slice(1).forEach(d => dupes.push(d));
+    }
+  });
+
+  return dupes;
+}
+
+function showDuplicateSavingsRepairTool() {
+  const dupes = findDuplicateSavingsDeposits();
+  if (dupes.length === 0) {
+    showToast('✅ No duplicate savings deposits found', 3000);
+    return;
+  }
+
+  const total = Math.round(dupes.reduce((s,d) => s+d.amount, 0) * 100) / 100;
+
+  const overlay = document.createElement('div');
+  overlay.id = 'dupeSavingsModal';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:flex-end;justify-content:center';
+
+  let rows = dupes.slice(0,8).map(d => {
+    const goal = savingsCatById(d.catId);
+    return '<div style="display:flex;justify-content:space-between;font-size:12px;padding:5px 0;border-top:1px solid var(--surface2)">' +
+      '<span style="color:var(--muted)">' + (goal ? goal.icon + ' ' + goal.name : 'Unknown goal') + ' · ' + (d.cycleDate || d.date) + '</span>' +
+      '<span style="color:var(--red);font-weight:600">-' + fmt(d.amount) + '</span>' +
+    '</div>';
+  }).join('');
+
+  if (dupes.length > 8) rows += '<div style="font-size:11px;color:var(--muted);padding-top:6px">+' + (dupes.length-8) + ' more…</div>';
+
+  overlay.innerHTML = `
+    <div style="background:var(--bg);border-radius:20px 20px 0 0;padding:24px 20px 36px;width:100%;max-width:480px;box-sizing:border-box;max-height:80vh;overflow-y:auto">
+      <div style="font-size:16px;font-weight:700;margin-bottom:4px">🔧 Duplicate savings deposits</div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:14px">Found ${dupes.length} duplicate deposit${dupes.length!==1?'s':''} totalling <strong style="color:var(--red)">${fmt(total)}</strong> that double-debited your salary account.</div>
+      <div style="background:var(--surface);border-radius:10px;padding:10px 12px;margin-bottom:16px">${rows}</div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:18px">Removing these will restore <strong style="color:#34C759">${fmt(total)}</strong> to your salary account automatically — no manual entry needed.</div>
+      <div style="display:flex;gap:10px">
+        <button onclick="document.getElementById('dupeSavingsModal').remove()"
+          style="flex:1;padding:13px;border-radius:12px;border:1.5px solid var(--surface2);background:var(--surface);color:var(--text);font-size:14px;font-weight:600;font-family:var(--font);cursor:pointer">Cancel</button>
+        <button onclick="removeDuplicateSavingsDeposits()"
+          style="flex:2;padding:13px;border-radius:12px;border:none;background:#34C759;color:#fff;font-size:14px;font-weight:700;font-family:var(--font);cursor:pointer">✅ Remove duplicates</button>
+      </div>
+    </div>`;
+
+  document.body.appendChild(overlay);
+  overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+}
+
+function removeDuplicateSavingsDeposits() {
+  const dupes = findDuplicateSavingsDeposits();
+  if (dupes.length === 0) { showToast('Nothing to remove', 2000); return; }
+  const dupeIds = new Set(dupes.map(d => d.id));
+  const total = Math.round(dupes.reduce((s,d) => s+d.amount, 0) * 100) / 100;
+  state.savingsDeposits = (state.savingsDeposits||[]).filter(d => !dupeIds.has(d.id));
+  document.getElementById('dupeSavingsModal')?.remove();
+  saveState();
+  renderContent();
+  showToast('✅ Removed ' + dupes.length + ' duplicate' + (dupes.length!==1?'s':'') + ' — ' + fmt(total) + ' restored to salary', 4000);
+}
+
 function repairOrphanedDeposits() {
   const orphans = (state.savingsDeposits||[]).filter(d => !d.catId && d.type !== 'withdrawal' && d.type !== 'bill-payment');
   if (orphans.length === 0) { showToast('No orphaned deposits found', 2000); return; }
@@ -16081,6 +16166,21 @@ function renderAccounts() {
             Math.abs(t2.amount - t.amount) < 0.01 && t2.date === t.date));
       })();
 
+      // Check for duplicate savings deposits (double-debiting salary)
+      const _dupeSavings = (() => {
+        const deps = (state.savingsDeposits||[]).filter(d =>
+          d.recurringId && d.type !== 'withdrawal' && d.type !== 'bill-payment' &&
+          d.sourceAccountId === _viewingAccountId
+        );
+        const groups = {};
+        deps.forEach(d => {
+          const key = d.recurringId + '|' + (d.cycleDate || d.date);
+          if (!groups[key]) groups[key] = [];
+          groups[key].push(d);
+        });
+        return Object.values(groups).some(g => g.length > 1);
+      })();
+
       pendingSavingsHtml = '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;padding:8px 12px;background:var(--surface);border-radius:10px">' +
         '<button onclick="navigateSalaryCycle(-1)" style="background:none;border:none;cursor:pointer;padding:4px 10px;font-size:18px;color:var(--accent);font-family:var(--font)">‹</button>' +
         '<div style="text-align:center">' +
@@ -16096,6 +16196,15 @@ function renderAccounts() {
             '<div style="font-size:11px;color:var(--muted);margin-top:2px">A transfer and ccPayment were both recorded — balance is incorrect</div>' +
           '</div>' +
           '<button onclick="reverseDuplicateCCPayment()" style="background:var(--red);color:#fff;border:none;border-radius:8px;padding:7px 12px;font-size:12px;font-weight:700;font-family:var(--font);cursor:pointer;margin-left:10px;white-space:nowrap">Fix now</button>' +
+        '</div>'
+      : '') +
+      (_dupeSavings ?
+        '<div style="background:rgba(255,59,48,0.08);border:1.5px solid rgba(255,59,48,0.3);border-radius:10px;padding:10px 14px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center">' +
+          '<div>' +
+            '<div style="font-size:12px;font-weight:700;color:var(--red)">⚠ Duplicate savings deposits found</div>' +
+            '<div style="font-size:11px;color:var(--muted);margin-top:2px">Some savings were double-debited — salary balance is too low</div>' +
+          '</div>' +
+          '<button onclick="showDuplicateSavingsRepairTool()" style="background:var(--red);color:#fff;border:none;border-radius:8px;padding:7px 12px;font-size:12px;font-weight:700;font-family:var(--font);cursor:pointer;margin-left:10px;white-space:nowrap">Fix now</button>' +
         '</div>'
       : '');
 
