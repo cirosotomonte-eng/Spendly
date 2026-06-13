@@ -1119,7 +1119,7 @@ async function applyUpdate() {
     <label id="expAmountLabel">Description (optional)</label>
     <input type="text" id="expName" placeholder="e.g. Coffee with client">
     <label>Date</label>
-    <input type="date" id="expDate">
+    <input type="date" id="expDate" onchange="this.blur()">
     <label>Payment method</label>
     <select id="expPaymentSelect" onchange="onExpPaymentSelectChange()" style="margin-bottom:14px"></select>
     <!-- Tax deductible toggle -->
@@ -1157,7 +1157,7 @@ async function applyUpdate() {
     <label>Note (optional)</label>
     <input type="text" id="savingNote" placeholder="e.g. Monthly transfer">
     <label>Date</label>
-    <input type="date" id="savingDate">
+    <input type="date" id="savingDate" onchange="this.blur()">
     <button class="btn-primary" id="savingSaveBtn" onclick="saveSaving()">Save</button>
     <button class="btn-danger" id="savingDeleteBtn" onclick="deleteSaving()" style="display:none">Delete</button>
     <button class="btn-ghost" onclick="closeModal('savingModal')">Cancel</button>
@@ -1210,7 +1210,7 @@ async function applyUpdate() {
     <label>Amount earned ($)</label>
     <input type="number" inputmode="decimal" id="recycleAmt" placeholder="0.00" step="0.01" min="0">
     <label>Date</label>
-    <input type="date" id="recycleDate">
+    <input type="date" id="recycleDate" onchange="this.blur()">
     <label>Note (optional)</label>
     <input type="text" id="recycleNote" placeholder="e.g. Mixed plastics, cans">
     <button class="btn-primary" onclick="saveRecycleTrip()">Save trip</button>
@@ -1259,7 +1259,7 @@ async function applyUpdate() {
     <label>Target amount (optional)</label>
     <input type="number" inputmode="decimal" id="scTarget" placeholder="e.g. 5000">
     <label>Goal date (optional)</label>
-    <input type="date" id="scGoalDate">
+    <input type="date" id="scGoalDate" onchange="this.blur()">
     <label>Bank account (optional — where does this money live?)</label>
     <select id="scLinkedAccount" style="margin-bottom:14px">
       <option value="">None</option>
@@ -1294,7 +1294,7 @@ async function applyUpdate() {
     <label>Target amount ($)</label>
     <input type="number" inputmode="decimal" id="ssTarget" placeholder="e.g. 5000">
     <label>Goal date (optional)</label>
-    <input type="date" id="ssGoalDate">
+    <input type="date" id="ssGoalDate" onchange="this.blur()">
     <button class="btn-primary" id="ssSaveBtn" onclick="saveSavingsSub()">Save goal</button>
     <button class="btn-danger" id="ssDeleteBtn" onclick="deleteSavingsSub()" style="display:none">Delete goal</button>
     <button class="btn-ghost" onclick="closeModal('savingsSubModal')">Cancel</button>
@@ -1317,7 +1317,7 @@ async function applyUpdate() {
     <label>Amount ($)</label>
     <input type="number" inputmode="decimal" id="sdAmount" placeholder="0.00" step="0.01" min="0">
     <label>Date</label>
-    <input type="date" id="sdDate">
+    <input type="date" id="sdDate" onchange="this.blur()">
     <label>Note (optional)</label>
     <input type="text" id="sdNote" placeholder="e.g. Monthly transfer">
     <button class="btn-primary" id="sdSaveBtn" onclick="saveSavingsDeposit()">Save</button>
@@ -1363,7 +1363,7 @@ async function applyUpdate() {
     <label>Amount ($)</label>
     <input type="number" inputmode="decimal" id="offsetTxAmt" placeholder="0.00" step="0.01" min="0">
     <label>Date</label>
-    <input type="date" id="offsetTxDate">
+    <input type="date" id="offsetTxDate" onchange="this.blur()">
     <label>Note (optional)</label>
     <input type="text" id="offsetTxNote" placeholder="e.g. Salary, Bill payment">
     <button class="btn-primary" id="offsetTxSaveBtn" onclick="saveOffsetTx()">Save</button>
@@ -1454,12 +1454,12 @@ async function applyUpdate() {
     <label>Known balance ($) — from your bank app</label>
     <input type="number" inputmode="decimal" id="mgCurrentBalance" placeholder="e.g. 583168.61" step="0.01">
     <label>Balance as of (date from bank app)</label>
-    <input type="date" id="mgBalanceAsOf">
+    <input type="date" id="mgBalanceAsOf" onchange="this.blur()">
     <div style="font-size:11px;color:var(--muted);margin-top:-8px;margin-bottom:14px;line-height:1.5">Spendly will calculate your estimated current balance from this date using your repayments and interest charges.</div>
     <label>Annual interest rate (%)</label>
     <input type="number" inputmode="decimal" id="mgRate" placeholder="e.g. 5.35" step="0.01">
     <label>Loan start date</label>
-    <input type="date" id="mgStartDate">
+    <input type="date" id="mgStartDate" onchange="this.blur()">
     <label>Loan term (years)</label>
     <input type="number" inputmode="numeric" id="mgTerm" placeholder="e.g. 30" min="1" max="40">
     <label>Minimum weekly repayment ($)</label>
@@ -1481,7 +1481,7 @@ async function applyUpdate() {
     <label>Amount ($)</label>
     <input type="number" inputmode="decimal" id="mgExtraAmt" placeholder="0.00" step="0.01" min="0">
     <label>Date</label>
-    <input type="date" id="mgExtraDate">
+    <input type="date" id="mgExtraDate" onchange="this.blur()">
     <label>Note (optional)</label>
     <input type="text" id="mgExtraNote" placeholder="e.g. Tax return">
     <button class="btn-primary" id="mgExtraSaveBtn" onclick="saveMortgageExtra()">Save</button>
@@ -1531,7 +1531,7 @@ async function applyUpdate() {
     <label>Category</label>
     <select id="txCat"></select>
     <label>Date</label>
-    <input type="date" id="txDate">
+    <input type="date" id="txDate" onchange="this.blur()">
     <!-- Receipt / attachment -->
     <label>Receipt / Evidence</label>
     <div id="txAttachmentArea">
@@ -2080,9 +2080,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.5.72';
+const APP_VERSION = '2.5.73';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '13 Jun 2026 1:24 PM AEDT';
+const BUILD_TIME = '13 Jun 2026 2:33 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
