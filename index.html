@@ -2080,9 +2080,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.5.77';
+const APP_VERSION = '2.5.78';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '13 Jun 2026 3:25 PM AEDT';
+const BUILD_TIME = '13 Jun 2026 3:40 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -12184,10 +12184,13 @@ function applyRecurringSavings() {
         );
         if (alreadyPending) return;
         if (!state.pendingPayments) state.pendingPayments = [];
+        // Guard: never create a pending payment without a goalId
+        const _goalId = r.savingsGoalId || r.targetId || r.catId;
+        if (!_goalId) return; // skip — misconfigured recurring saving, no goal linked
         state.pendingPayments.push({
           id: uid(),
           recurringId: r.id,
-          goalId: r.savingsGoalId,
+          goalId: _goalId,
           salaryAccountId: r.sourceAccountId,
           originalAmount: r.amount,
           amount: r.amount,
@@ -12208,8 +12211,10 @@ function applyRecurringSavings() {
       if (alreadyExists) return;
       if (!state.savingsDeposits) state.savingsDeposits = [];
       const depositId = uid();
+      const _stdGoalId = r.savingsGoalId || r.targetId || r.catId;
+      if (!_stdGoalId) return; // skip — no goal linked
       state.savingsDeposits.push({
-        id: depositId, catId: r.savingsGoalId, targetId: r.savingsGoalId,
+        id: depositId, catId: _stdGoalId, targetId: _stdGoalId,
         amount: r.amount, date: checkDateStr, note: r.name, type: 'deposit',
         recurringId: r.id, sourceAccountId: r.sourceAccountId || undefined,
       });
@@ -12660,7 +12665,7 @@ function migrateBudgetHistory() {
 function repairMissingRecurringExpenses() {
   // Always reset the lock for manual runs — user explicitly requested this
   _applyRecurringRunning = false;
-  applyRecurringExpenses(); applyRecurringSavings(); applyRecurringIncome(); migrateOffsetToAccount(); backfillDepositCycleDates();
+  applyRecurringExpenses(); applyRecurringSavings(); applyRecurringIncome(); migrateOffsetToAccount(); backfillDepositCycleDates(); backfillRecurringSavingsGoalId();
 }
 
 let _applyRecurringRunning = false;
@@ -14375,6 +14380,24 @@ function getAccountTransactions(accountId) {
 }
 
 // ── Offset migration ──────────────────────────────────────────────────────────
+// ── Backfill savingsGoalId on recurring savings rules created without it ─────
+function backfillRecurringSavingsGoalId() {
+  let fixed = 0;
+  (state.recurringSavings||[]).forEach(r => {
+    if (r.savingsGoalId) return; // already has it
+    // Try legacy field names
+    const goalId = r.targetId || r.catId;
+    if (goalId && savingsCatById(goalId)) {
+      r.savingsGoalId = goalId;
+      fixed++;
+    }
+  });
+  if (fixed > 0) {
+    console.log('backfillRecurringSavingsGoalId: fixed', fixed, 'rules');
+    saveState();
+  }
+}
+
 function backfillDepositCycleDates() {
   // Backfill cycleDate on existing deposits that were created by paying a pending item
   // but before cycleDate was stored. Match by recurringId + approximate amount + sourceAccountId.
@@ -15426,12 +15449,15 @@ function payPendingItem(pendingId) {
   // Create goal deposit
   if (!state.savingsDeposits) state.savingsDeposits = [];
   const depositId = uid();
-  // If goalId is null, try to find it from the recurring savings rule
+  // If goalId is null/undefined, resolve it from the recurring savings rule
   let resolvedGoalId = p.goalId;
   if (!resolvedGoalId && p.recurringId) {
     const rec = (state.recurringSavings||[]).find(r => r.id === p.recurringId);
-    if (rec && rec.targetId) resolvedGoalId = rec.targetId;
-    else if (rec && rec.catId) resolvedGoalId = rec.catId;
+    if (rec) resolvedGoalId = rec.savingsGoalId || rec.targetId || rec.catId;
+  }
+  if (!resolvedGoalId) {
+    showToast('⚠️ Could not find goal for this payment — edit the recurring saving and ensure a goal is selected', 4000);
+    return;
   }
   state.savingsDeposits.push({
     id: depositId, catId: resolvedGoalId, targetId: resolvedGoalId,
@@ -15455,11 +15481,11 @@ function repairOrphanedDeposits() {
 
   let fixed = 0;
   orphans.forEach(d => {
-    // Try to find goal from recurring savings rule
     const rec = (state.recurringSavings||[]).find(r => r.id === d.recurringId);
-    if (rec && (rec.targetId || rec.catId)) {
-      d.catId = rec.targetId || rec.catId;
-      d.targetId = d.catId;
+    const goalId = rec && (rec.savingsGoalId || rec.targetId || rec.catId);
+    if (goalId) {
+      d.catId = goalId;
+      d.targetId = goalId;
       fixed++;
     }
   });
@@ -17533,14 +17559,14 @@ document.addEventListener('visibilitychange', () => {
       // Day has changed — reload from cloud first to get fresh data, then apply recurring
       _lastRecurringCheckDate = currentDate;
       loadState().then(() => {
-        applyRecurringExpenses(); applyRecurringSavings(); applyRecurringIncome(); migrateOffsetToAccount(); backfillDepositCycleDates();
+        applyRecurringExpenses(); applyRecurringSavings(); applyRecurringIncome(); migrateOffsetToAccount(); backfillDepositCycleDates(); backfillRecurringSavingsGoalId();
         recordTodayOffsetSaving();
         renderContent();
       });
     } else {
       // Same day — just apply recurring on existing state (do NOT reload from cloud —
       // that would overwrite any unsaved in-memory changes)
-      applyRecurringExpenses(); applyRecurringSavings(); applyRecurringIncome(); migrateOffsetToAccount(); backfillDepositCycleDates();
+      applyRecurringExpenses(); applyRecurringSavings(); applyRecurringIncome(); migrateOffsetToAccount(); backfillDepositCycleDates(); backfillRecurringSavingsGoalId();
       renderContent();
     }
   }
