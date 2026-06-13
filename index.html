@@ -2080,9 +2080,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.5.76';
+const APP_VERSION = '2.5.77';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '13 Jun 2026 3:17 PM AEDT';
+const BUILD_TIME = '13 Jun 2026 3:25 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -15426,8 +15426,15 @@ function payPendingItem(pendingId) {
   // Create goal deposit
   if (!state.savingsDeposits) state.savingsDeposits = [];
   const depositId = uid();
+  // If goalId is null, try to find it from the recurring savings rule
+  let resolvedGoalId = p.goalId;
+  if (!resolvedGoalId && p.recurringId) {
+    const rec = (state.recurringSavings||[]).find(r => r.id === p.recurringId);
+    if (rec && rec.targetId) resolvedGoalId = rec.targetId;
+    else if (rec && rec.catId) resolvedGoalId = rec.catId;
+  }
   state.savingsDeposits.push({
-    id: depositId, catId: p.goalId, targetId: p.goalId,
+    id: depositId, catId: resolvedGoalId, targetId: resolvedGoalId,
     amount: p.amount, date: todayStr(), note: p.note || name,
     type: 'deposit', recurringId: p.recurringId, sourceAccountId: p.salaryAccountId,
     cycleDate: p.dueDate, // which cycle this deposit belongs to (not when it was paid)
@@ -15439,6 +15446,31 @@ function payPendingItem(pendingId) {
   saveState();
   renderAccounts();
   showToast('✅ Paid ' + fmt(p.amount) + ' to ' + name, 2000);
+}
+
+// ── Repair orphaned savings deposits (catId: null) ────────────────────────────
+function repairOrphanedDeposits() {
+  const orphans = (state.savingsDeposits||[]).filter(d => !d.catId && d.recurringId && d.type !== 'withdrawal');
+  if (orphans.length === 0) { showToast('No orphaned deposits found', 2000); return; }
+
+  let fixed = 0;
+  orphans.forEach(d => {
+    // Try to find goal from recurring savings rule
+    const rec = (state.recurringSavings||[]).find(r => r.id === d.recurringId);
+    if (rec && (rec.targetId || rec.catId)) {
+      d.catId = rec.targetId || rec.catId;
+      d.targetId = d.catId;
+      fixed++;
+    }
+  });
+
+  if (fixed > 0) {
+    saveState();
+    renderAccounts();
+    showToast('✅ Fixed ' + fixed + ' orphaned deposit' + (fixed!==1?'s':'') + ' — offset balance restored', 4000);
+  } else {
+    showToast('Could not auto-fix deposits — recurring rules not found', 3000);
+  }
 }
 
 function cancelPendingItem(pendingId) {
@@ -15759,6 +15791,26 @@ function renderAccounts() {
     const acct = accountById(_viewingAccountId);
     if (!acct) { _viewingAccountId = null; renderAccounts(); return; }
     const balance = acct.type === 'offset' ? getTrueOffsetBalance() : getAccountBalance(_viewingAccountId);
+
+    // ── Orphaned deposits banner for offset accounts ──────────────────────────
+    if (acct.type === 'offset') {
+      const _linkedSalaryIds = new Set((state.accounts||[]).filter(a => a.linkedOffsetAccountId === _viewingAccountId).map(a => a.id));
+      const _orphanedDeps = (state.savingsDeposits||[]).filter(d =>
+        !d.catId && d.recurringId && d.type !== 'withdrawal' && _linkedSalaryIds.has(d.sourceAccountId)
+      );
+      if (_orphanedDeps.length > 0) {
+        window._offsetOrphanBanner = true;
+        const _orphanTotal = Math.round(_orphanedDeps.reduce((s,d) => s + d.amount, 0) * 100) / 100;
+        window._offsetOrphanHTML = '<div style="background:rgba(255,59,48,0.08);border:1.5px solid rgba(255,59,48,0.25);border-radius:12px;padding:14px;margin-bottom:14px">' +
+          '<div style="font-size:13px;font-weight:700;color:var(--red);margin-bottom:4px">⚠️ ' + _orphanedDeps.length + ' savings deposit' + (_orphanedDeps.length!==1?'s':'') + ' missing from goals</div>' +
+          '<div style="font-size:12px;color:var(--muted);margin-bottom:12px">' + fmtB(_orphanTotal) + ' moved from salary into savings but not linked to any goal — reducing your offset balance incorrectly.</div>' +
+          '<button onclick="repairOrphanedDeposits()" style="width:100%;background:var(--red);color:#fff;border:none;border-radius:10px;padding:11px;font-size:13px;font-weight:700;font-family:var(--font);cursor:pointer">🔧 Fix now — restore ' + fmtB(_orphanTotal) + ' to offset</button>' +
+        '</div>';
+      } else {
+        window._offsetOrphanBanner = false;
+        window._offsetOrphanHTML = '';
+      }
+    }
 
     // ── Super account detail view ─────────────────────────────────────────────
     if (acct.type === 'super') {
@@ -16356,6 +16408,11 @@ function renderAccounts() {
           }).join('') +
         '</div>' : '')) +
     '</div>';
+
+    // Orphan deposit banner for offset accounts
+    if (acct.type === 'offset' && window._offsetOrphanBanner) {
+      html += window._offsetOrphanHTML;
+    }
 
     // Action buttons — CC gets "Pay bill" instead of Income
     if (acct.type === 'credit') {
