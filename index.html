@@ -2080,9 +2080,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.5.71';
+const APP_VERSION = '2.5.72';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '13 Jun 2026 1:21 PM AEDT';
+const BUILD_TIME = '13 Jun 2026 2:02 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -4423,7 +4423,11 @@ function renderContent() {
 // ── Onboarding check ──────────────────────────────────────────────────────────
 function isSetupComplete() {
   const hasPin = !!localStorage.getItem(LOCK_KEY) || !!localStorage.getItem(LOCK_SKIPPED);
-  return hasPin && state.budget > 0 && state.cycleDay > 0 && state.categories.length > 0;
+  const hasData = state.budget > 0 && state.cycleDay > 0 && state.categories.length > 0;
+  // If user has real data loaded from Supabase, treat as complete even without PIN on this device
+  // PIN is a device-level preference, not a blocker for existing users on a new device
+  if (hasData && getCurrentUserId()) return true;
+  return hasPin && hasData;
 }
 
 // ── Future cycle view ──────────────────────────────────────────────────────────
