@@ -2080,7 +2080,7 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.5.66';
+const APP_VERSION = '2.5.67';
 const BUILD_DATE = '2026-03-29';
 const BUILD_TIME = '10 Jun 2026 9:48 AM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
@@ -2803,6 +2803,68 @@ function dismissLocalRecovery() {
   window._localRecoveryMeta = null;
   document.getElementById('localRecoveryBanner')?.remove();
 }
+
+// ── Background poll — detect when another device has updated Supabase ─────────
+let _pollInterval = null;
+let _pollPaused = false;
+
+function startBackgroundPoll() {
+  if (_pollInterval) return; // already running
+  _pollInterval = setInterval(async () => {
+    if (_pollPaused) return;
+    if (SPENDLY_MODE !== 'cloud' || !getCurrentUserId()) return;
+    if (document.hidden) return; // don't poll when tab is not visible
+    try {
+      const res = await fetch(SB_URL + '/rest/v1/spendly_data?user_id=eq.' + getCurrentUserId() + '&select=updated_at', {
+        headers: getAuthHeaders()
+      });
+      if (!res.ok) return;
+      const rows = await res.json();
+      if (!rows || !rows.length) return;
+      const serverTs = rows[0].updated_at;
+      // If server is newer than what we last loaded, refresh silently
+      if (serverTs && _lastKnownServerTimestamp && serverTs > _lastKnownServerTimestamp) {
+        _pollPaused = true; // pause poll while reloading
+        console.log('Spendly: newer data on server, refreshing…', serverTs, '>', _lastKnownServerTimestamp);
+        const cloudData = await loadFromSupabase();
+        if (cloudData && typeof cloudData === 'object') {
+          state = { ...state, ...cloudData };
+          updateHeader();
+          renderContent();
+        }
+        _pollPaused = false;
+      }
+    } catch(e) { /* ignore poll errors */ }
+  }, 30000); // every 30 seconds
+}
+
+function stopBackgroundPoll() {
+  if (_pollInterval) { clearInterval(_pollInterval); _pollInterval = null; }
+}
+
+// Pause poll when tab hidden, resume when visible
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden && _lastKnownServerTimestamp) {
+    // Immediately check on tab focus — catches changes made while tab was hidden
+    setTimeout(async () => {
+      if (SPENDLY_MODE !== 'cloud' || !getCurrentUserId()) return;
+      try {
+        const res = await fetch(SB_URL + '/rest/v1/spendly_data?user_id=eq.' + getCurrentUserId() + '&select=updated_at', {
+          headers: getAuthHeaders()
+        });
+        if (!res.ok) return;
+        const rows = await res.json();
+        if (!rows || !rows.length) return;
+        const serverTs = rows[0].updated_at;
+        if (serverTs && serverTs > _lastKnownServerTimestamp) {
+          const cloudData = await loadFromSupabase();
+          if (cloudData) { state = { ...state, ...cloudData }; updateHeader(); renderContent(); }
+        }
+      } catch(e) {}
+    }, 500);
+  }
+});
+
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function fmt(n) {
@@ -17063,6 +17125,7 @@ async function init() {
       renderContent();
       initVersionDisplay();
       hideLaunchScreen(() => { if (!initWelcome()) { showApp(); initLock(); } });
+      startBackgroundPoll();
       const ls = document.getElementById('launchScreen');
       if (ls) { ls.style.opacity = '0'; ls.style.display = 'none'; }
       if (!initWelcome()) { showApp(); initLock(); }
