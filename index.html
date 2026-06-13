@@ -2080,9 +2080,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.5.75';
+const APP_VERSION = '2.5.76';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '13 Jun 2026 3:15 PM AEDT';
+const BUILD_TIME = '13 Jun 2026 3:17 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -14343,6 +14343,33 @@ function getAccountTransactions(accountId) {
     const fromAcct = accountById(t.fromAccountId);
     rows.push({ id: t.id, date: t.date, label: '💳 Payment' + (fromAcct ? ' from ' + fromAcct.name : ''), amount: t.amount, direction: 'in', type: 'ccPayment', raw: t });
   });
+
+  // For offset accounts: show savings deposits into goals linked to this offset
+  // These represent money moving INTO the offset umbrella from salary → goal
+  const acct = accountById(accountId);
+  if (acct && acct.type === 'offset') {
+    const linkedGoalIds = new Set(
+      (state.savingsCategories||[])
+        .filter(g => g.linkedAccountId === accountId && g.status !== 'closed')
+        .map(g => g.id)
+    );
+    (state.savingsDeposits||[]).forEach(d => {
+      if (!linkedGoalIds.has(d.catId)) return;
+      if (d.sourceAccountId === accountId) return; // don't double-count direct offset deposits
+      const goal = savingsCatById(d.catId);
+      const fromAcct = d.sourceAccountId ? accountById(d.sourceAccountId) : null;
+      const isWithdrawal = d.type === 'withdrawal' || d.type === 'bill-payment';
+      const label = isWithdrawal
+        ? (goal ? '↑ ' + goal.icon + ' ' + goal.name + ' withdrawal' : 'Goal withdrawal')
+        : (goal ? goal.icon + ' ' + goal.name + (fromAcct ? ' ← ' + fromAcct.name : '') : d.note || 'Savings deposit');
+      rows.push({
+        id: d.id + '_offset', date: d.date, label,
+        amount: d.amount,
+        direction: isWithdrawal ? 'out' : 'in',
+        type: 'saving', raw: d,
+      });
+    });
+  }
 
   return rows.sort((a,b) => b.date.localeCompare(a.date) || b.id.localeCompare(a.id));
 }
