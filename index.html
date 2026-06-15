@@ -2080,9 +2080,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.5.81';
+const APP_VERSION = '2.5.82';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '13 Jun 2026 4:09 PM AEDT';
+const BUILD_TIME = '16 Jun 2026 9:30 AM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -13226,13 +13226,28 @@ function renderGiftCards() {
     return;
   }
 
+  // Auto-mark cards with past expiry date and remaining balance as expired
+  cards.forEach(c => {
+    if (!c.used && c.expiryDate && c.balance > 0) {
+      const exp = new Date(c.expiryDate+'T00:00:00');
+      if (exp < today) { c.used = true; c.expired = true; }
+    }
+    if (!c.used && c.expiryDate && c.balance <= 0) {
+      const exp = new Date(c.expiryDate+'T00:00:00');
+      if (exp < today) { c.used = true; }
+    }
+  });
+
   // Sort: active first (by expiry urgency), then used
   const active = cards.filter(c=>!c.used).sort((a,b) => {
     const dA = a.expiryDate ? new Date(a.expiryDate+'T00:00:00') - today : Infinity;
     const dB = b.expiryDate ? new Date(b.expiryDate+'T00:00:00') - today : Infinity;
     return dA - dB;
   });
-  const used = cards.filter(c=>c.used);
+  // Split used into exhausted (balance=0, fully used) and expired (had balance but expired)
+  const exhausted = cards.filter(c=>c.used && !c.expired);
+  const expired   = cards.filter(c=>c.used && c.expired);
+  const used = [...exhausted, ...expired]; // keep for backward compat
 
   // Summary (always based on all cards, not filtered)
   const totalBalance = (allCards.filter(c=>!c.used&&c.type!=='promo')).reduce((s,c)=>s+c.balance,0);
@@ -13339,9 +13354,13 @@ function renderGiftCards() {
     html += '<div class="section-label">Active</div>';
     active.forEach(gc => { html += renderCard(gc); });
   }
-  if (used.length > 0) {
-    html += '<div class="section-label" style="margin-top:8px">Used / Exhausted</div>';
-    used.forEach(gc => { html += renderCard(gc); });
+  if (exhausted.length > 0) {
+    html += '<div class="section-label" style="margin-top:8px">Used / Expired</div>';
+    exhausted.forEach(gc => { html += renderCard(gc); });
+  }
+  if (expired.length > 0) {
+    html += '<div class="section-label" style="margin-top:8px;color:var(--muted)">Expired (unused balance)</div>';
+    expired.forEach(gc => { html += renderCard(gc); });
   }
 
   el.innerHTML = html;
