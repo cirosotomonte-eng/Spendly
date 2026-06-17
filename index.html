@@ -2080,9 +2080,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.5.82';
+const APP_VERSION = '2.5.83';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '16 Jun 2026 9:30 AM AEDT';
+const BUILD_TIME = '18 Jun 2026 8:04 AM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -15668,10 +15668,13 @@ function openPayCCFromSalary(salaryAccountId) {
   const _pceStr = dateToStr(_pce);
   const _sIds = new Set((state.ccPayments||[]).flatMap(p => p.expenseIds||[]));
 
-  // Compute goal contributions per unsettled expense
+  // Compute goal contributions per unsettled expense.
+  // Include ALL unsettled charges up to the end of the viewed cycle — not just
+  // charges dated within this cycle. Unpaid CC debt from a previous cycle doesn't
+  // disappear when a new cycle starts; only an actual payment settles it.
   function getGoalContributions(ccAcctId) {
     const unsettled = (state.expenses||[]).filter(e =>
-      e.paymentAccountId === ccAcctId && !_sIds.has(e.id) && e.date >= _pcsStr && e.date <= _pceStr
+      e.paymentAccountId === ccAcctId && !_sIds.has(e.id) && e.date <= _pceStr
     );
     // Track remaining goal balances during iteration to avoid over-drawing
     const goalBalances = {};
@@ -16344,13 +16347,15 @@ function renderAccounts() {
         }
       }
 
-      // ── Reconciliation panel (cycle-scoped) ───────────────────────────────
+      // ── Reconciliation panel ──────────────────────────────────────────────
+      // Includes ALL unsettled CC charges up to end of viewed cycle — unpaid debt
+      // from a previous cycle is still real debt and must be reflected here too.
       const _salBal = balance;
       const _sIds2 = new Set((state.ccPayments||[]).flatMap(p => p.expenseIds||[]));
       const _ccCycleTotal = Math.round((state.expenses||[]).filter(e => {
         if (!e.paymentAccountId || _sIds2.has(e.id)) return false;
         const a = accountById(e.paymentAccountId);
-        return a && a.type === 'credit' && e.date >= _scsStr && e.date <= _sceStr;
+        return a && a.type === 'credit' && e.date <= _sceStr;
       }).reduce((s,e) => s + e.amount, 0) * 100) / 100;
 
       const _mortgageKW = ['mortgage', 'home savings'];
@@ -16472,12 +16477,12 @@ function renderAccounts() {
       '</div>' +
       (acct.type === 'credit'
         ? (() => {
-            // Compute current cycle owed: unsettled expenses from this CC in current cycle
+            // Compute total owed: ALL unsettled expenses on this CC, regardless of cycle.
+            // Credit card debt doesn't reset when the budget cycle rolls over — only an
+            // actual payment (recorded in ccPayments) settles a charge.
             const _sIds = new Set((state.ccPayments||[]).flatMap(p => p.expenseIds||[]));
-            const { cycleStart: _ccs } = getCycleRange(0);
-            const _ccsStr = dateToStr(_ccs);
             const _currExp = (state.expenses||[]).filter(e =>
-              e.paymentAccountId === acct.id && !_sIds.has(e.id) && e.date >= _ccsStr
+              e.paymentAccountId === acct.id && !_sIds.has(e.id)
             );
             const currCycleOwed = Math.round(_currExp.reduce((s,e) => s+e.amount, 0)*100)/100;
             // Also check for wrongly-settled current cycle expenses (data fix needed)
