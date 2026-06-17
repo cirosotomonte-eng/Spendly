@@ -2080,9 +2080,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.5.83';
+const APP_VERSION = '2.5.84';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '18 Jun 2026 8:04 AM AEDT';
+const BUILD_TIME = '18 Jun 2026 8:24 AM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -16741,10 +16741,9 @@ function renderAccounts() {
         '<div style="text-align:right;flex-shrink:0">' +
           (acct.type === 'credit'
             ? (() => {
+                // ALL unsettled charges, regardless of cycle — debt doesn't reset on cycle rollover
                 const _tSIds = new Set((state.ccPayments||[]).flatMap(p => p.expenseIds||[]));
-                const { cycleStart: _tccs } = getCycleRange(0);
-                const _tccsStr = dateToStr(_tccs);
-                const _tOwed = Math.round((state.expenses||[]).filter(e => e.paymentAccountId===acct.id && !_tSIds.has(e.id) && e.date>=_tccsStr).reduce((s,e)=>s+e.amount,0)*100)/100;
+                const _tOwed = Math.round((state.expenses||[]).filter(e => e.paymentAccountId===acct.id && !_tSIds.has(e.id)).reduce((s,e)=>s+e.amount,0)*100)/100;
                 return _tOwed > 0
                   ? '<div style="font-size:13px;font-weight:700;color:var(--red)">' + fmtB(_tOwed) + ' owed</div>'
                   : '<div style="font-size:13px;font-weight:700;color:#34C759">All paid up</div>';
