@@ -2080,9 +2080,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.5.87';
+const APP_VERSION = '2.5.88';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '18 Jun 2026 8:56 AM AEDT';
+const BUILD_TIME = '18 Jun 2026 5:43 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -5274,29 +5274,57 @@ function renderDashboard() {
   const todayStr_ = todayStr();
 
   // ── Core numbers ──────────────────────────────────────────────────────────
-  const { cycleStart, cycleEnd } = getCycleRange(0);
-  const budget = getBudgetForDate(todayStr_);
-  const expenses = cycleExpenses();
-  const spent = expenses.reduce((s,e) => s + budgetAmount(e), 0);
-  const upcomingExpNet = getUpcomingRecurring().reduce((s,e) => s + e.amount, 0);
-  const firedSav = getFiredRecurringSavingsTotal();
-  const upcomingSav = getUpcomingRecurringSavings().reduce((s,u) => s + u.r.amount, 0);
-  const leftToSpend = budget - spent - upcomingExpNet - firedSav - upcomingSav;
-  const daysLeft = getDaysLeft();
+  const _viewOffset = state.viewingCycleOffset || 0;
+  const { cycleStart, cycleEnd } = getCycleRange(_viewOffset);
+  let budget, spent, upcomingExpNet, firedSav, upcomingSav, leftToSpend;
+
+  if (_viewOffset === 0) {
+    // Current cycle — live, forward-looking calculation
+    budget = getBudgetForDate(todayStr_);
+    const expenses = cycleExpenses();
+    spent = expenses.reduce((s,e) => s + budgetAmount(e), 0);
+    upcomingExpNet = getUpcomingRecurring().reduce((s,e) => s + e.amount, 0);
+    firedSav = getFiredRecurringSavingsTotal();
+    upcomingSav = getUpcomingRecurringSavings().reduce((s,u) => s + u.r.amount, 0);
+    leftToSpend = budget - spent - upcomingExpNet - firedSav - upcomingSav;
+  } else {
+    // Past cycle — closed, no "upcoming" concept. Use the same total (expenses +
+    // recurring savings fired) as the cycle nav badge, so both numbers always agree.
+    const summary = getCycleSummary(_viewOffset);
+    budget = summary.budget;
+    spent = summary.expensesOnly !== undefined ? summary.expensesOnly : summary.spent;
+    firedSav = summary.savings || 0;
+    upcomingExpNet = 0;
+    upcomingSav = 0;
+    leftToSpend = summary.diff;
+  }
+
+  const daysLeft = _viewOffset === 0 ? getDaysLeft() : 0;
   const dailyLimit = daysLeft > 0 ? leftToSpend / daysLeft : 0;
-  const pct = budget > 0 ? Math.min(((spent + upcomingExpNet) / budget) * 100, 100) : 0;
-  const savingsTotal = getCycleRecurringSavingsScheduleTotal(0);
+  const pct = budget > 0 ? Math.min(((spent + firedSav + upcomingExpNet) / budget) * 100, 100) : 0;
+  const savingsTotal = _viewOffset === 0 ? getCycleRecurringSavingsScheduleTotal(0) : firedSav;
   const leftColor = leftToSpend < 0 ? 'var(--red)' : leftToSpend < budget * 0.1 ? 'var(--orange)' : 'var(--text)';
   const barColor = pct >= 100 ? 'var(--red)' : pct >= 80 ? 'var(--orange)' : '#34C759';
 
   // ── Projection ──────────────────────────────────────────────────────────
-  const cycleLen = Math.round((cycleEnd - cycleStart) / 86400000) + 1;
-  const daysElapsed = Math.round((today - cycleStart) / 86400000) + 1;
-  const dailyRate = daysElapsed > 0 ? spent / daysElapsed : 0;
-  const projectedTotal = dailyRate * cycleLen;
-  const projectedLeft = budget - projectedTotal - savingsTotal;
-  const projDir = projectedLeft >= 0 ? 'under' : 'over';
-  const projColor = projectedLeft >= 0 ? '#34C759' : 'var(--red)';
+  // For a closed past cycle, there's nothing left to project — show the actual
+  // final result instead of a meaningless rate-based estimate.
+  let cycleLen, daysElapsed, dailyRate, projectedTotal, projectedLeft, projDir, projColor, projLabel;
+  if (_viewOffset === 0) {
+    cycleLen = Math.round((cycleEnd - cycleStart) / 86400000) + 1;
+    daysElapsed = Math.round((today - cycleStart) / 86400000) + 1;
+    dailyRate = daysElapsed > 0 ? spent / daysElapsed : 0;
+    projectedTotal = dailyRate * cycleLen;
+    projectedLeft = budget - projectedTotal - savingsTotal;
+    projDir = projectedLeft >= 0 ? 'under' : 'over';
+    projColor = projectedLeft >= 0 ? '#34C759' : 'var(--red)';
+    projLabel = 'at current rate';
+  } else {
+    projectedLeft = leftToSpend; // actual final result, already computed above
+    projDir = projectedLeft >= 0 ? 'under' : 'over';
+    projColor = projectedLeft >= 0 ? '#34C759' : 'var(--red)';
+    projLabel = 'final result';
+  }
 
   // ── Previous cycle ──────────────────────────────────────────────────────
   const prevExpenses = (state.expenses||[]).filter(e => {
@@ -5363,9 +5391,9 @@ function renderDashboard() {
     '<div style="font-size:12px;font-weight:700;color:var(--text);margin-bottom:10px">📈 Spending pulse</div>' +
     '<div style="display:flex;gap:12px">' +
       '<div style="flex:1;background:var(--surface2);border-radius:10px;padding:10px 12px">' +
-        '<div style="font-size:10px;color:var(--muted);margin-bottom:3px">Projection</div>' +
+        '<div style="font-size:10px;color:var(--muted);margin-bottom:3px">' + (_viewOffset===0?'Projection':'Result') + '</div>' +
         '<div style="font-size:14px;font-weight:700;color:' + projColor + '">' + fmt0(Math.abs(projectedLeft)) + ' ' + projDir + '</div>' +
-        '<div style="font-size:10px;color:var(--muted);margin-top:2px">at current rate</div>' +
+        '<div style="font-size:10px;color:var(--muted);margin-top:2px">' + projLabel + '</div>' +
       '</div>' +
       '<div style="flex:1;background:var(--surface2);border-radius:10px;padding:10px 12px">' +
         '<div style="font-size:10px;color:var(--muted);margin-bottom:3px">Last cycle</div>' +
