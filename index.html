@@ -2080,9 +2080,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.5.88';
+const APP_VERSION = '2.5.89';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '18 Jun 2026 5:43 PM AEDT';
+const BUILD_TIME = '18 Jun 2026 7:38 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -3753,6 +3753,7 @@ function updateGreetingAndQuote() {
 }
 
 function updateHeader() {
+  const _hdrOffset = state.viewingCycleOffset || 0;
   const expenses = cycleExpenses();
   const total = expenses.reduce((s,e) => s + budgetAmount(e), 0);
 
@@ -3764,6 +3765,11 @@ function updateHeader() {
     // savings are reserved amounts — together they equal the full cycle plan
     upcomingTotal += getFiredRecurringSavingsTotal();
     upcomingTotal += getUpcomingRecurringSavings().reduce((s,u) => s + u.r.amount, 0);
+  } else if (_hdrOffset < 0) {
+    // Past, closed cycle — no "upcoming" concept. Add in whatever recurring
+    // savings were due that cycle (fired or still pending) so this matches
+    // the cycle nav badge exactly — same methodology as getCycleSummary.
+    upcomingTotal = getFiredRecurringSavingsTotal(_hdrOffset);
   } else if (isFutureCycle()) {
     // Project all recurring expenses due within this future cycle
     const { cycleStart, cycleEnd } = getCycleRange();
@@ -3783,8 +3789,11 @@ function updateHeader() {
   }
   const committed = total + upcomingTotal;
   const { cycleStart: _budgetCycleStart } = getCycleRange();
-  // Use today's date if mid-cycle so budget changes take effect immediately
-  const _budgetResolveDate = todayStr() > dateToStr(_budgetCycleStart) ? todayStr() : dateToStr(_budgetCycleStart);
+  // Use today's date if mid-cycle so budget changes take effect immediately —
+  // but only for the current cycle. A past cycle should always resolve its
+  // own historical budget, not today's, in case the budget amount has changed since.
+  const _budgetResolveDate = (_hdrOffset === 0 && todayStr() > dateToStr(_budgetCycleStart))
+    ? todayStr() : dateToStr(_budgetCycleStart);
   const budget = getBudgetForDate(_budgetResolveDate);
   const remain = budget - committed;
   const daysLeft = getDaysLeft();
