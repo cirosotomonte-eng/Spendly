@@ -2080,9 +2080,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.5.89';
+const APP_VERSION = '2.5.90';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '18 Jun 2026 7:38 PM AEDT';
+const BUILD_TIME = '19 Jun 2026 12:52 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -8815,10 +8815,18 @@ function renderRecurringSavingsPane() {
       '</div>' +
     '</div>';
   });
-  const allTotal = allRecs.filter(r => r.active !== false).reduce((s,r) => s + r.amount, 0);
-  html += '<div style="padding:10px 14px;border-top:1px solid var(--surface2);display:flex;justify-content:space-between;align-items:center;font-size:12px">' +
-    '<span style="color:var(--muted)">Total per occurrence</span>' +
-    '<span style="font-weight:700;color:#34C759">+' + fmtAmt(allTotal) + '</span>' +
+  const _activeRecs = allRecs.filter(r => r.active !== false);
+  const allTotal = _activeRecs.reduce((s,r) => s + r.amount, 0);
+  const monthlyTotal = Math.round(_activeRecs.reduce((s,r) => s + monthlyEquivalent(r), 0) * 100) / 100;
+  html += '<div style="padding:10px 14px;border-top:1px solid var(--surface2)">' +
+    '<div style="display:flex;justify-content:space-between;align-items:center;font-size:13px;margin-bottom:4px">' +
+      '<span style="font-weight:600">Estimated monthly total</span>' +
+      '<span style="font-weight:800;color:#34C759">+' + fmtAmt(monthlyTotal) + '</span>' +
+    '</div>' +
+    '<div style="display:flex;justify-content:space-between;align-items:center;font-size:11px">' +
+      '<span style="color:var(--muted)">Sum of one occurrence each</span>' +
+      '<span style="color:var(--muted)">' + fmtAmt(allTotal) + '</span>' +
+    '</div>' +
   '</div>';
   html += '</div>';
   return html;
@@ -12605,6 +12613,19 @@ function getUpcomingRecurringSavings() {
     }
   });
   return upcoming.sort((a,b) => a.date.localeCompare(b.date));
+}
+
+// ── Convert a recurring rule's amount to a monthly-equivalent figure ──────────
+function monthlyEquivalent(r) {
+  const amt = r.amount || 0;
+  switch (r.frequency) {
+    case 'weekly':    return amt * 52 / 12;           // ~4.33 occurrences/month
+    case 'xweeks':    return amt * (52 / (r.xweeksNum||2)) / 12;
+    case 'monthly':   return amt;
+    case 'quarterly': return amt / 3;
+    case 'yearly':    return amt / 12;
+    default:          return amt;
+  }
 }
 
 function recFreqLabel(r) {
