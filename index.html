@@ -2080,9 +2080,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.5.95';
+const APP_VERSION = '2.5.96';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '19 Jun 2026 2:17 PM AEDT';
+const BUILD_TIME = '19 Jun 2026 5:54 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -5390,7 +5390,14 @@ function renderDashboard() {
     '<div style="font-size:12px;font-weight:700;color:var(--text);margin-bottom:10px">📈 Spending pulse</div>' +
     '<div style="display:flex;gap:12px">' +
       '<div style="flex:1;background:var(--surface2);border-radius:10px;padding:10px 12px">' +
-        '<div style="font-size:10px;color:var(--muted);margin-bottom:3px">' + (_viewOffset===0?'Projection':'Result') + '</div>' +
+        '<div style="font-size:10px;color:var(--muted);margin-bottom:3px;display:flex;align-items:center;gap:3px">' + (_viewOffset===0?'Projection':'Result') +
+          '<span class="spendly-tip" style="display:inline-flex;align-items:center"><i class="spendly-tip-icon" onclick="event.stopPropagation();showTip(\'tip-projection\')">i</i>' +
+          '<div class="spendly-tip-box" id="tip-projection" style="left:0;transform:none;width:230px">' +
+            (_viewOffset===0
+              ? 'Takes what you\'ve spent so far ÷ days elapsed this cycle = your daily rate, then multiplies by the full cycle length. Compared against budget minus committed savings.'
+              : 'This cycle is closed, so it shows the actual final result: budget minus everything spent (incl. recurring savings) — same number as the cycle nav header.') +
+          '</div></span>' +
+        '</div>' +
         '<div style="font-size:14px;font-weight:700;color:' + projColor + '">' + fmt0(Math.abs(projectedLeft)) + ' ' + projDir + '</div>' +
         '<div style="font-size:10px;color:var(--muted);margin-top:2px">' + projLabel + '</div>' +
       '</div>' +
