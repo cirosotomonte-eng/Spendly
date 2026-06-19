@@ -2080,9 +2080,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.5.93';
+const APP_VERSION = '2.5.94';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '19 Jun 2026 1:16 PM AEDT';
+const BUILD_TIME = '19 Jun 2026 1:30 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -3755,7 +3755,7 @@ function updateGreetingAndQuote() {
 function updateHeader() {
   const _hdrOffset = state.viewingCycleOffset || 0;
 
-  let budget, remain, committed;
+  let budget, remain, committed, total, upcomingTotal = 0;
 
   if (_hdrOffset < 0) {
     // Past, closed cycle — delegate entirely to getCycleSummary(), the single
@@ -3765,12 +3765,13 @@ function updateHeader() {
     budget = summary.budget;
     remain = summary.diff;
     committed = summary.spent; // total committed (expenses + savings) for the progress bar
+    total = summary.expensesOnly; // logged expenses only, matching what "total" means below
+    // upcomingTotal stays 0 — a closed past cycle has no "upcoming" concept,
+    // and the badge code below only displays it when isCurrentCycle()/isFutureCycle() anyway.
   } else {
     // Current or future cycle — live/projected, forward-looking calculation
     const expenses = cycleExpenses();
-    const total = expenses.reduce((s,e) => s + budgetAmount(e), 0);
-
-    let upcomingTotal = 0;
+    total = expenses.reduce((s,e) => s + budgetAmount(e), 0);
     if (isCurrentCycle()) {
       upcomingTotal = getUpcomingRecurring().reduce((s,e) => s + e.amount, 0);
       // Add savings: already fired this cycle + upcoming savings not yet fired
