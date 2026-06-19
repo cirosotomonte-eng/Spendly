@@ -2080,9 +2080,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.5.94';
+const APP_VERSION = '2.5.95';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '19 Jun 2026 1:30 PM AEDT';
+const BUILD_TIME = '19 Jun 2026 2:17 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -3824,29 +3824,12 @@ function updateHeader() {
   const cycleBadge = document.getElementById('cycleBadge');
   const offset = state.viewingCycleOffset || 0;
 
-  // Reset badge
+  // Past cycles now keep the exact same plain look as the current cycle — just
+  // the date label and nav arrows, no extra colored progress bar or badge pill.
+  // The headline ("Left to Spend") already shows the correct over/under amount,
+  // so this secondary indicator was redundant and has been removed.
   if (cycleBadge) { cycleBadge.style.display = 'none'; cycleBadge.innerHTML = ''; }
-
-  if (offset < 0 && metaEl && fillEl && metaLeft && metaRight) {
-    const summary = getCycleSummary(offset);
-    metaEl.style.display = '';
-    const over = summary.diff < 0;
-    const pct = summary.budget > 0 ? Math.min(Math.round((summary.spent / summary.budget) * 100), 100) : 0;
-    fillEl.style.width = pct + '%';
-    fillEl.style.background = over ? 'var(--red)' : 'var(--accent)';
-    const savingsNote = summary.savings > 0.01 ? ' (incl. ' + fmt(summary.savings) + ' savings)' : '';
-    metaLeft.textContent = fmt(summary.spent) + ' spent of ' + fmt(summary.budget) + savingsNote;
-    metaRight.style.color = over ? 'var(--red)' : '#34C759';
-    metaRight.textContent = over ? fmt(Math.abs(summary.diff)) + ' over' : fmt(summary.diff) + ' saved';
-    if (cycleBadge) {
-      cycleBadge.style.display = 'block';
-      cycleBadge.innerHTML = '<span style="font-size:10px;background:' + (over ? 'rgba(255,92,92,0.12)' : 'rgba(52,199,89,0.12)') + ';color:' + (over ? 'var(--red)' : '#34C759') + ';border-radius:6px;padding:2px 8px;font-weight:700">' +
-        (over ? '⚠️ ' + fmt(Math.abs(summary.diff)) + ' over budget' : '✓ ' + fmt(summary.diff) + ' under budget') + '</span>';
-    }
-  } else if (metaEl) {
-    metaEl.style.display = 'none';
-    if (cycleBadge) { cycleBadge.style.display = 'none'; cycleBadge.innerHTML = ''; }
-  }
+  if (metaEl) { metaEl.style.display = 'none'; }
 
   // Totals
   const spentEl = document.getElementById('totalSpent');
