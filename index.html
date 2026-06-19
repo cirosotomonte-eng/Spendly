@@ -2080,9 +2080,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.5.90';
+const APP_VERSION = '2.5.92';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '19 Jun 2026 12:52 PM AEDT';
+const BUILD_TIME = '19 Jun 2026 1:03 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -3754,48 +3754,54 @@ function updateGreetingAndQuote() {
 
 function updateHeader() {
   const _hdrOffset = state.viewingCycleOffset || 0;
-  const expenses = cycleExpenses();
-  const total = expenses.reduce((s,e) => s + budgetAmount(e), 0);
 
-  let upcomingTotal = 0;
-  if (isCurrentCycle()) {
-    upcomingTotal = getUpcomingRecurring().reduce((s,e) => s + e.amount, 0);
-    // Add savings: already fired this cycle + upcoming savings not yet fired
-    // This avoids double-counting: fired savings are actual deductions, upcoming
-    // savings are reserved amounts — together they equal the full cycle plan
-    upcomingTotal += getFiredRecurringSavingsTotal();
-    upcomingTotal += getUpcomingRecurringSavings().reduce((s,u) => s + u.r.amount, 0);
-  } else if (_hdrOffset < 0) {
-    // Past, closed cycle — no "upcoming" concept. Add in whatever recurring
-    // savings were due that cycle (fired or still pending) so this matches
-    // the cycle nav badge exactly — same methodology as getCycleSummary.
-    upcomingTotal = getFiredRecurringSavingsTotal(_hdrOffset);
-  } else if (isFutureCycle()) {
-    // Project all recurring expenses due within this future cycle
-    const { cycleStart, cycleEnd } = getCycleRange();
-    const recurring = (state.recurringExpenses || []).filter(r => r.active !== false);
-    const recurringSav = (state.recurringSavings || []).filter(r => r.active !== false);
-    let checkDate = new Date(cycleStart);
-    while (checkDate <= cycleEnd) {
-      const dateStr = dateToStr(checkDate);
-      recurring.forEach(r => {
-        if (isRecurringDueOn(r, dateStr)) upcomingTotal += r.amount;
-      });
-      recurringSav.forEach(r => {
-        if (isRecurringDueOn(r, dateStr)) upcomingTotal += r.amount;
-      });
-      checkDate.setDate(checkDate.getDate() + 1);
+  let budget, remain;
+
+  if (_hdrOffset < 0) {
+    // Past, closed cycle — delegate entirely to getCycleSummary(), the single
+    // source of truth also used by the cycle nav badge, the dashboard headline,
+    // and the "Last cycle" card. No separate reconstruction of the same logic.
+    const summary = getCycleSummary(_hdrOffset);
+    budget = summary.budget;
+    remain = summary.diff;
+  } else {
+    // Current or future cycle — live/projected, forward-looking calculation
+    const expenses = cycleExpenses();
+    const total = expenses.reduce((s,e) => s + budgetAmount(e), 0);
+
+    let upcomingTotal = 0;
+    if (isCurrentCycle()) {
+      upcomingTotal = getUpcomingRecurring().reduce((s,e) => s + e.amount, 0);
+      // Add savings: already fired this cycle + upcoming savings not yet fired
+      // This avoids double-counting: fired savings are actual deductions, upcoming
+      // savings are reserved amounts — together they equal the full cycle plan
+      upcomingTotal += getFiredRecurringSavingsTotal();
+      upcomingTotal += getUpcomingRecurringSavings().reduce((s,u) => s + u.r.amount, 0);
+    } else if (isFutureCycle()) {
+      // Project all recurring expenses due within this future cycle
+      const { cycleStart, cycleEnd } = getCycleRange();
+      const recurring = (state.recurringExpenses || []).filter(r => r.active !== false);
+      const recurringSav = (state.recurringSavings || []).filter(r => r.active !== false);
+      let checkDate = new Date(cycleStart);
+      while (checkDate <= cycleEnd) {
+        const dateStr = dateToStr(checkDate);
+        recurring.forEach(r => {
+          if (isRecurringDueOn(r, dateStr)) upcomingTotal += r.amount;
+        });
+        recurringSav.forEach(r => {
+          if (isRecurringDueOn(r, dateStr)) upcomingTotal += r.amount;
+        });
+        checkDate.setDate(checkDate.getDate() + 1);
+      }
     }
+    const committed = total + upcomingTotal;
+    const { cycleStart: _budgetCycleStart } = getCycleRange();
+    // Use today's date if mid-cycle so budget changes take effect immediately
+    const _budgetResolveDate = todayStr() > dateToStr(_budgetCycleStart) ? todayStr() : dateToStr(_budgetCycleStart);
+    budget = getBudgetForDate(_budgetResolveDate);
+    remain = budget - committed;
   }
-  const committed = total + upcomingTotal;
-  const { cycleStart: _budgetCycleStart } = getCycleRange();
-  // Use today's date if mid-cycle so budget changes take effect immediately —
-  // but only for the current cycle. A past cycle should always resolve its
-  // own historical budget, not today's, in case the budget amount has changed since.
-  const _budgetResolveDate = (_hdrOffset === 0 && todayStr() > dateToStr(_budgetCycleStart))
-    ? todayStr() : dateToStr(_budgetCycleStart);
-  const budget = getBudgetForDate(_budgetResolveDate);
-  const remain = budget - committed;
+
   const daysLeft = getDaysLeft();
   const dailyLimit = daysLeft > 0 ? remain / daysLeft : 0;
 
@@ -5336,14 +5342,13 @@ function renderDashboard() {
   }
 
   // ── Previous cycle ──────────────────────────────────────────────────────
-  const prevExpenses = (state.expenses||[]).filter(e => {
-    const { cycleStart:ps, cycleEnd:pe } = getCycleRange(-1);
-    const d = new Date(e.date + 'T00:00:00');
-    return d >= ps && d <= pe;
-  });
-  const prevBudget = getBudgetForDate((() => { const { cycleStart:ps } = getCycleRange(-1); return dateToStr(ps); })());
-  const prevSpent = prevExpenses.reduce((s,e) => s + budgetAmount(e), 0);
-  const prevLeft = prevBudget - prevSpent;
+  // Use the same getCycleSummary() methodology as everywhere else, so this card
+  // always agrees with the cycle nav badge and the "Left to Spend" headline —
+  // including recurring savings committed that cycle, not just logged expenses.
+  const _prevSummary = getCycleSummary(-1);
+  const prevBudget = _prevSummary.budget;
+  const prevSpent = _prevSummary.spent;
+  const prevLeft = _prevSummary.diff;
 
   // ── Next 7 days ──────────────────────────────────────────────────────────
   const in7 = new Date(today); in7.setDate(today.getDate() + 6);
