@@ -2094,9 +2094,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.6.0';
+const APP_VERSION = '2.6.1';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '20 Jun 2026 5:28 PM AEDT';
+const BUILD_TIME = '20 Jun 2026 6:25 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -2379,6 +2379,9 @@ async function signOut() {
   // mechanism that caused a real data-loss incident. Close the hydration gate
   // too, so nothing can write again until a fresh load completes successfully.
   clearTimeout(syncTimer);
+  clearTimeout(_syncRetryTimer);
+  _consecutiveSyncFailures = 0;
+  hideSyncTroubleBanner();
   _stateHydrated = false;
   await getSB().auth.signOut();
   _sbSession = null;
@@ -2417,20 +2420,7 @@ function setSyncStatus(s) {
     el.style.background = ''; el.style.borderRadius = ''; el.style.border = ''; el.style.padding = '';
     el.title = 'Sync failed — tap to retry';
     el.style.cursor = 'pointer';
-    el.onclick = async () => {
-      el.onclick = null;
-      el.style.border = '';
-      showToast('↑ Retrying sync…', 1500);
-      setSyncStatus('saving');
-      try {
-        const { currentTab, viewingCycleOffset, mortgageCycleOffset, editingExpenseId, editingCatId, ...persistState } = state;
-        await syncToSupabase(persistState);
-        setSyncStatus('saved');
-        setTimeout(() => setSyncStatus('idle'), 2000);
-      } catch(e) {
-        setSyncStatus('error');
-      }
-    };
+    el.onclick = () => retrySyncNow(); // same unified retry path used by the automatic backoff
   } else {
     el.innerHTML = SVG_CLOUD; el.style.color = 'var(--muted)';
     el.title = 'Cloud sync'; el.style.cursor = 'default'; el.onclick = null;
@@ -2438,74 +2428,125 @@ function setSyncStatus(s) {
   }
 }
 
+// ── Sync with automatic retry + backoff ───────────────────────────────────────
+// On failure, retries automatically (3s, 8s, 20s, then every 30s) without any
+// action needed from the user. After 3 consecutive failures, shows a small,
+// non-blocking banner so they're aware something's wrong — but keeps retrying
+// in the background regardless of whether they see or dismiss it.
+let _consecutiveSyncFailures = 0;
+let _syncRetryTimer = null;
+
+function getSyncRetryDelay(failureCount) {
+  if (failureCount <= 1) return 3000;
+  if (failureCount === 2) return 8000;
+  if (failureCount === 3) return 20000;
+  return 30000;
+}
+
 async function syncToSupabase(data) {
   const userId = getCurrentUserId();
   if (!userId) { return; } // session not ready yet — not an error
   if (!_stateHydrated) { console.warn('syncToSupabase(): blocked — hydration gate closed'); return; }
+  clearTimeout(_syncRetryTimer); // a fresh save supersedes any pending retry
+  await attemptSyncWithRetry(data);
+}
+
+async function attemptSyncWithRetry(originalData) {
+  const userId = getCurrentUserId();
+  if (!userId) return;
+  if (!_stateHydrated) return;
+
+  // For retries beyond the first attempt, always grab the freshest state —
+  // never push stale data after a long backoff delay just because that's
+  // what we originally captured.
+  let payload = originalData;
+  if (_consecutiveSyncFailures > 0) {
+    const { currentTab, viewingCycleOffset, mortgageCycleOffset, editingExpenseId, editingCatId, ...latest } = state;
+    payload = latest;
+  }
+
+  setSyncStatus('saving');
+  const now = new Date().toISOString();
+  payload._savedAt = now;
+
   try {
-    setSyncStatus('saving');
-    const now = new Date().toISOString();
     const res = await fetch(SB_URL + '/rest/v1/spendly_data', {
       method: 'POST',
       headers: { ...getAuthHeaders(), 'Prefer': 'resolution=merge-duplicates,return=minimal' },
-      body: JSON.stringify({ id: 'main', user_id: userId, data, updated_at: now })
+      body: JSON.stringify({ id: 'main', user_id: userId, data: payload, updated_at: now })
     });
+
     if (res.status === 401 || res.status === 403) {
-      // Token expired — refresh session silently and retry, don't show error to user
-      setSyncStatus('idle');
+      // Token expired — try a silent refresh, then one immediate retry with it
       try {
         const { data: refreshData, error } = await getSB().auth.refreshSession();
         if (!error && refreshData.session) {
           _sbSession = refreshData.session;
-          // Retry with fresh token
           const now2 = new Date().toISOString();
+          payload._savedAt = now2;
           const res2 = await fetch(SB_URL + '/rest/v1/spendly_data', {
             method: 'POST',
             headers: { ...getAuthHeaders(), 'Prefer': 'resolution=merge-duplicates,return=minimal' },
-            body: JSON.stringify({ id: 'main', user_id: userId, data, updated_at: now2 })
+            body: JSON.stringify({ id: 'main', user_id: userId, data: payload, updated_at: now2 })
           });
-          if (res2.ok) {
-            _lastKnownServerTimestamp = now2;
-            _lastSuccessfulSyncTime = now2;
-            try { localStorage.setItem('spendly_last_sync', now2); } catch(e) {}
-            setSyncStatus('saved');
-            setTimeout(() => setSyncStatus('idle'), 3000);
-          }
+          if (res2.ok) { onSyncSuccess(now2); return; }
         }
-      } catch(refreshErr) {}
+      } catch(refreshErr) { /* fall through to failure handling below */ }
+      onSyncFailure(payload);
       return;
     }
+
     if (!res.ok) throw new Error('upsert failed ' + res.status);
-    _lastKnownServerTimestamp = now;
-    _lastSuccessfulSyncTime = now;
-    try { localStorage.setItem('spendly_last_sync', now); } catch(e) {}
-    setSyncStatus('saved');
-    setTimeout(() => setSyncStatus('idle'), 3000);
+    onSyncSuccess(now);
   } catch(e) {
-    setSyncStatus('error');
-    // Retry once after 3 seconds — only if session still valid
-    setTimeout(async () => {
-      const retryUserId = getCurrentUserId();
-      if (!retryUserId) { setSyncStatus('idle'); return; }
-      try {
-        const now2 = new Date().toISOString();
-        const res2 = await fetch(SB_URL + '/rest/v1/spendly_data', {
-          method: 'POST',
-          headers: { ...getAuthHeaders(), 'Prefer': 'resolution=merge-duplicates,return=minimal' },
-          body: JSON.stringify({ id: 'main', user_id: retryUserId, data, updated_at: now2 })
-        });
-        if (res2.ok) {
-          _lastKnownServerTimestamp = now2;
-          _lastSuccessfulSyncTime = now2;
-          try { localStorage.setItem('spendly_last_sync', now2); } catch(e) {}
-          setSyncStatus('saved');
-          setTimeout(() => setSyncStatus('idle'), 2000);
-        } else {
-          setSyncStatus('idle'); // don't keep showing error on retry fail
-        }
-      } catch(e2) { setSyncStatus('idle'); }
-    }, 3000);
+    onSyncFailure(payload);
   }
+}
+
+function onSyncSuccess(timestamp) {
+  _consecutiveSyncFailures = 0;
+  clearTimeout(_syncRetryTimer);
+  _lastKnownServerTimestamp = timestamp;
+  _lastSuccessfulSyncTime = timestamp;
+  try { localStorage.setItem('spendly_last_sync', timestamp); } catch(e) {}
+  setSyncStatus('saved');
+  setTimeout(() => setSyncStatus('idle'), 2500);
+  hideSyncTroubleBanner();
+}
+
+function onSyncFailure(payloadToRetry) {
+  _consecutiveSyncFailures++;
+  setSyncStatus('error');
+  if (_consecutiveSyncFailures >= 3) {
+    showSyncTroubleBanner();
+  }
+  const delay = getSyncRetryDelay(_consecutiveSyncFailures);
+  clearTimeout(_syncRetryTimer);
+  _syncRetryTimer = setTimeout(() => attemptSyncWithRetry(payloadToRetry), delay);
+}
+
+function showSyncTroubleBanner() {
+  if (document.getElementById('syncTroubleBanner')) return; // already showing
+  const banner = document.createElement('div');
+  banner.id = 'syncTroubleBanner';
+  banner.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:99998;background:rgba(255,159,10,0.97);color:#1a1300;padding:11px 16px;font-family:var(--font);display:flex;align-items:center;gap:10px;box-shadow:0 2px 12px rgba(0,0,0,0.25)';
+  banner.innerHTML =
+    '<span style="font-size:16px">⚠️</span>' +
+    '<span style="flex:1;font-size:12.5px;font-weight:600;line-height:1.3">Having trouble syncing — your changes are safe on this device, we\'ll keep trying automatically.</span>' +
+    '<button onclick="retrySyncNow()" style="background:rgba(0,0,0,0.12);border:none;border-radius:8px;padding:6px 12px;font-size:12px;font-weight:700;color:#1a1300;cursor:pointer;font-family:var(--font);white-space:nowrap">Retry now</button>' +
+    '<button onclick="document.getElementById(\'syncTroubleBanner\').remove()" style="background:none;border:none;color:#1a1300;font-size:18px;cursor:pointer;padding:0 4px;line-height:1">×</button>';
+  document.body.prepend(banner);
+}
+
+function hideSyncTroubleBanner() {
+  document.getElementById('syncTroubleBanner')?.remove();
+}
+
+function retrySyncNow() {
+  clearTimeout(_syncRetryTimer);
+  const { currentTab, viewingCycleOffset, mortgageCycleOffset, editingExpenseId, editingCatId, ...latest } = state;
+  attemptSyncWithRetry(latest);
+  showToast('↑ Retrying sync…', 1500);
 }
 
 let _lastSuccessfulSyncTime = localStorage.getItem('spendly_last_sync') || null;

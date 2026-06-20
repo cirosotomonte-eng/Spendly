@@ -397,6 +397,53 @@ await check('new gift card images use uploadAttachment, not embedded base64, for
   assertTrue(src.includes('preview.dataset.src = path'), 'the persisted dataset.src must end up as the storage path, not base64');
 });
 
+// ─────────────────────────────────────────────────────────────────────────
+console.log('\n── Sync retry: must auto-retry with backoff and alert after 3 failures ──');
+
+await check('getSyncRetryDelay() produces increasing backoff: 3s, 8s, 20s, then 30s', () => {
+  assertEqual(ctx.getSyncRetryDelay(1), 3000);
+  assertEqual(ctx.getSyncRetryDelay(2), 8000);
+  assertEqual(ctx.getSyncRetryDelay(3), 20000);
+  assertEqual(ctx.getSyncRetryDelay(4), 30000);
+  assertEqual(ctx.getSyncRetryDelay(10), 30000, 'backoff should cap at 30s, not grow unbounded');
+});
+
+await check('onSyncFailure() increments the consecutive-failure counter each time', () => {
+  ctx.state = buildMockState();
+  ctx._consecutiveSyncFailures = 0;
+  ctx.clearTimeout(ctx._syncRetryTimer);
+
+  ctx.onSyncFailure({});
+  assertTrue(ctx._consecutiveSyncFailures === 1, 'first failure should increment counter to 1');
+
+  ctx.onSyncFailure({});
+  ctx.onSyncFailure({});
+  assertTrue(ctx._consecutiveSyncFailures === 3, 'three failures should bring the counter to 3');
+  ctx.clearTimeout(ctx._syncRetryTimer);
+});
+
+await check('onSyncSuccess() resets the failure counter and hides the banner', () => {
+  ctx.state = buildMockState();
+  ctx._consecutiveSyncFailures = 5;
+  ctx.onSyncSuccess(new Date().toISOString());
+  assertEqual(ctx._consecutiveSyncFailures, 0, 'a successful sync must reset the failure counter to zero');
+});
+
+await check('retries always use the freshest state, not the original stale snapshot', () => {
+  // Contract check: attemptSyncWithRetry must re-derive payload from the live
+  // `state` object once failures > 0, rather than reusing whatever was passed
+  // in originally — otherwise a long backoff could push outdated data.
+  const src = ctx.attemptSyncWithRetry.toString();
+  assertTrue(src.includes('_consecutiveSyncFailures > 0'), 'must branch on failure count to decide whether to use fresh state');
+  assertTrue(src.includes('...state }') || src.includes('...latest } = state'), 'must destructure the live state object for retries');
+});
+
+await check('signOut() clears the sync retry timer and resets the failure counter', () => {
+  const src = ctx.signOut.toString();
+  assertTrue(src.includes('_syncRetryTimer'), 'signOut must cancel any pending retry timer');
+  assertTrue(src.includes('_consecutiveSyncFailures = 0'), 'signOut must reset the failure counter');
+});
+
 await check('no top-level function is declared more than once anywhere in the file (regression: silent shadowing caused both a data-loss bug and a broken legacy super-contribution modal)', () => {
   const fs = require('fs');
   const html = fs.readFileSync(APP_PATH, 'utf8');
