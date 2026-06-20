@@ -1994,9 +1994,9 @@ async function applyUpdate() {
     <input type="number" inputmode="decimal" id="superEmpRate" placeholder="e.g. 11.5" step="0.5">
     <label>Your extra contributions</label>
     <div style="display:flex;gap:6px;margin-bottom:10px">
-      <button type="button" onclick="setSuperContribType('percent')" id="superContribPct" style="flex:1;padding:8px;border-radius:8px;border:2px solid var(--accent);background:var(--accent-dim);color:var(--accent);font-weight:700;font-family:var(--font);cursor:pointer;font-size:12px">% of salary</button>
-      <button type="button" onclick="setSuperContribType('cash-month')" id="superContribCashMonth" style="flex:1;padding:8px;border-radius:8px;border:2px solid var(--border);background:var(--surface2);color:var(--muted);font-weight:600;font-family:var(--font);cursor:pointer;font-size:12px">$ per month</button>
-      <button type="button" onclick="setSuperContribType('cash')" id="superContribCash" style="flex:1;padding:8px;border-radius:8px;border:2px solid var(--border);background:var(--surface2);color:var(--muted);font-weight:600;font-family:var(--font);cursor:pointer;font-size:12px">$ per year</button>
+      <button type="button" onclick="setSuperVolContribType('percent')" id="superContribPct" style="flex:1;padding:8px;border-radius:8px;border:2px solid var(--accent);background:var(--accent-dim);color:var(--accent);font-weight:700;font-family:var(--font);cursor:pointer;font-size:12px">% of salary</button>
+      <button type="button" onclick="setSuperVolContribType('cash-month')" id="superContribCashMonth" style="flex:1;padding:8px;border-radius:8px;border:2px solid var(--border);background:var(--surface2);color:var(--muted);font-weight:600;font-family:var(--font);cursor:pointer;font-size:12px">$ per month</button>
+      <button type="button" onclick="setSuperVolContribType('cash')" id="superContribCash" style="flex:1;padding:8px;border-radius:8px;border:2px solid var(--border);background:var(--surface2);color:var(--muted);font-weight:600;font-family:var(--font);cursor:pointer;font-size:12px">$ per year</button>
     </div>
     <div id="superContribPctRow">
       <input type="number" inputmode="decimal" id="superVolRate" placeholder="e.g. 5 (% of salary)" step="0.5" min="0">
@@ -2080,9 +2080,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.5.97';
+const APP_VERSION = '2.5.98';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '20 Jun 2026 4:20 PM AEDT';
+const BUILD_TIME = '20 Jun 2026 4:24 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -7158,18 +7158,6 @@ function setExpPayment(method) {
   _expPaymentAccountId = null;
   const sel = document.getElementById('expPaymentSelect');
   if (sel) sel.value = method;
-}
-
-function setExpPaymentAccount(accountId) {
-  _expPaymentMethod = 'account';
-  _expPaymentAccountId = accountId;
-  const sel = document.getElementById('expPaymentSelect');
-  if (sel) sel.value = 'acct:' + accountId;
-}
-
-// populateExpPaymentAccounts now just rebuilds the whole dropdown
-function populateExpPaymentAccounts() {
-  populateExpPaymentSelect(_expPaymentMethod, _expPaymentAccountId);
 }
 
 function setTxType(type) {
@@ -14137,7 +14125,7 @@ function setSuperFreq(freq) {
   });
 }
 
-function setSuperContribType(type) {
+function setSuperVolContribType(type) {
   superContribTypeState = type;
   ['percent','cash-month','cash'].forEach(t => {
     const idMap = {'percent':'superContribPct','cash-month':'superContribCashMonth','cash':'superContribCash'};
@@ -14176,7 +14164,7 @@ function openSuperSettings() {
   }
   document.getElementById('superReturn').value = s.expectedReturn ?? 7;
   setSuperFreq(s.salaryFrequency || 'annual');
-  setSuperContribType(s.contribType || 'percent');
+  setSuperVolContribType(s.contribType || 'percent');
   document.getElementById('superModal').classList.add('open');
 }
 
@@ -14311,9 +14299,6 @@ function openNetWorthAddSheet() {
   document.body.appendChild(sheet);
 }
 
-function renderNetWorth() {
-
-}
 // ── Accounts ──────────────────────────────────────────────────────────────────
 
 const ACCOUNT_TYPES = {

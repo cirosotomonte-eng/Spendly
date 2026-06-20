@@ -353,13 +353,15 @@ await check('loadFromSupabase()-style error result must never open the hydration
   assertTrue(!/result\.status === 'error'[\s\S]{0,80}_stateHydrated = true/.test(src), 'loadState must NEVER set _stateHydrated=true on an error result');
 });
 
-await check('only one loadState() and one flushSyncNow() are defined (regression: silent duplicate-function shadowing)', () => {
+await check('no top-level function is declared more than once anywhere in the file (regression: silent shadowing caused both a data-loss bug and a broken legacy super-contribution modal)', () => {
   const fs = require('fs');
   const html = fs.readFileSync(APP_PATH, 'utf8');
-  const loadStateCount = (html.match(/^async function loadState\(\)/gm) || []).length;
-  const flushCount = (html.match(/^async function flushSyncNow\(\)/gm) || []).length;
-  assertEqual(loadStateCount, 1, 'loadState must be declared exactly once — a second declaration silently shadows the first');
-  assertEqual(flushCount, 1, 'flushSyncNow must be declared exactly once');
+  const matches = html.match(/^(?:async )?function [a-zA-Z_][a-zA-Z0-9_]*/gm) || [];
+  const names = matches.map(m => m.replace(/^async /, '').replace('function ', ''));
+  const counts = {};
+  names.forEach(n => { counts[n] = (counts[n] || 0) + 1; });
+  const dupes = Object.entries(counts).filter(([,c]) => c > 1);
+  assertTrue(dupes.length === 0, 'duplicate function declarations found: ' + dupes.map(([n,c]) => `${n} (x${c})`).join(', '));
 });
 
 
