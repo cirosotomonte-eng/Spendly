@@ -2080,9 +2080,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.5.98';
+const APP_VERSION = '2.5.99';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '20 Jun 2026 4:24 PM AEDT';
+const BUILD_TIME = '20 Jun 2026 4:27 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -17363,11 +17363,19 @@ function importBackup(input) {
       if (!confirmed) return;
       // Apply backup data
       state = { ...state, ...parsed.data };
+      // The user just deliberately supplied complete, verified data via file
+      // picker — this is ground truth regardless of cloud-load timing, so
+      // explicitly open the hydration gate rather than depending on it having
+      // already been opened by an unrelated earlier load.
+      _stateHydrated = true;
       saveState();
       updateHeader();
       renderContent();
       closeModal('settingsModal');
       showToast('✅ Backup restored from ' + exportedDate, 4000);
+      // Force an immediate write rather than waiting on the 1200ms debounce —
+      // a restore should be confirmed on the server promptly, not left pending.
+      setTimeout(() => forceSyncToSupabase(), 100);
     } catch(err) {
       showToast('❌ Could not read backup file. It may be corrupted.', 4000);
     }
