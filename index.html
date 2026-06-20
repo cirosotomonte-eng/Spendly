@@ -2080,9 +2080,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.5.96';
+const APP_VERSION = '2.5.97';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '19 Jun 2026 5:54 PM AEDT';
+const BUILD_TIME = '20 Jun 2026 4:20 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -2359,11 +2359,15 @@ function friendlyAuthError(msg) {
 
 async function signOut() {
   closeModal('settingsModal');
+  // CRITICAL: cancel any pending debounced sync BEFORE resetting state. Without
+  // this, a sync scheduled moments ago could fire after state is wiped below,
+  // reading the now-empty state and pushing it to Supabase — this is the exact
+  // mechanism that caused a real data-loss incident. Close the hydration gate
+  // too, so nothing can write again until a fresh load completes successfully.
+  clearTimeout(syncTimer);
+  _stateHydrated = false;
   await getSB().auth.signOut();
   _sbSession = null;
-  // Clear local state
-  try { localStorage.removeItem('spendly_state'); } catch(e) {}
-  try { localStorage.removeItem('spendly_backup'); } catch(e) {}
   try { sessionStorage.clear(); } catch(e) {}
   // Reset state and show auth screen
   state = { currentTab:'dashboard', viewingCycleOffset:0, budget:0, cycleDay:1, appName:'', categories:[], expenses:[], recurringExpenses:[], recurringSavings:[], recurringIncome:[], recurringSkips:[], savingsCategories:[], savingsSubcategories:[], savingsDeposits:[], recyclingTrips:[], mortgage:{}, taxCategories:[], taxTransactions:[], giftCards:[], portfolio:[], netWorth:[], notes:[], accounts:[], accountTransactions:[], pendingPayments:[], ccPayments:[], lastActiveDate:'', setupDone:false };
@@ -2423,6 +2427,7 @@ function setSyncStatus(s) {
 async function syncToSupabase(data) {
   const userId = getCurrentUserId();
   if (!userId) { return; } // session not ready yet — not an error
+  if (!_stateHydrated) { console.warn('syncToSupabase(): blocked — hydration gate closed'); return; }
   try {
     setSyncStatus('saving');
     const now = new Date().toISOString();
@@ -2490,8 +2495,15 @@ async function syncToSupabase(data) {
 }
 
 let _lastSuccessfulSyncTime = localStorage.getItem('spendly_last_sync') || null;
+// CRITICAL SAFETY GATE: no write to Supabase is allowed until we've confirmed,
+// THIS session, that we've either successfully loaded real cloud data or
+// confirmed (via a clean empty response) that this is a genuinely new account.
+// This prevents an empty/default in-memory state from ever overwriting real
+// cloud data due to a race between sign-out, login, and a stale pending sync timer.
+let _stateHydrated = false;
 
 async function forceSyncToSupabase() {
+  if (!_stateHydrated) { showToast('⚠️ Not ready to sync yet — still loading', 2500); return; }
   const { currentTab, viewingCycleOffset, mortgageCycleOffset, editingExpenseId, editingCatId, ...persistState } = state;
   persistState._savedAt = new Date().toISOString();
   setSyncStatus('saving');
@@ -2602,24 +2614,37 @@ async function resolveConflict(choice) {
   window._conflictServerTs = null;
 }
 
+// Returns { status: 'success', data } | { status: 'empty' } | { status: 'error' }
+// The caller MUST be able to tell a genuine failure apart from a confirmed-new-
+// account, because only a confirmed-empty result should ever be allowed to open
+// the hydration gate that permits writing to Supabase.
 async function loadFromSupabase() {
   const userId = getCurrentUserId();
-  if (!userId) return null;
+  if (!userId) return { status: 'error', reason: 'no-session' };
   setSyncStatus('loading');
   try {
     const res = await fetch(SB_URL + '/rest/v1/spendly_data?user_id=eq.' + userId + '&select=data,updated_at', {
       headers: getAuthHeaders()
     });
-    if (!res.ok) { setSyncStatus('idle'); return null; }
+    if (!res.ok) { setSyncStatus('idle'); return { status: 'error', reason: 'http-' + res.status }; }
     const rows = await res.json();
-    if (!rows || !rows.length || !rows[0].data) { setSyncStatus('idle'); return null; }
+    if (!rows || !rows.length || !rows[0].data) { setSyncStatus('idle'); return { status: 'empty' }; }
     // Store the server timestamp — this is our anchor for conflict detection
     if (rows[0].updated_at) _lastKnownServerTimestamp = rows[0].updated_at;
-    return rows[0].data;
-  } catch(e) { setSyncStatus('idle'); return null; }
+    return { status: 'success', data: rows[0].data };
+  } catch(e) { setSyncStatus('idle'); return { status: 'error', reason: 'exception' }; }
 }
 
 function saveState() {
+  // SAFETY GATE: never schedule a write until this session has confirmed a
+  // successful load from Supabase (or confirmed genuinely-new-user). Without
+  // this, an empty in-memory state (e.g. right after sign-out, or before a
+  // fresh login's data finishes loading) could get pushed to the cloud and
+  // overwrite real data.
+  if (!_stateHydrated) {
+    console.warn('saveState(): blocked — state not yet hydrated from cloud this session');
+    return;
+  }
   // Strip UI-only state that should always reset on load
   const { currentTab, viewingCycleOffset, mortgageCycleOffset, editingExpenseId, editingCatId, ...persistState } = state;
   persistState._savedAt = new Date().toISOString(); // timestamp for conflict detection
@@ -2630,6 +2655,10 @@ function saveState() {
   if (SPENDLY_MODE === 'cloud' && getCurrentUserId()) {
     clearTimeout(syncTimer);
     syncTimer = setTimeout(() => {
+      // Re-check the gate at fire time too — state could have been wiped by a
+      // sign-out that happened after this timer was scheduled but before it fired.
+      if (!_stateHydrated) { console.warn('saveState(): timer fired but hydration gate closed — skipping write'); return; }
+      if (!getCurrentUserId()) { console.warn('saveState(): timer fired but no active session — skipping write'); return; }
       const { currentTab, viewingCycleOffset, mortgageCycleOffset, editingExpenseId, editingCatId, ...latestState } = state;
       latestState._savedAt = new Date().toISOString();
       syncToSupabase(latestState);
@@ -2637,9 +2666,39 @@ function saveState() {
   }
 }
 
+async function loadState() {
+  if (SPENDLY_MODE !== 'cloud') { return; } // cloud mode only — nothing to load otherwise
+
+  const result = await loadFromSupabase();
+
+  if (result.status === 'success') {
+    const cloudData = result.data;
+    state = { ...state, ...cloudData };
+    if (!state.setupDone) { state.setupDone = true; }
+    _stateHydrated = true; // confirmed real data loaded — safe to allow writes now
+    setSyncStatus('saved');
+    setTimeout(() => setSyncStatus('idle'), 2000);
+    return;
+  }
+
+  if (result.status === 'empty') {
+    // Confirmed via a clean response that this account genuinely has no row yet.
+    // Safe to treat as a new user and allow writes from here on.
+    _stateHydrated = true;
+    return;
+  }
+
+  // result.status === 'error' — a genuine failure (network error, bad response,
+  // or session not ready yet). DO NOT set _stateHydrated. Any saveState() call
+  // will be blocked until a load succeeds, so we can never push an empty/partial
+  // state over real cloud data because of a transient failure.
+  setSyncStatus('error');
+}
+
 async function flushSyncNow() {
   // Force immediate sync when app is backgrounded
   if (SPENDLY_MODE !== 'cloud' || !getCurrentUserId()) return;
+  if (!_stateHydrated) { console.warn('flushSyncNow(): blocked — hydration gate closed'); return; }
   // DO NOT clear syncTimer — flushSyncBeacon runs concurrently as primary
   const { currentTab, viewingCycleOffset, mortgageCycleOffset, editingExpenseId, editingCatId, ...persistState } = state;
   persistState._savedAt = new Date().toISOString();
@@ -2659,104 +2718,7 @@ async function flushSyncNow() {
   } catch(e) { /* beacon is the primary — this is the belt */ }
 }
 
-async function loadState() {
-  // In cloud mode — Supabase is ALWAYS the source of truth.
-  // localStorage is a write-through cache only and never overrides Supabase.
-  if (SPENDLY_MODE === 'cloud') {
-    const cloudData = await loadFromSupabase();
-    if (cloudData && typeof cloudData === 'object') {
-      const hasData = cloudData.budget > 0 ||
-        (cloudData.categories && cloudData.categories.length > 0) ||
-        (cloudData.expenses && cloudData.expenses.length > 0) ||
-        (cloudData.savingsCategories && cloudData.savingsCategories.length > 0);
-      if (hasData) {
-        // Always use Supabase data — overwrite localStorage cache with it
-        state = { ...state, ...cloudData };
-        if (!state.setupDone) { state.setupDone = true; }
-        setSyncStatus('saved');
-        setTimeout(() => setSyncStatus('idle'), 2000);
 
-        // ── One-time localStorage recovery ─────────────────────────────────
-        // Check if localStorage has newer data (from when syncs were failing).
-        // If so, show a recovery banner so the user can restore the missing data.
-        try {
-          const STORAGE_KEY_OLD = 'spendly_generic_v1';
-          const BACKUP_KEY_OLD  = 'spendly_backup_v1';
-          const localRaw = localStorage.getItem(STORAGE_KEY_OLD) || localStorage.getItem(BACKUP_KEY_OLD);
-          if (localRaw) {
-            const localData = JSON.parse(localRaw);
-            const cloudExpCount  = (cloudData.expenses || []).length;
-            const localExpCount  = (localData.expenses || []).length;
-            const cloudSavedAt   = cloudData._savedAt || '';
-            const localSavedAt   = localData._savedAt || '';
-            // Local is ahead if it has more expenses OR a strictly newer timestamp
-            if (localExpCount > cloudExpCount || (localSavedAt && localSavedAt > cloudSavedAt)) {
-              window._localRecoveryData = localData;
-              window._localRecoveryMeta = {
-                localExp: localExpCount, cloudExp: cloudExpCount,
-                localDate: localSavedAt ? new Date(localSavedAt).toLocaleDateString('en-AU', {day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}) : 'unknown',
-              };
-              setTimeout(showLocalRecoveryBanner, 1500);
-            }
-          }
-        } catch(e) {}
-
-        return;
-      }
-    }
-    // Supabase returned empty/no data — new user
-    return;
-  }
-  // Cloud mode only — nothing to load from localStorage
-}
-
-
-async function flushSyncNow() {
-  // Force immediate sync when app is backgrounded
-  if (SPENDLY_MODE !== 'cloud' || !getCurrentUserId()) return;
-  // DO NOT clear syncTimer — flushSyncBeacon runs concurrently as primary
-  const { currentTab, viewingCycleOffset, mortgageCycleOffset, editingExpenseId, editingCatId, ...persistState } = state;
-  persistState._savedAt = new Date().toISOString();
-  const userId = getCurrentUserId();
-  const now = persistState._savedAt;
-  try {
-    const res = await fetch(SB_URL + '/rest/v1/spendly_data', {
-      method: 'POST',
-      headers: { ...getAuthHeaders(), 'Prefer': 'resolution=merge-duplicates,return=minimal' },
-      body: JSON.stringify({ id: 'main', user_id: userId, data: persistState, updated_at: now })
-    });
-    if (res.ok) {
-      _lastKnownServerTimestamp = now;
-      _lastSuccessfulSyncTime = now;
-      try { localStorage.setItem('spendly_last_sync', now); } catch(e) {}
-    }
-  } catch(e) { /* beacon is the primary — this is the belt */ }
-}
-
-async function loadState() {
-  // In cloud mode — Supabase is ALWAYS the source of truth.
-  // localStorage is a write-through cache only and never overrides Supabase.
-  if (SPENDLY_MODE === 'cloud') {
-    const cloudData = await loadFromSupabase();
-    if (cloudData && typeof cloudData === 'object') {
-      const hasData = cloudData.budget > 0 ||
-        (cloudData.categories && cloudData.categories.length > 0) ||
-        (cloudData.expenses && cloudData.expenses.length > 0) ||
-        (cloudData.savingsCategories && cloudData.savingsCategories.length > 0);
-      if (hasData) {
-        // Always use Supabase data — overwrite localStorage cache with it
-        state = { ...state, ...cloudData };
-        if (!state.setupDone) { state.setupDone = true; }
-        setSyncStatus('saved');
-        setTimeout(() => setSyncStatus('idle'), 2000);
-        return;
-      }
-    }
-    // Supabase returned empty/no data — new user
-    return;
-  }
-  // Cloud mode only — nothing to load from localStorage
-}
 
 
 
@@ -17753,6 +17715,7 @@ function triggerInactivityLock() {
 // with flushSyncNow as secondary for other platforms.
 function flushSyncBeacon() {
   if (SPENDLY_MODE !== 'cloud' || !getCurrentUserId()) return;
+  if (!_stateHydrated) { console.warn('flushSyncBeacon(): blocked — hydration gate closed'); return; }
   // DO NOT clearTimeout(syncTimer) — let the debounced sync also run as a fallback
   // If the beacon fails, the debounced sync (if still pending) will catch it
   const { currentTab, viewingCycleOffset, mortgageCycleOffset, editingExpenseId, editingCatId, ...persistState } = state;

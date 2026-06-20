@@ -25,6 +25,8 @@ function loadApp(htmlPath) {
   // original binding). We append accessor functions that run INSIDE the context,
   // so external code can reliably get/set the real `state` the app functions use.
   scriptSrc += '\n;function __setState(s) { state = s; }\n;function __getState() { return state; }\n';
+  scriptSrc += '\n;function __setHydrated(v) { _stateHydrated = v; }\n;function __getHydrated() { return _stateHydrated; }\n';
+  scriptSrc += '\n;function __setSession(s) { _sbSession = s; }\n;function __getSession() { return _sbSession; }\n';
 
   const fakeDocument = makeFakeDocument();
   fakeDocument.readyState = 'loading'; // prevents auto-boot (init) from firing
@@ -41,7 +43,8 @@ function loadApp(htmlPath) {
     navigator: {},
     Blob: class FakeBlob { constructor() {} },
     URL: { createObjectURL: () => 'blob:fake', revokeObjectURL: () => {} },
-    fetch: () => Promise.reject(new Error('network disabled in test harness')),
+    fetch: (...args) => { sandbox.__fetchCalls.push(args); return Promise.reject(new Error('network disabled in test harness')); },
+    __fetchCalls: [],
     Math, Date, JSON, Array, Object, String, Number, Boolean, RegExp, Map, Set, Promise,
     isNaN, parseInt, parseFloat, encodeURIComponent, decodeURIComponent,
     addEventListener() {}, removeEventListener() {},
@@ -62,6 +65,16 @@ function loadApp(htmlPath) {
   Object.defineProperty(context, 'state', {
     get() { return context.__getState(); },
     set(v) { context.__setState(v); },
+    configurable: true,
+  });
+  Object.defineProperty(context, '_stateHydrated', {
+    get() { return context.__getHydrated(); },
+    set(v) { context.__setHydrated(v); },
+    configurable: true,
+  });
+  Object.defineProperty(context, '_sbSession', {
+    get() { return context.__getSession(); },
+    set(v) { context.__setSession(v); },
     configurable: true,
   });
 

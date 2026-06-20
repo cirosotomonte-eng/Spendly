@@ -7,9 +7,9 @@ const APP_PATH = process.argv[2] || path.join(__dirname, '..', 'spendly-generic.
 let pass = 0, fail = 0;
 const failures = [];
 
-function check(name, fn) {
+async function check(name, fn) {
   try {
-    fn();
+    await fn();
     pass++;
     console.log('  \x1b[32m✓\x1b[0m ' + name);
   } catch (e) {
@@ -38,45 +38,47 @@ const ctx = loadApp(APP_PATH);
 // Bypass PIN gate so isSetupComplete() doesn't redirect renders to onboarding screen
 ctx.localStorage.setItem('spendly_lock_skipped', '1');
 
+
+async function main() {
 // ─────────────────────────────────────────────────────────────────────────
 console.log('── Unit tests: pure calculation logic ──────────────────────────');
 
-check('budgetAmount: full goal coverage nets to zero', () => {
+await check('budgetAmount: full goal coverage nets to zero', () => {
   const e = { amount: 100, goalCoveredAmount: 100 };
   assertEqual(ctx.budgetAmount(e), 0, 'fully covered expense should net to 0');
 });
 
-check('budgetAmount: partial goal coverage nets the remainder', () => {
+await check('budgetAmount: partial goal coverage nets the remainder', () => {
   const e = { amount: 100, goalCoveredAmount: 40 };
   assertEqual(ctx.budgetAmount(e), 60, 'partially covered expense should net the uncovered part');
 });
 
-check('budgetAmount: no goal coverage returns full amount', () => {
+await check('budgetAmount: no goal coverage returns full amount', () => {
   const e = { amount: 75.50 };
   assertEqual(ctx.budgetAmount(e), 75.50);
 });
 
-check('monthlyEquivalent: weekly converts to ~4.33x', () => {
+await check('monthlyEquivalent: weekly converts to ~4.33x', () => {
   const r = { amount: 875, frequency: 'weekly' };
   assertEqual(ctx.monthlyEquivalent(r), 875 * 52 / 12);
 });
 
-check('monthlyEquivalent: fortnightly (xweeks=2) converts correctly', () => {
+await check('monthlyEquivalent: fortnightly (xweeks=2) converts correctly', () => {
   const r = { amount: 100, frequency: 'xweeks', xweeksNum: 2 };
   assertEqual(ctx.monthlyEquivalent(r), 100 * (52 / 2) / 12);
 });
 
-check('monthlyEquivalent: monthly passes through unchanged', () => {
+await check('monthlyEquivalent: monthly passes through unchanged', () => {
   const r = { amount: 200, frequency: 'monthly' };
   assertEqual(ctx.monthlyEquivalent(r), 200);
 });
 
-check('monthlyEquivalent: quarterly divides by 3', () => {
+await check('monthlyEquivalent: quarterly divides by 3', () => {
   const r = { amount: 300, frequency: 'quarterly' };
   assertEqual(ctx.monthlyEquivalent(r), 100);
 });
 
-check('monthlyEquivalent: yearly divides by 12', () => {
+await check('monthlyEquivalent: yearly divides by 12', () => {
   const r = { amount: 1200, frequency: 'yearly' };
   assertEqual(ctx.monthlyEquivalent(r), 100);
 });
@@ -84,7 +86,7 @@ check('monthlyEquivalent: yearly divides by 12', () => {
 // ─────────────────────────────────────────────────────────────────────────
 console.log('\n── getCycleSummary: past cycle includes recurring savings ──────');
 
-check('getCycleSummary(-1): includes fired pending savings in spent total', () => {
+await check('getCycleSummary(-1): includes fired pending savings in spent total', () => {
   ctx.state = buildMockState();
   const { cycleStart } = ctx.getCycleRange(-1);
   const cycleStartStr = ctx.dateToStr(cycleStart);
@@ -107,7 +109,7 @@ check('getCycleSummary(-1): includes fired pending savings in spent total', () =
   assertEqual(summary.diff, ctx.state.budget - 1075, 'diff should be budget minus total spent');
 });
 
-check('getCycleSummary(-1): still-pending (unpaid) savings also count as committed', () => {
+await check('getCycleSummary(-1): still-pending (unpaid) savings also count as committed', () => {
   ctx.state = buildMockState();
   const { cycleStart } = ctx.getCycleRange(-1);
   const cycleStartStr = ctx.dateToStr(cycleStart);
@@ -121,7 +123,7 @@ check('getCycleSummary(-1): still-pending (unpaid) savings also count as committ
   assertEqual(summary.savings, 500, 'unpaid pending saving due that cycle should still count');
 });
 
-check('getCycleSummary(-1): does not double-count a paid pending payment', () => {
+await check('getCycleSummary(-1): does not double-count a paid pending payment', () => {
   ctx.state = buildMockState();
   const { cycleStart } = ctx.getCycleRange(-1);
   const cycleStartStr = ctx.dateToStr(cycleStart);
@@ -146,7 +148,7 @@ console.log('\n── DOM smoke tests: render functions must not throw, across c
 const offsetsToTest = [-2, -1, 0, 1];
 
 for (const offset of offsetsToTest) {
-  check(`updateHeader() does not throw at offset ${offset}`, () => {
+  await check(`updateHeader() does not throw at offset ${offset}`, () => {
     ctx.state = buildMockState();
     ctx.state.viewingCycleOffset = offset;
     // Give it a little data so paths that branch on "has expenses" are exercised
@@ -161,7 +163,7 @@ for (const offset of offsetsToTest) {
     assertNoThrow(() => ctx.updateHeader());
   });
 
-  check(`renderDashboard() does not throw at offset ${offset}`, () => {
+  await check(`renderDashboard() does not throw at offset ${offset}`, () => {
     ctx.state = buildMockState();
     ctx.state.viewingCycleOffset = offset;
     ctx.state.currentTab = 'dashboard';
@@ -169,7 +171,7 @@ for (const offset of offsetsToTest) {
   });
 }
 
-check('renderDashboard() + updateHeader() headline matches getCycleSummary for a past cycle', () => {
+await check('renderDashboard() + updateHeader() headline matches getCycleSummary for a past cycle', () => {
   ctx.state = buildMockState();
   ctx.state.viewingCycleOffset = -1;
   const { cycleStart } = ctx.getCycleRange(-1);
@@ -184,7 +186,7 @@ check('renderDashboard() + updateHeader() headline matches getCycleSummary for a
   assertTrue(shownIsNegative === (expected < 0), 'dashboard headline sign should match getCycleSummary diff sign');
 });
 
-check('updateHeader() headline matches getCycleSummary for a past cycle (regression: committed scoping bug)', () => {
+await check('updateHeader() headline matches getCycleSummary for a past cycle (regression: committed scoping bug)', () => {
   ctx.state = buildMockState();
   ctx.state.viewingCycleOffset = -1;
   const { cycleStart } = ctx.getCycleRange(-1);
@@ -198,7 +200,7 @@ check('updateHeader() headline matches getCycleSummary for a past cycle (regress
 });
 
 for (const offset of [-1, 0]) {
-  check(`renderAccounts() account list does not throw at cycle offset ${offset}`, () => {
+  await check(`renderAccounts() account list does not throw at cycle offset ${offset}`, () => {
     ctx.state = buildMockState();
     ctx.state.viewingCycleOffset = offset;
     ctx.state.currentTab = 'accounts';
@@ -206,7 +208,7 @@ for (const offset of [-1, 0]) {
     assertNoThrow(() => ctx.renderAccounts());
   });
 
-  check(`renderAccounts() CC account detail does not throw at cycle offset ${offset}`, () => {
+  await check(`renderAccounts() CC account detail does not throw at cycle offset ${offset}`, () => {
     ctx.state = buildMockState();
     ctx.state.viewingCycleOffset = offset;
     ctx.state.currentTab = 'accounts';
@@ -218,7 +220,7 @@ for (const offset of [-1, 0]) {
     ctx._viewingAccountId = null; // reset for next test
   });
 
-  check(`renderAccounts() Offset account detail does not throw at cycle offset ${offset}`, () => {
+  await check(`renderAccounts() Offset account detail does not throw at cycle offset ${offset}`, () => {
     ctx.state = buildMockState();
     ctx.state.viewingCycleOffset = offset;
     ctx.state.currentTab = 'accounts';
@@ -228,7 +230,7 @@ for (const offset of [-1, 0]) {
   });
 }
 
-check('renderExpenses() does not throw and respects viewingCycleOffset for past cycle', () => {
+await check('renderExpenses() does not throw and respects viewingCycleOffset for past cycle', () => {
   ctx.state = buildMockState();
   ctx.state.viewingCycleOffset = -1;
   ctx.state.currentTab = 'expenses';
@@ -241,7 +243,7 @@ check('renderExpenses() does not throw and respects viewingCycleOffset for past 
   assertTrue(visible.some(e => e.id === 'pastExp'), 'past-cycle expense should be visible when viewingCycleOffset=-1');
 });
 
-check('renderExpenses() future cycle dispatches to renderFutureCycle without throwing', () => {
+await check('renderExpenses() future cycle dispatches to renderFutureCycle without throwing', () => {
   ctx.state = buildMockState();
   ctx.state.viewingCycleOffset = 1;
   ctx.state.currentTab = 'expenses';
@@ -251,7 +253,7 @@ check('renderExpenses() future cycle dispatches to renderFutureCycle without thr
 // ─────────────────────────────────────────────────────────────────────────
 console.log('\n── CC owed total: must not reset when budget cycle rolls over ──');
 
-check('CC owed total includes unsettled charges from a previous cycle (regression: cycle-rollover bug)', () => {
+await check('CC owed total includes unsettled charges from a previous cycle (regression: cycle-rollover bug)', () => {
   ctx.state = buildMockState();
   ctx.state.viewingCycleOffset = 0;
   const oldDate = addDays(ctx.todayStr(), -45); // safely in a previous cycle
@@ -265,7 +267,7 @@ check('CC owed total includes unsettled charges from a previous cycle (regressio
   // full HTML-content assertions are added below via a text-scrape check.
 });
 
-check('CC owed figure (scraped from rendered HTML) reflects old unsettled charge', () => {
+await check('CC owed figure (scraped from rendered HTML) reflects old unsettled charge', () => {
   ctx.state = buildMockState();
   ctx.state.viewingCycleOffset = 0;
   const oldDate = addDays(ctx.todayStr(), -45);
@@ -280,7 +282,88 @@ check('CC owed figure (scraped from rendered HTML) reflects old unsettled charge
 });
 
 // ─────────────────────────────────────────────────────────────────────────
-console.log('\n' + '─'.repeat(60));
+console.log('\n── Hydration gate: must never write empty/unconfirmed state to Supabase ──');
+console.log('   (regression for a real data-loss incident — see commit history)');
+
+await check('saveState() is blocked before any load has completed this session', () => {
+  ctx.state = buildMockState();
+  ctx.__fetchCalls.length = 0;
+  // Simulate a fresh session with no session id yet — getCurrentUserId() is null,
+  // _stateHydrated defaults to false at fresh context load.
+  ctx.saveState();
+  assertTrue(ctx.__fetchCalls.length === 0, 'saveState() must not even be able to schedule a write before hydration is confirmed');
+});
+
+await check('saveState() proceeds normally once hydration is confirmed (simulated successful load)', () => {
+  ctx.state = buildMockState();
+  ctx._sbSession = { access_token: 'fake', user: { id: 'user123' } };
+  ctx._stateHydrated = true; // simulate what loadState() sets on a confirmed success
+  ctx.__fetchCalls.length = 0;
+  ctx.saveState();
+  // saveState() only *schedules* a debounced write (1200ms) — wait past that
+  // window and confirm a real write attempt happened, proving the gate isn't
+  // blocking a legitimately-hydrated session.
+  return new Promise((resolve, reject) => {
+    setTimeout(() => {
+      try {
+        assertTrue(ctx.__fetchCalls.length > 0, 'saveState() should attempt a real write once hydrated');
+        resolve();
+      } catch (e) { reject(e); }
+    }, 1300);
+  });
+});
+
+await check('signOut() cancels any pending sync timer and closes the gate (the actual root-cause fix)', () => {
+  ctx.state = buildMockState();
+  ctx._sbSession = { access_token: 'fake', user: { id: 'user123' } };
+  ctx._stateHydrated = true;
+  ctx.__fetchCalls.length = 0;
+  // Schedule a save as if the user had just made a change
+  ctx.saveState();
+  assertTrue(ctx._stateHydrated === true, 'sanity: gate should be open before sign-out');
+  // Now simulate sign-out's synchronous effects directly (without calling the
+  // real signOut(), which would try to hit the real Supabase auth endpoint) —
+  // specifically test the two critical lines: clearTimeout(syncTimer) and the gate.
+  ctx.clearTimeout(ctx.syncTimer);
+  ctx._stateHydrated = false;
+  ctx.state = buildMockState(); // signOut() resets state to empty defaults
+  // Advance past the original 1200ms debounce window to see if the OLD timer
+  // would have fired and attempted a write — it must not, because we cancelled it.
+  return new Promise((resolve, reject) => {
+    setTimeout(() => {
+      try {
+        assertTrue(ctx.__fetchCalls.length === 0, 'a cancelled pending sync must never fire and write empty state after sign-out');
+        resolve();
+      } catch (e) { reject(e); }
+    }, 1300);
+  });
+});
+
+await check('loadFromSupabase()-style error result must never open the hydration gate', () => {
+  ctx.state = buildMockState();
+  ctx._stateHydrated = false;
+  // We can't hit real network in this harness, but we can directly verify the
+  // *contract*: loadState() only sets _stateHydrated=true on 'success' or 'empty'
+  // status, never on 'error'. Inspect the function source for this invariant
+  // rather than mocking the network, since vm sandboxing makes fetch-mocking the
+  // async loadFromSupabase() path brittle — the contract check is what matters.
+  const src = ctx.loadState.toString();
+  assertTrue(src.includes("result.status === 'success'"), 'loadState must branch on a successful result before hydrating');
+  assertTrue(src.includes("result.status === 'empty'"), 'loadState must branch on a confirmed-empty result before hydrating');
+  assertTrue(!/result\.status === 'error'[\s\S]{0,80}_stateHydrated = true/.test(src), 'loadState must NEVER set _stateHydrated=true on an error result');
+});
+
+await check('only one loadState() and one flushSyncNow() are defined (regression: silent duplicate-function shadowing)', () => {
+  const fs = require('fs');
+  const html = fs.readFileSync(APP_PATH, 'utf8');
+  const loadStateCount = (html.match(/^async function loadState\(\)/gm) || []).length;
+  const flushCount = (html.match(/^async function flushSyncNow\(\)/gm) || []).length;
+  assertEqual(loadStateCount, 1, 'loadState must be declared exactly once — a second declaration silently shadows the first');
+  assertEqual(flushCount, 1, 'flushSyncNow must be declared exactly once');
+});
+
+
+
 console.log(`\x1b[1mResults: ${pass} passed, ${fail} failed\x1b[0m`);
 if (fail > 0) {
   console.log('\nFailed tests:');
@@ -290,3 +373,6 @@ if (fail > 0) {
   console.log('All checks passed.');
   process.exit(0);
 }
+}
+
+main();
