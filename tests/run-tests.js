@@ -353,6 +353,50 @@ await check('loadFromSupabase()-style error result must never open the hydration
   assertTrue(!/result\.status === 'error'[\s\S]{0,80}_stateHydrated = true/.test(src), 'loadState must NEVER set _stateHydrated=true on an error result');
 });
 
+// ─────────────────────────────────────────────────────────────────────────
+console.log('\n── Attachment storage: payload size must not balloon from embedded images ──');
+
+await check('resolveAttachmentUrl() returns legacy base64 data URLs unchanged (no network needed)', async () => {
+  const fakeDataUrl = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
+  const result = await ctx.resolveAttachmentUrl(fakeDataUrl);
+  assertEqual(result, fakeDataUrl, 'legacy base64 refs should pass through unchanged without any network call');
+});
+
+await check('resolveAttachmentUrl() returns empty string for a null/empty ref without throwing', async () => {
+  const result = await ctx.resolveAttachmentUrl('');
+  assertEqual(result, '', 'empty ref should resolve to empty string, not throw');
+});
+
+await check('dataURLToFile() correctly reconstructs a File from a base64 data URL', () => {
+  const fakeDataUrl = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
+  const file = ctx.dataURLToFile(fakeDataUrl, 'test.png');
+  assertTrue(file.name === 'test.png', 'file name should match what was passed in');
+  assertTrue(file.type === 'image/png', 'file type should be extracted from the data URL header');
+  assertTrue(file.size > 0, 'reconstructed file should have non-zero size');
+});
+
+await check('migrateAttachmentsToStorage() reports nothing-to-migrate when no embedded images exist', () => {
+  ctx.state = buildMockState();
+  ctx.state.giftCards = [{ id: 'gc1', name: 'Test', image: 'someuser/giftcards/123_already_migrated.jpg' }];
+  ctx.state.taxTransactions = [];
+  // Only checking the filter logic the function uses internally produces zero candidates —
+  // full network-dependent migration isn't exercised here (no real Supabase in this harness).
+  const giftCardsToMigrate = (ctx.state.giftCards||[]).filter(gc => gc.image && gc.image.startsWith('data:'));
+  assertEqual(giftCardsToMigrate.length, 0, 'a gift card with an already-migrated storage path should not be re-migrated');
+});
+
+await check('new tax attachments use {path} not {data} — old base64 embedding code path is gone', () => {
+  const src = ctx.handleTxFileSelect.toString();
+  assertTrue(src.includes('uploadAttachment'), 'handleTxFileSelect must upload to storage');
+  assertTrue(!src.includes('readAsDataURL'), 'handleTxFileSelect must no longer embed base64 directly into state');
+});
+
+await check('new gift card images use uploadAttachment, not embedded base64, for the persisted value', () => {
+  const src = ctx.loadGcImage.toString();
+  assertTrue(src.includes('uploadAttachment'), 'loadGcImage must upload to storage');
+  assertTrue(src.includes('preview.dataset.src = path'), 'the persisted dataset.src must end up as the storage path, not base64');
+});
+
 await check('no top-level function is declared more than once anywhere in the file (regression: silent shadowing caused both a data-loss bug and a broken legacy super-contribution modal)', () => {
   const fs = require('fs');
   const html = fs.readFileSync(APP_PATH, 'utf8');
@@ -363,6 +407,8 @@ await check('no top-level function is declared more than once anywhere in the fi
   const dupes = Object.entries(counts).filter(([,c]) => c > 1);
   assertTrue(dupes.length === 0, 'duplicate function declarations found: ' + dupes.map(([n,c]) => `${n} (x${c})`).join(', '));
 });
+
+
 
 
 

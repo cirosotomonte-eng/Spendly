@@ -41,13 +41,16 @@ function loadApp(htmlPath) {
     localStorage: makeFakeStorage(),
     sessionStorage: makeFakeStorage(),
     navigator: {},
-    Blob: class FakeBlob { constructor() {} },
+    Blob: globalThis.Blob,
+    File: globalThis.File,
     URL: { createObjectURL: () => 'blob:fake', revokeObjectURL: () => {} },
     fetch: (...args) => { sandbox.__fetchCalls.push(args); return Promise.reject(new Error('network disabled in test harness')); },
     __fetchCalls: [],
     Math, Date, JSON, Array, Object, String, Number, Boolean, RegExp, Map, Set, Promise,
     isNaN, parseInt, parseFloat, encodeURIComponent, decodeURIComponent,
     addEventListener() {}, removeEventListener() {},
+    atob: (s) => Buffer.from(s, 'base64').toString('binary'),
+    btoa: (s) => Buffer.from(s, 'binary').toString('base64'),
   };
   sandbox.window = sandbox; // classic-script global aliasing
 

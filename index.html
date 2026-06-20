@@ -1022,6 +1022,20 @@ async function applyUpdate() {
       </div>
     </div>
 
+    <!-- ── Move attachments to cloud storage ──────────────── -->
+    <div class="settings-group" style="margin-top:8px">
+      <div class="settings-row" style="cursor:default;flex-direction:column;align-items:flex-start;gap:6px">
+        <div style="display:flex;align-items:center;gap:8px;width:100%">
+          <span style="font-size:20px;flex-shrink:0;width:24px;text-align:center">🗂️</span>
+          <div style="flex:1">
+            <div style="font-size:15px;font-weight:500">Move images to cloud storage</div>
+            <div style="font-size:12px;color:var(--muted);margin-top:1px">Shrinks sync size — moves receipt &amp; gift card images out of your data file</div>
+          </div>
+          <button onclick="migrateAttachmentsToStorage()" style="background:var(--accent-dim);border:1.5px solid var(--accent);border-radius:10px;padding:7px 14px;font-size:12px;font-weight:700;color:var(--accent);font-family:var(--font);cursor:pointer;white-space:nowrap">Migrate</button>
+        </div>
+      </div>
+    </div>
+
     <!-- ── Sign out ───────────────────────────────────────── -->
     <div id="signOutBtn" class="settings-group" style="margin-top:8px">
       <div class="settings-row" onclick="signOut()">
@@ -2080,9 +2094,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.5.99';
+const APP_VERSION = '2.6.0';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '20 Jun 2026 4:27 PM AEDT';
+const BUILD_TIME = '20 Jun 2026 5:28 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -11064,6 +11078,115 @@ function updateMgWhatIf(extraAmt) {
 const TAX_EMOJIS = ['🏠','🚗','💻','📱','📚','✈️','🩺','💼','📋','🖨️','📡','🔧','🎓','☕','📞','⚡','🌐','🖥️','🧾','💊'];
 
 let editingTaxCatId = null, editingTaxTxId = null, taxReceiptChecked = false;
+// ── Supabase Storage — attachments (tax receipts, gift card images) ──────────
+// Files are stored under {user_id}/{folder}/{timestamp}_{filename} in the
+// private 'spendly-attachments' bucket. We never embed file bytes in the main
+// JSON state — only this small path string — to keep sync payloads small.
+const ATTACH_BUCKET = 'spendly-attachments';
+
+async function uploadAttachment(file, folder) {
+  const userId = getCurrentUserId();
+  if (!userId) throw new Error('Not logged in');
+  const safeName = file.name.replace(/[^a-zA-Z0-9_.-]/g, '_');
+  const path = userId + '/' + folder + '/' + Date.now() + '_' + safeName;
+  const res = await fetch(SB_URL + '/storage/v1/object/' + ATTACH_BUCKET + '/' + path, {
+    method: 'POST',
+    headers: {
+      'Authorization': 'Bearer ' + (_sbSession ? _sbSession.access_token : SB_KEY),
+      'apikey': SB_KEY,
+      'Content-Type': file.type || 'application/octet-stream',
+    },
+    body: file,
+  });
+  if (!res.ok) throw new Error('Upload failed (' + res.status + ')');
+  return path;
+}
+
+// Resolves either a legacy base64 data URL (old embedded images) or a new
+// storage path into something displayable as an <img src> or download href.
+// Returns '' on failure rather than throwing, so callers can show a fallback.
+async function resolveAttachmentUrl(ref) {
+  if (!ref) return '';
+  if (ref.startsWith('data:')) return ref; // legacy embedded base64 — already usable directly
+  try {
+    const res = await fetch(SB_URL + '/storage/v1/object/' + ATTACH_BUCKET + '/' + ref, {
+      headers: {
+        'Authorization': 'Bearer ' + (_sbSession ? _sbSession.access_token : SB_KEY),
+        'apikey': SB_KEY,
+      }
+    });
+    if (!res.ok) return '';
+    const blob = await res.blob();
+    return URL.createObjectURL(blob);
+  } catch(e) { return ''; }
+}
+
+async function deleteAttachment(ref) {
+  if (!ref || ref.startsWith('data:')) return; // nothing to delete in storage for legacy embedded images
+  try {
+    await fetch(SB_URL + '/storage/v1/object/' + ATTACH_BUCKET + '/' + ref, {
+      method: 'DELETE',
+      headers: {
+        'Authorization': 'Bearer ' + (_sbSession ? _sbSession.access_token : SB_KEY),
+        'apikey': SB_KEY,
+      }
+    });
+  } catch(e) { /* best-effort cleanup, not critical */ }
+}
+
+// ── One-time migration: move existing embedded base64 images to storage ─────
+function dataURLToFile(dataUrl, filename) {
+  const [header, base64] = dataUrl.split(',');
+  const mimeMatch = header.match(/data:([^;]+);/);
+  const mime = mimeMatch ? mimeMatch[1] : 'application/octet-stream';
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return new File([bytes], filename, { type: mime });
+}
+
+async function migrateAttachmentsToStorage() {
+  if (!getCurrentUserId()) { showToast('❌ Not logged in', 2000); return; }
+  const giftCardsToMigrate = (state.giftCards||[]).filter(gc => gc.image && gc.image.startsWith('data:'));
+  const taxToMigrate = (state.taxTransactions||[]).filter(t => t.attachment && t.attachment.data && t.attachment.data.startsWith('data:'));
+  const total = giftCardsToMigrate.length + taxToMigrate.length;
+
+  if (total === 0) { showToast('✅ Nothing to migrate — already using cloud storage', 3000); return; }
+
+  showToast('📦 Migrating ' + total + ' image' + (total!==1?'s':'') + ' to cloud storage…', 4000);
+  let migrated = 0, failed = 0;
+
+  for (const gc of giftCardsToMigrate) {
+    try {
+      const file = dataURLToFile(gc.image, 'giftcard_' + gc.id + '.jpg');
+      const path = await uploadAttachment(file, 'giftcards');
+      gc.image = path; // replace the giant base64 string with a small path
+      migrated++;
+    } catch(e) { failed++; }
+  }
+
+  for (const t of taxToMigrate) {
+    try {
+      const file = dataURLToFile(t.attachment.data, t.attachment.name || ('receipt_' + t.id));
+      const path = await uploadAttachment(file, 'tax');
+      t.attachment = { name: t.attachment.name, type: t.attachment.type, path, size: t.attachment.size };
+      migrated++;
+    } catch(e) { failed++; }
+  }
+
+  if (migrated > 0) {
+    saveState();
+    setTimeout(() => forceSyncToSupabase(), 200); // push the now-much-smaller payload promptly
+  }
+  renderContent();
+
+  if (failed === 0) {
+    showToast('✅ Migrated ' + migrated + ' image' + (migrated!==1?'s':'') + ' to cloud storage', 4000);
+  } else {
+    showToast('⚠️ Migrated ' + migrated + ', ' + failed + ' failed (still embedded — try again later)', 4500);
+  }
+}
+
 let txCurrentAttachment = null; // { name, type, data (base64), size }
 
 function renderTxAttachmentArea() {
@@ -11074,14 +11197,16 @@ function renderTxAttachmentArea() {
     const isImage = att.type && att.type.startsWith('image/');
     const isPdf = att.type === 'application/pdf';
     const sizeKb = att.size ? (att.size / 1024).toFixed(0) + ' KB' : '';
+    const ref = att.path || att.data; // new (storage path) or legacy (base64)
+    const imgId = 'txAttImg_' + Date.now();
     area.innerHTML =
       '<div style="background:var(--surface2);border-radius:10px;padding:12px 14px;margin-bottom:14px">' +
-        (isImage ? '<img src="' + att.data + '" style="width:100%;max-height:160px;object-fit:contain;border-radius:6px;margin-bottom:8px">' : '') +
+        (isImage ? '<img id="' + imgId + '" src="" style="width:100%;max-height:160px;object-fit:contain;border-radius:6px;margin-bottom:8px;background:var(--surface3)">' : '') +
         '<div style="display:flex;align-items:center;gap:8px;justify-content:space-between">' +
           '<div style="display:flex;align-items:center;gap:8px;min-width:0">' +
             '<span style="font-size:20px">' + (isPdf ? '📄' : isImage ? '🖼️' : '📎') + '</span>' +
             '<div style="min-width:0"><div style="font-size:13px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + att.name + '</div>' +
-            '<div style="font-size:11px;color:var(--muted)">' + sizeKb + '</div></div>' +
+            '<div style="font-size:11px;color:var(--muted)">' + sizeKb + (att._uploading ? ' · uploading…' : '') + '</div></div>' +
           '</div>' +
           '<div style="display:flex;gap:6px;flex-shrink:0">' +
             '<button onclick="downloadTxAttachment()" style="background:var(--accent-dim);border:none;border-radius:8px;padding:6px 10px;font-size:11px;font-weight:600;color:var(--accent);cursor:pointer;font-family:var(--font)">↓ Save</button>' +
@@ -11089,6 +11214,12 @@ function renderTxAttachmentArea() {
           '</div>' +
         '</div>' +
       '</div>';
+    if (isImage && ref) {
+      resolveAttachmentUrl(ref).then(url => {
+        const img = document.getElementById(imgId);
+        if (img && url) img.src = url;
+      });
+    }
   } else {
     area.innerHTML =
       '<div onclick="triggerTxFileInput()" style="border:2px dashed var(--border);border-radius:10px;padding:16px;text-align:center;cursor:pointer;margin-bottom:14px;transition:border-color 0.15s" ' +
@@ -11106,7 +11237,7 @@ function triggerTxFileInput() {
   if (inp) inp.click();
 }
 
-function handleTxFileSelect(input) {
+async function handleTxFileSelect(input) {
   const file = input.files[0];
   if (!file) return;
   const maxSize = 5 * 1024 * 1024; // 5MB
@@ -11114,23 +11245,35 @@ function handleTxFileSelect(input) {
     alert('File is too large. Please choose a file under 5 MB.');
     return;
   }
-  const reader = new FileReader();
-  reader.onload = e => {
-    txCurrentAttachment = { name: file.name, type: file.type, data: e.target.result, size: file.size };
+  // Show an immediate "uploading" placeholder so the UI doesn't feel stuck
+  txCurrentAttachment = { name: file.name, type: file.type, size: file.size, _uploading: true };
+  renderTxAttachmentArea();
+  try {
+    const path = await uploadAttachment(file, 'tax');
+    txCurrentAttachment = { name: file.name, type: file.type, path, size: file.size };
     renderTxAttachmentArea();
-  };
-  reader.readAsDataURL(file);
+  } catch(e) {
+    txCurrentAttachment = null;
+    renderTxAttachmentArea();
+    showToast('❌ Upload failed — check your connection and try again', 3500);
+  }
 }
 
 function removeTxAttachment() {
+  if (txCurrentAttachment && txCurrentAttachment.path) {
+    deleteAttachment(txCurrentAttachment.path); // best-effort cleanup, fire-and-forget
+  }
   txCurrentAttachment = null;
   renderTxAttachmentArea();
 }
 
-function downloadTxAttachment() {
+async function downloadTxAttachment() {
   if (!txCurrentAttachment) return;
+  const ref = txCurrentAttachment.path || txCurrentAttachment.data;
+  const url = await resolveAttachmentUrl(ref);
+  if (!url) { showToast('❌ Could not load attachment', 2500); return; }
   const a = document.createElement('a');
-  a.href = txCurrentAttachment.data;
+  a.href = url;
   a.download = txCurrentAttachment.name;
   a.click();
 }
@@ -13067,19 +13210,41 @@ function setGcUsage(usage) {
   });
 }
 
+let _gcImageUploading = false;
 function loadGcImage(evt) {
   const file = evt.target.files[0]; if (!file) return;
   const reader = new FileReader();
   reader.onload = e => {
+    // Show an instant local preview for snappy UX while the real upload happens
     const preview = document.getElementById('gcImagePreview');
     preview.style.display = 'block';
-    preview.innerHTML = '<img src="' + e.target.result + '" style="width:100%;object-fit:cover;border-radius:10px;max-height:160px">';
-    preview.dataset.src = e.target.result;
+    preview.innerHTML = '<img src="' + e.target.result + '" style="width:100%;object-fit:cover;border-radius:10px;max-height:160px;opacity:0.6">' +
+      '<div style="font-size:11px;color:var(--muted);margin-top:4px">Uploading…</div>';
+    preview.dataset.src = ''; // not persisted until upload completes
   };
   reader.readAsDataURL(file);
+
+  // Real upload — only the small storage path gets persisted into state,
+  // never the raw image bytes, to keep sync payloads small.
+  _gcImageUploading = true;
+  uploadAttachment(file, 'giftcards').then(path => {
+    _gcImageUploading = false;
+    const preview = document.getElementById('gcImagePreview');
+    if (!preview) return; // modal closed before upload finished
+    preview.dataset.src = path;
+    resolveAttachmentUrl(path).then(url => {
+      if (url) preview.innerHTML = '<img src="' + url + '" style="width:100%;object-fit:cover;border-radius:10px;max-height:160px">';
+    });
+  }).catch(() => {
+    _gcImageUploading = false;
+    showToast('❌ Image upload failed — check your connection and try again', 3500);
+    const preview = document.getElementById('gcImagePreview');
+    if (preview) { preview.style.display = 'none'; preview.dataset.src = ''; }
+  });
 }
 
 function openAddGiftCard() {
+  _gcImageUploading = false;
   editingGcId = null;
   document.getElementById('gcModalTitle').textContent = 'New card';
   document.getElementById('gcName').value = '';
@@ -13101,6 +13266,7 @@ function openAddGiftCard() {
 }
 
 function openEditGiftCard(id) {
+  _gcImageUploading = false;
   const gc = gcById(id); if (!gc) return;
   editingGcId = id;
   document.getElementById('gcModalTitle').textContent = 'Edit card';
@@ -13118,8 +13284,13 @@ function openEditGiftCard(id) {
   const preview = document.getElementById('gcImagePreview');
   if (gc.image) {
     preview.style.display = 'block';
-    preview.innerHTML = '<img src="' + gc.image + '" style="width:100%;object-fit:cover;border-radius:10px;max-height:160px">';
+    preview.innerHTML = '<div style="width:100%;height:160px;border-radius:10px;background:var(--surface3)"></div>';
     preview.dataset.src = gc.image;
+    resolveAttachmentUrl(gc.image).then(url => {
+      if (url && preview.dataset.src === gc.image) {
+        preview.innerHTML = '<img src="' + url + '" style="width:100%;object-fit:cover;border-radius:10px;max-height:160px">';
+      }
+    });
   } else {
     preview.style.display = 'none';
     preview.dataset.src = '';
@@ -13129,6 +13300,7 @@ function openEditGiftCard(id) {
 }
 
 function saveGiftCard() {
+  if (_gcImageUploading) { showToast('⏳ Image still uploading — try again in a moment', 2500); return; }
   const name = document.getElementById('gcName').value.trim();
   if (!name) return;
   const balance = parseFloat(document.getElementById('gcBalance').value) || 0;
@@ -13239,11 +13411,22 @@ function viewGcImage(id) {
         '<svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M1 1l10 10M11 1L1 11" stroke="white" stroke-width="1.8" stroke-linecap="round"/></svg> Close' +
       '</button>' +
     '</div>' +
-    '<img src="' + gc.image + '" style="max-width:100%;max-height:100%;object-fit:contain;user-select:none" draggable="false">';
+    '<div style="color:#fff;font-size:13px">Loading…</div>';
   // Close on background tap
   viewer.addEventListener('click', e => { if (e.target === viewer) closeGcImageViewer(); });
   document.body.appendChild(viewer);
   requestAnimationFrame(() => { viewer.style.opacity = '1'; });
+  resolveAttachmentUrl(gc.image).then(url => {
+    const v = document.getElementById('gcImageViewer');
+    if (!v) return; // closed before it loaded
+    if (!url) { v.querySelector('div[style*="font-size:13px"]').textContent = 'Could not load image'; return; }
+    const img = document.createElement('img');
+    img.src = url;
+    img.style.cssText = 'max-width:100%;max-height:100%;object-fit:contain;user-select:none';
+    img.draggable = false;
+    const loadingDiv = v.querySelector('div[style*="font-size:13px"]');
+    if (loadingDiv) loadingDiv.replaceWith(img);
+  });
 }
 
 function closeGcImageViewer() {
