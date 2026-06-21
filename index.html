@@ -2094,9 +2094,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.6.1';
+const APP_VERSION = '2.6.2';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '20 Jun 2026 6:25 PM AEDT';
+const BUILD_TIME = '21 Jun 2026 6:21 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -11783,7 +11783,13 @@ let recOriginalSnapshot = null; // snapshot of record when editing opens
 
 function cancelRecurring() {
   closeModal('recurringModal');
-  setTimeout(() => openRecurringList(), 50);
+  // Mirror the same check saveRecurring()/deleteRecurring() already use: only
+  // (re)open the recurringListModal bottom sheet when the user isn't already
+  // looking at the inline Recurring pane — otherwise that pane is already
+  // visible underneath and opening the modal again stacks a duplicate on top.
+  if (_expensesSubTab !== 'recurring') {
+    setTimeout(() => openRecurringList(), 50);
+  }
 }
 
 function getRecCurrentSnapshot() {

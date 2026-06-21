@@ -444,6 +444,11 @@ await check('signOut() clears the sync retry timer and resets the failure counte
   assertTrue(src.includes('_consecutiveSyncFailures = 0'), 'signOut must reset the failure counter');
 });
 
+await check('cancelRecurring() does not duplicate the list modal when already on the inline Recurring pane', () => {
+  const src = ctx.cancelRecurring.toString();
+  assertTrue(src.includes("_expensesSubTab !== 'recurring'"), 'cancelRecurring must check the active subtab before reopening the list modal');
+});
+
 await check('no top-level function is declared more than once anywhere in the file (regression: silent shadowing caused both a data-loss bug and a broken legacy super-contribution modal)', () => {
   const fs = require('fs');
   const html = fs.readFileSync(APP_PATH, 'utf8');
@@ -454,6 +459,8 @@ await check('no top-level function is declared more than once anywhere in the fi
   const dupes = Object.entries(counts).filter(([,c]) => c > 1);
   assertTrue(dupes.length === 0, 'duplicate function declarations found: ' + dupes.map(([n,c]) => `${n} (x${c})`).join(', '));
 });
+
+
 
 
 
