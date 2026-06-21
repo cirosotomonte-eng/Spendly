@@ -2094,9 +2094,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.6.2';
+const APP_VERSION = '2.6.3';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '21 Jun 2026 6:21 PM AEDT';
+const BUILD_TIME = '21 Jun 2026 6:35 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -2381,6 +2381,7 @@ async function signOut() {
   clearTimeout(syncTimer);
   clearTimeout(_syncRetryTimer);
   _consecutiveSyncFailures = 0;
+  _hasUnsyncedChanges = false;
   hideSyncTroubleBanner();
   _stateHydrated = false;
   await getSB().auth.signOut();
@@ -2451,6 +2452,42 @@ async function syncToSupabase(data) {
   await attemptSyncWithRetry(data);
 }
 
+// ── Conflict detection ────────────────────────────────────────────────────────
+// Lightweight check (tiny GET, just the timestamp column) run before every
+// write. If the server's updated_at is newer than what THIS session last
+// knew about, someone else (another device, another tab) has written since
+// we last synced — writing now would silently destroy their changes.
+async function checkForSyncConflict() {
+  const userId = getCurrentUserId();
+  if (!userId) return false;
+  try {
+    const res = await fetch(SB_URL + '/rest/v1/spendly_data?user_id=eq.' + userId + '&select=updated_at', {
+      headers: getAuthHeaders()
+    });
+    if (!res.ok) return false; // can't check — fail open rather than blocking saves entirely on a flaky network
+    const rows = await res.json();
+    if (!rows || !rows.length || !rows[0].updated_at) return false;
+    const serverTs = rows[0].updated_at;
+    if (!_lastKnownServerTimestamp) return false; // nothing to compare against yet
+    return serverTs > _lastKnownServerTimestamp;
+  } catch(e) {
+    return false; // fail open — a failed conflict check shouldn't block legitimate saves
+  }
+}
+
+async function onSyncConflictDetected() {
+  console.warn('Sync conflict detected — another session wrote more recent data. Reloading instead of overwriting.');
+  setSyncStatus('idle');
+  showToast('🔄 Newer data found from another device — refreshing to avoid overwriting it', 4500);
+  const result = await loadFromSupabase();
+  if (result.status === 'success') {
+    state = { ...state, ...result.data };
+    updateHeader();
+    renderContent();
+    showToast('✅ Refreshed — please redo your last change if it\'s missing', 4000);
+  }
+}
+
 async function attemptSyncWithRetry(originalData) {
   const userId = getCurrentUserId();
   if (!userId) return;
@@ -2463,6 +2500,19 @@ async function attemptSyncWithRetry(originalData) {
   if (_consecutiveSyncFailures > 0) {
     const { currentTab, viewingCycleOffset, mortgageCycleOffset, editingExpenseId, editingCatId, ...latest } = state;
     payload = latest;
+  }
+
+  // ── Conflict guard ──────────────────────────────────────────────────────
+  // Check whether the server has been updated by a DIFFERENT session since
+  // this session last knew about it (e.g. another device or browser tab).
+  // Without this, an idle/stale tab could silently overwrite newer data from
+  // elsewhere with whatever it happened to have in memory. If we detect this,
+  // we refuse to write and reload fresh data instead — costing a retry, never
+  // costing someone's data.
+  const isConflict = await checkForSyncConflict();
+  if (isConflict) {
+    onSyncConflictDetected();
+    return;
   }
 
   setSyncStatus('saving');
@@ -2505,6 +2555,7 @@ async function attemptSyncWithRetry(originalData) {
 
 function onSyncSuccess(timestamp) {
   _consecutiveSyncFailures = 0;
+  _hasUnsyncedChanges = false; // this session is now fully caught up with the server
   clearTimeout(_syncRetryTimer);
   _lastKnownServerTimestamp = timestamp;
   _lastSuccessfulSyncTime = timestamp;
@@ -2559,6 +2610,8 @@ let _stateHydrated = false;
 
 async function forceSyncToSupabase() {
   if (!_stateHydrated) { showToast('⚠️ Not ready to sync yet — still loading', 2500); return; }
+  const isConflict = await checkForSyncConflict();
+  if (isConflict) { onSyncConflictDetected(); return; }
   const { currentTab, viewingCycleOffset, mortgageCycleOffset, editingExpenseId, editingCatId, ...persistState } = state;
   persistState._savedAt = new Date().toISOString();
   setSyncStatus('saving');
@@ -2573,6 +2626,7 @@ async function forceSyncToSupabase() {
       body: JSON.stringify({ id: 'main', user_id: userId, data: persistState, updated_at: now })
     });
     if (!res.ok) throw new Error('status ' + res.status);
+    _hasUnsyncedChanges = false;
     _lastKnownServerTimestamp = now;
     _lastSuccessfulSyncTime = now;
     try { localStorage.setItem('spendly_last_sync', now); } catch(e) {}
@@ -2690,6 +2744,7 @@ async function loadFromSupabase() {
   } catch(e) { setSyncStatus('idle'); return { status: 'error', reason: 'exception' }; }
 }
 
+let _hasUnsyncedChanges = false; // true from the moment a change is captured until it's confirmed written
 function saveState() {
   // SAFETY GATE: never schedule a write until this session has confirmed a
   // successful load from Supabase (or confirmed genuinely-new-user). Without
@@ -2700,6 +2755,7 @@ function saveState() {
     console.warn('saveState(): blocked — state not yet hydrated from cloud this session');
     return;
   }
+  _hasUnsyncedChanges = true; // this session now has something genuinely new to say
   // Strip UI-only state that should always reset on load
   const { currentTab, viewingCycleOffset, mortgageCycleOffset, editingExpenseId, editingCatId, ...persistState } = state;
   persistState._savedAt = new Date().toISOString(); // timestamp for conflict detection
@@ -2731,6 +2787,7 @@ async function loadState() {
     state = { ...state, ...cloudData };
     if (!state.setupDone) { state.setupDone = true; }
     _stateHydrated = true; // confirmed real data loaded — safe to allow writes now
+    _hasUnsyncedChanges = false; // fresh load — in-memory state exactly matches the server
     setSyncStatus('saved');
     setTimeout(() => setSyncStatus('idle'), 2000);
     return;
@@ -2740,6 +2797,7 @@ async function loadState() {
     // Confirmed via a clean response that this account genuinely has no row yet.
     // Safe to treat as a new user and allow writes from here on.
     _stateHydrated = true;
+    _hasUnsyncedChanges = false;
     return;
   }
 
@@ -17939,6 +17997,12 @@ function triggerInactivityLock() {
 function flushSyncBeacon() {
   if (SPENDLY_MODE !== 'cloud' || !getCurrentUserId()) return;
   if (!_stateHydrated) { console.warn('flushSyncBeacon(): blocked — hydration gate closed'); return; }
+  // CRITICAL: only flush if THIS session actually has unsaved changes to
+  // contribute. An idle tab that's been sitting open with nothing edited has
+  // nothing new to say — pushing its (possibly stale, behind another device's
+  // more recent writes) in-memory snapshot on close has caused real data loss.
+  // Saying nothing is always safer than overwriting with stale data.
+  if (!_hasUnsyncedChanges) { console.log('flushSyncBeacon(): nothing unsynced — skipping, nothing to lose by staying quiet'); return; }
   // DO NOT clearTimeout(syncTimer) — let the debounced sync also run as a fallback
   // If the beacon fails, the debounced sync (if still pending) will catch it
   const { currentTab, viewingCycleOffset, mortgageCycleOffset, editingExpenseId, editingCatId, ...persistState } = state;
@@ -17956,6 +18020,7 @@ function flushSyncBeacon() {
       keepalive: true,
     }).then(r => {
       if (r.ok) {
+        _hasUnsyncedChanges = false;
         _lastKnownServerTimestamp = now;
         _lastSuccessfulSyncTime = now;
         try { localStorage.setItem('spendly_last_sync', now); } catch(e) {}

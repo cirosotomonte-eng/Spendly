@@ -449,6 +449,68 @@ await check('cancelRecurring() does not duplicate the list modal when already on
   assertTrue(src.includes("_expensesSubTab !== 'recurring'"), 'cancelRecurring must check the active subtab before reopening the list modal');
 });
 
+// ─────────────────────────────────────────────────────────────────────────
+console.log('\n── Multi-session conflict detection: stale tabs must never silently overwrite newer data ──');
+
+await check('checkForSyncConflict() returns false (fail-open) when there is nothing to compare against yet', async () => {
+  ctx._lastKnownServerTimestamp = null;
+  ctx._sbSession = { access_token: 'fake', user: { id: 'user123' } };
+  const result = await ctx.checkForSyncConflict();
+  assertTrue(result === false, 'with no known baseline timestamp, must not block the very first save of a session');
+});
+
+await check('checkForSyncConflict() returns false when not logged in (nothing to check)', async () => {
+  ctx._sbSession = null;
+  const result = await ctx.checkForSyncConflict();
+  assertEqual(result, false);
+});
+
+await check('flushSyncBeacon() does nothing when this session has no unsynced changes (the actual root-cause fix)', () => {
+  ctx.state = buildMockState();
+  ctx._sbSession = { access_token: 'fake', user: { id: 'user123' } };
+  ctx._stateHydrated = true;
+  ctx._hasUnsyncedChanges = false; // an idle tab that never made a local edit
+  ctx.__fetchCalls.length = 0;
+  ctx.flushSyncBeacon();
+  assertTrue(ctx.__fetchCalls.length === 0, 'an idle session with nothing new to say must never push a write on tab close — this is the exact mechanism behind a real data-loss report');
+});
+
+await check('flushSyncBeacon() proceeds normally when this session DOES have unsynced changes', () => {
+  ctx.state = buildMockState();
+  ctx._sbSession = { access_token: 'fake', user: { id: 'user123' } };
+  ctx._stateHydrated = true;
+  ctx._hasUnsyncedChanges = true; // this tab actually made an edit
+  ctx.__fetchCalls.length = 0;
+  ctx.flushSyncBeacon();
+  assertTrue(ctx.__fetchCalls.length > 0, 'a session with genuine unsynced changes must still be able to flush on close');
+});
+
+await check('saveState() marks the session as having unsynced changes', () => {
+  ctx.state = buildMockState();
+  ctx._sbSession = { access_token: 'fake', user: { id: 'user123' } };
+  ctx._stateHydrated = true;
+  ctx._hasUnsyncedChanges = false;
+  ctx.saveState();
+  assertTrue(ctx._hasUnsyncedChanges === true, 'any saveState() call must mark this session as having something new to contribute');
+});
+
+await check('onSyncSuccess() clears the unsynced-changes flag', () => {
+  ctx._hasUnsyncedChanges = true;
+  ctx.onSyncSuccess(new Date().toISOString());
+  assertEqual(ctx._hasUnsyncedChanges, false, 'a confirmed successful write means this session is caught up — nothing left unsynced');
+});
+
+await check('attemptSyncWithRetry() checks for conflicts before writing', () => {
+  const src = ctx.attemptSyncWithRetry.toString();
+  assertTrue(src.includes('checkForSyncConflict'), 'the main write path must check for conflicts before pushing data');
+  assertTrue(src.includes('onSyncConflictDetected'), 'a detected conflict must trigger the reload-instead-of-overwrite handler');
+});
+
+await check('forceSyncToSupabase() also checks for conflicts before writing', () => {
+  const src = ctx.forceSyncToSupabase.toString();
+  assertTrue(src.includes('checkForSyncConflict'), 'the manual sync button must also check for conflicts, not just the automatic path');
+});
+
 await check('no top-level function is declared more than once anywhere in the file (regression: silent shadowing caused both a data-loss bug and a broken legacy super-contribution modal)', () => {
   const fs = require('fs');
   const html = fs.readFileSync(APP_PATH, 'utf8');
