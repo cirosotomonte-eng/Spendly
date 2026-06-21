@@ -567,9 +567,9 @@ await check('renderAnalyticsForecast() does not throw when recurring expenses ex
 // ─────────────────────────────────────────────────────────────────────────
 console.log('\n── Theme system: all 5 presets must apply cleanly and persist ──');
 
-await check('THEME_PRESETS contains exactly the 5 agreed options with complete color sets', () => {
+await check('THEME_PRESETS contains exactly the 6 agreed options with complete color sets', () => {
   const keys = Object.keys(ctx.THEME_PRESETS);
-  assertEqual(keys.length, 5, 'should have exactly 5 theme presets');
+  assertEqual(keys.length, 6, 'should have exactly 6 theme presets');
   const requiredFields = ['bg', 'surface', 'surface2', 'surface3', 'border', 'text', 'muted', 'accent', 'accentDim', 'label'];
   keys.forEach(k => {
     requiredFields.forEach(f => {
