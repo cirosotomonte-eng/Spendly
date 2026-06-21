@@ -1022,6 +1022,20 @@ async function applyUpdate() {
       </div>
     </div>
 
+    <!-- ── Appearance / theme picker ───────────────────────── -->
+    <div class="settings-group" style="margin-top:8px">
+      <div class="settings-row" style="cursor:default;flex-direction:column;align-items:flex-start;gap:10px">
+        <div style="display:flex;align-items:center;gap:8px;width:100%">
+          <span style="font-size:20px;flex-shrink:0;width:24px;text-align:center">🎨</span>
+          <div style="flex:1">
+            <div style="font-size:15px;font-weight:500">Appearance</div>
+            <div style="font-size:12px;color:var(--muted);margin-top:1px">Choose a color theme — synced across your devices</div>
+          </div>
+        </div>
+        <div id="themePickerGrid" style="display:flex;justify-content:space-between;width:100%;padding:4px 2px"></div>
+      </div>
+    </div>
+
     <!-- ── Move attachments to cloud storage ──────────────── -->
     <div class="settings-group" style="margin-top:8px">
       <div class="settings-row" style="cursor:default;flex-direction:column;align-items:flex-start;gap:6px">
@@ -2094,9 +2108,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.6.6';
+const APP_VERSION = '2.7.0';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '22 Jun 2026 8:10 AM AEDT';
+const BUILD_TIME = '22 Jun 2026 8:49 AM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -2383,6 +2397,7 @@ async function signOut() {
   _consecutiveSyncFailures = 0;
   _hasUnsyncedChanges = false;
   hideSyncTroubleBanner();
+  applyTheme('default');
   _stateHydrated = false;
   await getSB().auth.signOut();
   _sbSession = null;
@@ -2756,6 +2771,69 @@ function getPersistableState() {
   return rest;
 }
 
+// ── Visual themes ─────────────────────────────────────────────────────────────
+const THEME_PRESETS = {
+  default: {
+    label: 'Default', bg:'#0f0f0f', surface:'#1a1a1a', surface2:'#242424', surface3:'#2e2e2e',
+    border:'#333', text:'#f0f0f0', muted:'#888', accent:'#4F8EF7', accentDim:'rgba(79,142,247,0.12)'
+  },
+  midnightNavy: {
+    label: 'Midnight navy', bg:'#0c1320', surface:'#131b2e', surface2:'#1a2438', surface3:'#212d45',
+    border:'#2a3650', text:'#eef2fb', muted:'#6b7aa0', accent:'#2dd4a8', accentDim:'rgba(45,212,168,0.14)'
+  },
+  warmCharcoal: {
+    label: 'Warm charcoal', bg:'#181513', surface:'#1f1b17', surface2:'#262019', surface3:'#2d251e',
+    border:'#3a3126', text:'#f3efe9', muted:'#9a8f80', accent:'#e2a662', accentDim:'rgba(226,166,98,0.14)'
+  },
+  deepPlum: {
+    label: 'Deep plum', bg:'#190f22', surface:'#20142b', surface2:'#281a35', surface3:'#31203f',
+    border:'#3d2a4d', text:'#f1ecf5', muted:'#9686ab', accent:'#d4af5a', accentDim:'rgba(212,175,90,0.14)'
+  },
+  softStone: {
+    label: 'Soft stone', bg:'#f3f0ea', surface:'#ffffff', surface2:'#ece8e0', surface3:'#e2ddd2',
+    border:'#ddd7ca', text:'#211f1a', muted:'#8c8676', accent:'#2f6b4f', accentDim:'rgba(47,107,79,0.10)'
+  },
+};
+
+function applyTheme(themeKey) {
+  const theme = THEME_PRESETS[themeKey] || THEME_PRESETS.default;
+  const root = document.documentElement;
+  root.style.setProperty('--bg', theme.bg);
+  root.style.setProperty('--surface', theme.surface);
+  root.style.setProperty('--surface2', theme.surface2);
+  root.style.setProperty('--surface3', theme.surface3);
+  root.style.setProperty('--border', theme.border);
+  root.style.setProperty('--text', theme.text);
+  root.style.setProperty('--muted', theme.muted);
+  root.style.setProperty('--accent', theme.accent);
+  root.style.setProperty('--accent-dim', theme.accentDim);
+}
+
+function setTheme(themeKey) {
+  if (!THEME_PRESETS[themeKey]) return;
+  state.theme = themeKey;
+  applyTheme(themeKey);
+  saveState();
+  renderThemePicker(); // refresh the picker's selected state
+  showToast('✅ Theme updated', 1500);
+}
+
+function renderThemePicker() {
+  const container = document.getElementById('themePickerGrid');
+  if (!container) return;
+  const current = state.theme || 'default';
+  container.innerHTML = Object.entries(THEME_PRESETS).map(([key, t]) => {
+    const selected = key === current;
+    return '<button onclick="setTheme(\'' + key + '\')" style="display:flex;flex-direction:column;align-items:center;gap:6px;background:none;border:none;cursor:pointer;font-family:var(--font);padding:4px">' +
+      '<div style="width:48px;height:48px;border-radius:50%;background:' + t.bg + ';border:2px solid ' + (selected ? 'var(--accent)' : 'var(--border)') + ';position:relative;display:flex;align-items:center;justify-content:center">' +
+        '<div style="width:18px;height:18px;border-radius:50%;background:' + t.accent + '"></div>' +
+        (selected ? '<div style="position:absolute;bottom:-3px;right:-3px;width:16px;height:16px;border-radius:50%;background:var(--accent);display:flex;align-items:center;justify-content:center"><svg width="9" height="9" viewBox="0 0 12 12" fill="none"><path d="M2 6l3 3 5-6" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></div>' : '') +
+      '</div>' +
+      '<span style="font-size:11px;color:' + (selected ? 'var(--text)' : 'var(--muted)') + ';font-weight:' + (selected ? '700' : '500') + ';text-align:center">' + t.label + '</span>' +
+    '</button>';
+  }).join('');
+}
+
 function saveState() {
   // SAFETY GATE: never schedule a write until this session has confirmed a
   // successful load from Supabase (or confirmed genuinely-new-user). Without
@@ -2804,6 +2882,7 @@ async function loadState() {
     // out again and keep growing.
     if ('data' in state) { console.warn('Stripped stray nested "data" field from loaded state'); delete state.data; }
     if (!state.setupDone) { state.setupDone = true; }
+    applyTheme(state.theme || 'default');
     _stateHydrated = true; // confirmed real data loaded — safe to allow writes now
     _hasUnsyncedChanges = false; // fresh load — in-memory state exactly matches the server
     setSyncStatus('saved');
@@ -2814,6 +2893,7 @@ async function loadState() {
   if (result.status === 'empty') {
     // Confirmed via a clean response that this account genuinely has no row yet.
     // Safe to treat as a new user and allow writes from here on.
+    applyTheme('default');
     _stateHydrated = true;
     _hasUnsyncedChanges = false;
     return;
@@ -6738,6 +6818,7 @@ function openSettings() {
   renderSettingsFaceIdBtn();
   // applyModeUI handles signOut/syncIndicator visibility
   applyModeUI();
+  renderThemePicker();
   openModal('settingsModal');
   setTimeout(updateLastSyncDisplay, 100);
 }
@@ -17684,6 +17765,7 @@ function importBackup(input) {
       // Apply backup data
       state = { ...state, ...parsed.data };
       if ('data' in state) { console.warn('Stripped stray nested "data" field from imported backup'); delete state.data; }
+      applyTheme(state.theme || 'default');
       // The user just deliberately supplied complete, verified data via file
       // picker — this is ground truth regardless of cloud-load timing, so
       // explicitly open the hydration gate rather than depending on it having

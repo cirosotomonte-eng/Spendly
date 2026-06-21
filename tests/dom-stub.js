@@ -9,7 +9,11 @@ function makeFakeElement(tag) {
   const el = {
     tagName: (tag || 'div').toUpperCase(),
     _children: [],
-    style: {},
+    style: {
+      setProperty(name, value) { this[name] = value; },
+      getPropertyValue(name) { return this[name] || ''; },
+      removeProperty(name) { delete this[name]; },
+    },
     classList: {
       add() {}, remove() {}, contains() { return false; }, toggle() {},
     },

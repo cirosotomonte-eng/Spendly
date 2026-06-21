@@ -564,6 +564,44 @@ await check('renderAnalyticsForecast() does not throw when recurring expenses ex
   assertTrue((anBody.innerHTML || '').length > 0, 'anBody must actually contain rendered content, not be left empty by a crash partway through');
 });
 
+// ─────────────────────────────────────────────────────────────────────────
+console.log('\n── Theme system: all 5 presets must apply cleanly and persist ──');
+
+await check('THEME_PRESETS contains exactly the 5 agreed options with complete color sets', () => {
+  const keys = Object.keys(ctx.THEME_PRESETS);
+  assertEqual(keys.length, 5, 'should have exactly 5 theme presets');
+  const requiredFields = ['bg', 'surface', 'surface2', 'surface3', 'border', 'text', 'muted', 'accent', 'accentDim', 'label'];
+  keys.forEach(k => {
+    requiredFields.forEach(f => {
+      assertTrue(!!ctx.THEME_PRESETS[k][f], `theme "${k}" is missing required field "${f}"`);
+    });
+  });
+});
+
+await check('applyTheme() falls back to default for an unknown key rather than throwing', () => {
+  assertNoThrow(() => ctx.applyTheme('notARealTheme'), 'an invalid theme key must fall back gracefully, not crash the app');
+});
+
+await check('setTheme() persists the choice onto state.theme', () => {
+  ctx.state = buildMockState();
+  ctx._sbSession = { access_token: 'fake', user: { id: 'user123' } };
+  ctx._stateHydrated = true;
+  ctx.setTheme('warmCharcoal');
+  assertEqual(ctx.state.theme, 'warmCharcoal', 'choosing a theme must be saved onto state so it syncs across devices');
+});
+
+await check('setTheme() with an invalid key does not corrupt state.theme', () => {
+  ctx.state = buildMockState();
+  ctx.state.theme = 'warmCharcoal';
+  ctx.setTheme('madeUpTheme');
+  assertEqual(ctx.state.theme, 'warmCharcoal', 'an invalid theme choice must be ignored, not overwrite a valid existing choice');
+});
+
+await check('loadState() applies the saved theme on every successful load', () => {
+  const src = ctx.loadState.toString();
+  assertTrue(src.includes('applyTheme'), 'loadState must apply the saved theme choice so it is correct from the moment data loads, on any device');
+});
+
 await check('no top-level function is declared more than once anywhere in the file (regression: silent shadowing caused both a data-loss bug and a broken legacy super-contribution modal)', () => {
   const fs = require('fs');
   const html = fs.readFileSync(APP_PATH, 'utf8');

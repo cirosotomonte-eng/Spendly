@@ -30,6 +30,7 @@ function loadApp(htmlPath) {
   scriptSrc += '\n;function __setFailures(v) { _consecutiveSyncFailures = v; }\n;function __getFailures() { return _consecutiveSyncFailures; }\n';
   scriptSrc += '\n;function __setUnsynced(v) { _hasUnsyncedChanges = v; }\n;function __getUnsynced() { return _hasUnsyncedChanges; }\n';
   scriptSrc += '\n;function __setAnSection(v) { analyticsSection = v; }\n;function __getAnSection() { return analyticsSection; }\n';
+  scriptSrc += '\n;function __getThemePresets() { return THEME_PRESETS; }\n';
 
   const fakeDocument = makeFakeDocument();
   fakeDocument.readyState = 'loading'; // prevents auto-boot (init) from firing
@@ -97,6 +98,10 @@ function loadApp(htmlPath) {
   Object.defineProperty(context, 'analyticsSection', {
     get() { return context.__getAnSection(); },
     set(v) { context.__setAnSection(v); },
+    configurable: true,
+  });
+  Object.defineProperty(context, 'THEME_PRESETS', {
+    get() { return context.__getThemePresets(); },
     configurable: true,
   });
 
