@@ -2094,9 +2094,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.6.5';
+const APP_VERSION = '2.6.6';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '22 Jun 2026 7:58 AM AEDT';
+const BUILD_TIME = '22 Jun 2026 8:10 AM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -4456,6 +4456,7 @@ const SVG_SEARCH = '<svg width="16" height="16" viewBox="0 0 16 16" fill="none">
 const SVG_PLUS   = '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 2v12M2 8h12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>';
 const SVG_LIST   = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>';
 const SVG_REPEAT = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>';
+const SVG_TARGET = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>';
 const SVG_PENCIL = '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M11.5 2.5l2 2L5 13H3v-2L11.5 2.5z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>';
 
 function tabHeader(title, opts) {
@@ -6113,12 +6114,19 @@ function renderAnalyticsForecast() {
     return;
   }
 
+  // Representative budget for the overview stats below (KPI subtitle, threshold
+  // warning, chart legend) — the FIRST upcoming cycle's budget. Each individual
+  // forecastCycles[i] still computes and stores its OWN budget for that specific
+  // cycle (which can legitimately differ if a future budget change is scheduled),
+  // used for that row's own free/pct values.
+  const budget = getBudgetForDate(dateToStr(getCycleRange(1).cycleStart));
+
   // Build 12 future cycles starting from next cycle (offset 1)
   const NUM = 12;
   const forecastCycles = [];
   for (let i = 1; i <= NUM; i++) {
     const { cycleStart, cycleEnd } = getCycleRange(i);
-    const budget = getBudgetForDate(dateToStr(cycleStart));
+    const cycleBudget = getBudgetForDate(dateToStr(cycleStart));
     let committed = 0;
     const byCat = {};
     let checkDate = new Date(cycleStart);
@@ -6132,11 +6140,11 @@ function renderAnalyticsForecast() {
       });
       checkDate.setDate(checkDate.getDate() + 1);
     }
-    const free = budget - committed;
+    const free = cycleBudget - committed;
     const monthLabel = cycleStart.toLocaleDateString('en-AU', { month: 'short', year: '2-digit' });
     const fullLabel = cycleStart.toLocaleDateString('en-AU', { day: 'numeric', month: 'short' }) +
       ' – ' + cycleEnd.toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' });
-    forecastCycles.push({ committed, free, byCat, monthLabel, fullLabel, cycleStart, cycleEnd, pct: budget > 0 ? Math.min(committed / budget * 100, 100) : 0 });
+    forecastCycles.push({ committed, free, byCat, monthLabel, fullLabel, cycleStart, cycleEnd, pct: cycleBudget > 0 ? Math.min(committed / cycleBudget * 100, 100) : 0 });
   }
 
   const totalCommitted12 = forecastCycles.reduce((s, c) => s + c.committed, 0);
@@ -9463,9 +9471,10 @@ function renderSavings() {
 
   // Sub-tab strip: Goals | Recurring
   const savSubTab = window._savingsSubTab || 'goals';
-  html += '<div style="display:flex;border-bottom:1px solid var(--surface2);margin-bottom:14px">' +
-    '<button onclick="setSavingsSubTab(\'goals\')" style="flex:1;padding:10px 0;border:none;background:none;font-size:14px;font-weight:600;font-family:var(--font);cursor:pointer;color:' + (savSubTab==='goals'?'var(--accent)':'var(--muted)') + ';border-bottom:2px solid ' + (savSubTab==='goals'?'var(--accent)':'transparent') + ';margin-bottom:-1px;transition:all 0.15s">Goals</button>' +
-    '<button onclick="setSavingsSubTab(\'recurring\')" style="flex:1;padding:10px 0;border:none;background:none;font-size:14px;font-weight:600;font-family:var(--font);cursor:pointer;color:' + (savSubTab==='recurring'?'var(--accent)':'var(--muted)') + ';border-bottom:2px solid ' + (savSubTab==='recurring'?'var(--accent)':'transparent') + ';margin-bottom:-1px;transition:all 0.15s">Recurring</button>' +
+  html += '<div style="display:flex;position:relative;background:var(--surface2);border-radius:999px;padding:4px;margin-bottom:14px">' +
+    '<div style="position:absolute;top:4px;left:' + (savSubTab==='goals'?'4px':'calc(50% + 0px)') + ';width:calc(50% - 4px);height:calc(100% - 8px);background:var(--surface);border-radius:999px;transition:left 0.2s ease"></div>' +
+    '<button onclick="setSavingsSubTab(\'goals\')" style="flex:1;position:relative;z-index:1;padding:9px 0;border:none;background:none;font-size:13px;font-weight:' + (savSubTab==='goals'?'700':'500') + ';font-family:var(--font);cursor:pointer;color:' + (savSubTab==='goals'?'var(--text)':'var(--muted)') + ';display:flex;align-items:center;justify-content:center;gap:6px">' + SVG_TARGET + 'Goals</button>' +
+    '<button onclick="setSavingsSubTab(\'recurring\')" style="flex:1;position:relative;z-index:1;padding:9px 0;border:none;background:none;font-size:13px;font-weight:' + (savSubTab==='recurring'?'700':'500') + ';font-family:var(--font);cursor:pointer;color:' + (savSubTab==='recurring'?'var(--text)':'var(--muted)') + ';display:flex;align-items:center;justify-content:center;gap:6px">' + SVG_REPEAT + 'Recurring</button>' +
   '</div>';
   // ── Recurring savings sub-tab ────────────────────────────────────────────
   if (savSubTab === 'recurring') {

@@ -29,6 +29,7 @@ function loadApp(htmlPath) {
   scriptSrc += '\n;function __setSession(s) { _sbSession = s; }\n;function __getSession() { return _sbSession; }\n';
   scriptSrc += '\n;function __setFailures(v) { _consecutiveSyncFailures = v; }\n;function __getFailures() { return _consecutiveSyncFailures; }\n';
   scriptSrc += '\n;function __setUnsynced(v) { _hasUnsyncedChanges = v; }\n;function __getUnsynced() { return _hasUnsyncedChanges; }\n';
+  scriptSrc += '\n;function __setAnSection(v) { analyticsSection = v; }\n;function __getAnSection() { return analyticsSection; }\n';
 
   const fakeDocument = makeFakeDocument();
   fakeDocument.readyState = 'loading'; // prevents auto-boot (init) from firing
@@ -53,6 +54,7 @@ function loadApp(htmlPath) {
     addEventListener() {}, removeEventListener() {},
     atob: (s) => Buffer.from(s, 'base64').toString('binary'),
     btoa: (s) => Buffer.from(s, 'binary').toString('base64'),
+    matchMedia: () => ({ matches: false, addListener() {}, removeListener() {}, addEventListener() {}, removeEventListener() {} }),
   };
   sandbox.window = sandbox; // classic-script global aliasing
 
@@ -90,6 +92,11 @@ function loadApp(htmlPath) {
   Object.defineProperty(context, '_hasUnsyncedChanges', {
     get() { return context.__getUnsynced(); },
     set(v) { context.__setUnsynced(v); },
+    configurable: true,
+  });
+  Object.defineProperty(context, 'analyticsSection', {
+    get() { return context.__getAnSection(); },
+    set(v) { context.__setAnSection(v); },
     configurable: true,
   });
 

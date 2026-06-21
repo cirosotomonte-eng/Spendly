@@ -547,6 +547,23 @@ await check('every write path uses the shared getPersistableState() helper — n
   assertEqual(inlineDestructureCount, 1, 'exactly one inline destructuring should exist — inside getPersistableState() itself; every other site must call the helper so this guard can never be forgotten at a new call site');
 });
 
+// ─────────────────────────────────────────────────────────────────────────
+console.log('\n── Analytics Forecast: must render with recurring expenses, no crash ──');
+
+await check('renderAnalyticsForecast() does not throw when recurring expenses exist (regression: out-of-scope budget variable)', () => {
+  ctx.state = buildMockState();
+  ctx.state.currentTab = 'insights';
+  ctx.state.expenses.push({ id: 'e1', date: '2026-06-01', amount: 20, categoryId: 'cat1' }); // renderAnalytics() requires ≥1 expense before it even reaches the tab dispatch
+  ctx.state.recurringExpenses.push({
+    id: 'rec1', categoryId: 'cat1', amount: 100, frequency: 'monthly', active: true,
+    dayOfMonth: 1, startDate: '2026-01-01',
+  });
+  ctx.analyticsSection = 'forecast';
+  assertNoThrow(() => ctx.renderAnalytics(), 'Forecast page must not crash for any user with at least one recurring expense — this exact bug made the page render completely blank');
+  const anBody = ctx.document.getElementById('anBody');
+  assertTrue((anBody.innerHTML || '').length > 0, 'anBody must actually contain rendered content, not be left empty by a crash partway through');
+});
+
 await check('no top-level function is declared more than once anywhere in the file (regression: silent shadowing caused both a data-loss bug and a broken legacy super-contribution modal)', () => {
   const fs = require('fs');
   const html = fs.readFileSync(APP_PATH, 'utf8');
