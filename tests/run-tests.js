@@ -435,7 +435,7 @@ await check('retries always use the freshest state, not the original stale snaps
   // in originally — otherwise a long backoff could push outdated data.
   const src = ctx.attemptSyncWithRetry.toString();
   assertTrue(src.includes('_consecutiveSyncFailures > 0'), 'must branch on failure count to decide whether to use fresh state');
-  assertTrue(src.includes('...state }') || src.includes('...latest } = state'), 'must destructure the live state object for retries');
+  assertTrue(src.includes('getPersistableState()'), 'must rebuild the payload from the live state object for retries, via the shared helper');
 });
 
 await check('signOut() clears the sync retry timer and resets the failure counter', () => {
@@ -509,6 +509,42 @@ await check('attemptSyncWithRetry() checks for conflicts before writing', () => 
 await check('forceSyncToSupabase() also checks for conflicts before writing', () => {
   const src = ctx.forceSyncToSupabase.toString();
   assertTrue(src.includes('checkForSyncConflict'), 'the manual sync button must also check for conflicts, not just the automatic path');
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+console.log('\n── Stray nested "data" field: must never be loaded, kept, or re-written ──');
+console.log('   (regression for a real ~7MB payload bloat incident)');
+
+await check('getPersistableState() strips a stray "data" key if present', () => {
+  ctx.state = buildMockState();
+  ctx.state.data = { expenses: [], budget: 999, evenMoreNesting: { data: {} } }; // simulate the corruption
+  const result = ctx.getPersistableState();
+  assertTrue(!('data' in result), 'a stray nested data field must never survive into the write payload');
+});
+
+await check('getPersistableState() leaves normal state completely untouched when no stray field exists', () => {
+  ctx.state = buildMockState();
+  ctx.state.expenses.push({ id: 'e1', date: '2026-06-01', amount: 50 });
+  const result = ctx.getPersistableState();
+  assertEqual(result.expenses.length, 1, 'real fields must pass through unaffected');
+  assertTrue(!('data' in result));
+});
+
+await check('loadState() strips a stray "data" key from freshly-loaded cloud data', () => {
+  const src = ctx.loadState.toString();
+  assertTrue(src.includes("'data' in state") && src.includes('delete state.data'), 'loadState must defensively strip a stray data field immediately on load, regardless of how it got into the cloud row');
+});
+
+await check('importBackup() strips a stray "data" key from the imported file too', () => {
+  const src = ctx.importBackup.toString();
+  assertTrue(src.includes('delete state.data'), 'restoring from a backup that already contains the corruption must not re-introduce it');
+});
+
+await check('every write path uses the shared getPersistableState() helper — no path re-implements the destructuring inline', () => {
+  const fs = require('fs');
+  const html = fs.readFileSync(APP_PATH, 'utf8');
+  const inlineDestructureCount = (html.match(/currentTab, viewingCycleOffset, mortgageCycleOffset, editingExpenseId, editingCatId, \.\.\./g) || []).length;
+  assertEqual(inlineDestructureCount, 1, 'exactly one inline destructuring should exist — inside getPersistableState() itself; every other site must call the helper so this guard can never be forgotten at a new call site');
 });
 
 await check('no top-level function is declared more than once anywhere in the file (regression: silent shadowing caused both a data-loss bug and a broken legacy super-contribution modal)', () => {

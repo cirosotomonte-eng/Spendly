@@ -2094,9 +2094,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.6.3';
+const APP_VERSION = '2.6.4';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '21 Jun 2026 6:35 PM AEDT';
+const BUILD_TIME = '21 Jun 2026 6:48 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -2498,7 +2498,7 @@ async function attemptSyncWithRetry(originalData) {
   // what we originally captured.
   let payload = originalData;
   if (_consecutiveSyncFailures > 0) {
-    const { currentTab, viewingCycleOffset, mortgageCycleOffset, editingExpenseId, editingCatId, ...latest } = state;
+    const latest = getPersistableState();
     payload = latest;
   }
 
@@ -2595,7 +2595,7 @@ function hideSyncTroubleBanner() {
 
 function retrySyncNow() {
   clearTimeout(_syncRetryTimer);
-  const { currentTab, viewingCycleOffset, mortgageCycleOffset, editingExpenseId, editingCatId, ...latest } = state;
+  const latest = getPersistableState();
   attemptSyncWithRetry(latest);
   showToast('↑ Retrying sync…', 1500);
 }
@@ -2612,7 +2612,7 @@ async function forceSyncToSupabase() {
   if (!_stateHydrated) { showToast('⚠️ Not ready to sync yet — still loading', 2500); return; }
   const isConflict = await checkForSyncConflict();
   if (isConflict) { onSyncConflictDetected(); return; }
-  const { currentTab, viewingCycleOffset, mortgageCycleOffset, editingExpenseId, editingCatId, ...persistState } = state;
+  const persistState = getPersistableState();
   persistState._savedAt = new Date().toISOString();
   setSyncStatus('saving');
   showToast('↑ Syncing to Supabase…', 1500);
@@ -2745,6 +2745,17 @@ async function loadFromSupabase() {
 }
 
 let _hasUnsyncedChanges = false; // true from the moment a change is captured until it's confirmed written
+// ── Build the persistable snapshot of state for writing to Supabase ──────────
+// Single source of truth for "strip UI-only fields + defensively remove any
+// stray nested 'data' key" — every write path uses this instead of repeating
+// the same destructuring pattern, so this guard can never be forgotten at
+// any individual call site.
+function getPersistableState() {
+  const { currentTab, viewingCycleOffset, mortgageCycleOffset, editingExpenseId, editingCatId, ...rest } = state;
+  if ('data' in rest) { console.warn('Stripped stray nested "data" field before writing to Supabase'); delete rest.data; }
+  return rest;
+}
+
 function saveState() {
   // SAFETY GATE: never schedule a write until this session has confirmed a
   // successful load from Supabase (or confirmed genuinely-new-user). Without
@@ -2757,7 +2768,7 @@ function saveState() {
   }
   _hasUnsyncedChanges = true; // this session now has something genuinely new to say
   // Strip UI-only state that should always reset on load
-  const { currentTab, viewingCycleOffset, mortgageCycleOffset, editingExpenseId, editingCatId, ...persistState } = state;
+  const persistState = getPersistableState();
   persistState._savedAt = new Date().toISOString(); // timestamp for conflict detection
   const data = JSON.stringify(persistState);
   // State is stored in Supabase only — localStorage no longer used for state
@@ -2770,7 +2781,7 @@ function saveState() {
       // sign-out that happened after this timer was scheduled but before it fired.
       if (!_stateHydrated) { console.warn('saveState(): timer fired but hydration gate closed — skipping write'); return; }
       if (!getCurrentUserId()) { console.warn('saveState(): timer fired but no active session — skipping write'); return; }
-      const { currentTab, viewingCycleOffset, mortgageCycleOffset, editingExpenseId, editingCatId, ...latestState } = state;
+      const latestState = getPersistableState();
       latestState._savedAt = new Date().toISOString();
       syncToSupabase(latestState);
     }, 1200);
@@ -2785,6 +2796,13 @@ async function loadState() {
   if (result.status === 'success') {
     const cloudData = result.data;
     state = { ...state, ...cloudData };
+    // Defensive cleanup: 'data' is never a legitimate top-level field in our
+    // schema. If a stray nested copy of the whole state ever ends up stored
+    // under this key (it has happened — a multi-megabyte duplicate blob that
+    // compounds across save cycles since nothing else recognizes it as
+    // invalid), strip it immediately on load so it can never be written back
+    // out again and keep growing.
+    if ('data' in state) { console.warn('Stripped stray nested "data" field from loaded state'); delete state.data; }
     if (!state.setupDone) { state.setupDone = true; }
     _stateHydrated = true; // confirmed real data loaded — safe to allow writes now
     _hasUnsyncedChanges = false; // fresh load — in-memory state exactly matches the server
@@ -2813,7 +2831,7 @@ async function flushSyncNow() {
   if (SPENDLY_MODE !== 'cloud' || !getCurrentUserId()) return;
   if (!_stateHydrated) { console.warn('flushSyncNow(): blocked — hydration gate closed'); return; }
   // DO NOT clear syncTimer — flushSyncBeacon runs concurrently as primary
-  const { currentTab, viewingCycleOffset, mortgageCycleOffset, editingExpenseId, editingCatId, ...persistState } = state;
+  const persistState = getPersistableState();
   persistState._savedAt = new Date().toISOString();
   const userId = getCurrentUserId();
   const now = persistState._savedAt;
@@ -2863,7 +2881,7 @@ function applyLocalRecovery() {
   window._localRecoveryMeta = null;
   document.getElementById('localRecoveryBanner')?.remove();
   // Immediately push to Supabase
-  const { currentTab, viewingCycleOffset, mortgageCycleOffset, editingExpenseId, editingCatId, ...persistState } = state;
+  const persistState = getPersistableState();
   persistState._savedAt = new Date().toISOString();
   syncToSupabase(persistState);
   renderContent();
@@ -17599,7 +17617,7 @@ async function forceAppUpdate() { await applyUpdate(); }
 // ── Backup & Restore ──────────────────────────────────────────────────────────
 function exportBackup() {
   try {
-    const { currentTab, viewingCycleOffset, mortgageCycleOffset, editingExpenseId, editingCatId, ...persistState } = state;
+    const persistState = getPersistableState();
     const backup = {
       _spendly: true,
       _version: APP_VERSION,
@@ -17651,6 +17669,7 @@ function importBackup(input) {
       if (!confirmed) return;
       // Apply backup data
       state = { ...state, ...parsed.data };
+      if ('data' in state) { console.warn('Stripped stray nested "data" field from imported backup'); delete state.data; }
       // The user just deliberately supplied complete, verified data via file
       // picker — this is ground truth regardless of cloud-load timing, so
       // explicitly open the hydration gate rather than depending on it having
@@ -17935,7 +17954,7 @@ setTimeout(checkDataLoss, 4000);
 // ── Auto backup on hide ───────────────────────────────────────────────────────
 function autoBackup() {
   try {
-    const { currentTab, viewingCycleOffset, mortgageCycleOffset, editingExpenseId, editingCatId, ...persistState } = state;
+    const persistState = getPersistableState();
     const data = JSON.stringify(persistState);
     localStorage.setItem(BACKUP_KEY, data);
     sessionStorage.setItem(BACKUP_KEY2, data);
@@ -18005,7 +18024,7 @@ function flushSyncBeacon() {
   if (!_hasUnsyncedChanges) { console.log('flushSyncBeacon(): nothing unsynced — skipping, nothing to lose by staying quiet'); return; }
   // DO NOT clearTimeout(syncTimer) — let the debounced sync also run as a fallback
   // If the beacon fails, the debounced sync (if still pending) will catch it
-  const { currentTab, viewingCycleOffset, mortgageCycleOffset, editingExpenseId, editingCatId, ...persistState } = state;
+  const persistState = getPersistableState();
   persistState._savedAt = new Date().toISOString();
   const userId = getCurrentUserId();
   const now = persistState._savedAt;
