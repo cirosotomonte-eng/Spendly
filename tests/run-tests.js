@@ -887,6 +887,67 @@ await check('openSettings() and migrateAttachmentsToStorage() both refresh the s
   assertTrue(migrateSrc.includes('updateMigrateAttachmentsVisibility'), 'completing a migration must immediately hide the section if nothing embedded remains, without needing to reopen Settings');
 });
 
+// ─────────────────────────────────────────────────────────────────────────
+console.log('\n── Super account: Total Remuneration Package must back out super, not add it on top ──');
+
+await check('employer contribution for "base" salary type adds the rate on top (existing, unchanged behavior)', () => {
+  ctx.state = buildMockState();
+  ctx.state.currentTab = 'accounts';
+  ctx.state.accounts.push({
+    id: 'super1', name: 'My Super', type: 'super', openingBalance: 1000,
+    currentAge: 30, retirementAge: 67, employerContribType: 'pct',
+    grossSalary: 150000, employerContribPct: 11.5, salaryType: 'base',
+  });
+  ctx._viewingAccountId = 'super1';
+  assertNoThrow(() => ctx.renderAccounts());
+  const html = ctx.document.getElementById('content').innerHTML;
+  assertTrue(html.includes('1,437.50') || html.includes('1437.50'), 'base salary type: $150,000 x 11.5% / 12 = $1,437.50/month, added on top of salary');
+});
+
+await check('employer contribution for "trp" salary type backs the super OUT of the package instead of adding it', () => {
+  ctx.state = buildMockState();
+  ctx.state.currentTab = 'accounts';
+  ctx.state.accounts.push({
+    id: 'super2', name: 'My Super', type: 'super', openingBalance: 1000,
+    currentAge: 30, retirementAge: 67, employerContribType: 'pct',
+    grossSalary: 150000, employerContribPct: 11.5, salaryType: 'trp',
+  });
+  ctx._viewingAccountId = 'super2';
+  assertNoThrow(() => ctx.renderAccounts());
+  const html = ctx.document.getElementById('content').innerHTML;
+  assertTrue(html.includes('1,289.24') || html.includes('1289.24'), 'TRP salary type: $150,000 total package backs out 11.5% super correctly, giving a smaller monthly figure ($1,289.24) than naively adding 11.5% on top would');
+});
+
+await check('fixed-dollar employer contributions are completely unaffected by salaryType — that distinction only matters for percentage-based contributions', () => {
+  ctx.state = buildMockState();
+  ctx.state.currentTab = 'accounts';
+  ctx.state.accounts.push({
+    id: 'super3', name: 'My Super', type: 'super', openingBalance: 1000,
+    currentAge: 30, retirementAge: 67, employerContribType: 'fixed',
+    employerContribFixed: 500, salaryType: 'trp', // salaryType present but irrelevant here
+  });
+  ctx._viewingAccountId = 'super3';
+  assertNoThrow(() => ctx.renderAccounts());
+  const html = ctx.document.getElementById('content').innerHTML;
+  assertTrue(html.includes('500.00'), 'a fixed monthly contribution must show as exactly what was entered, regardless of salaryType');
+});
+
+await check('openEditAccount() restores ALL previously-saved super fields, not just resetting to defaults', () => {
+  ctx.state = buildMockState();
+  ctx.state.currentTab = 'accounts';
+  ctx.state.accounts.push({
+    id: 'super4', name: 'My Super', type: 'super', openingBalance: 1000,
+    currentAge: 42, retirementAge: 60, returnRate: 8, inflationRate: 3,
+    employerContribType: 'pct', grossSalary: 120000, employerContribPct: 12,
+    employerContribFixed: 0, salarysacrifice: 300, salaryType: 'trp',
+  });
+  ctx.openEditAccount('super4');
+  assertEqual(ctx.document.getElementById('superCurrentAge').value, '42', 'current age must be restored, not reset to the default 30');
+  assertEqual(ctx.document.getElementById('superGrossSalary').value, '120000', 'gross salary must be restored, not reset to 0');
+  assertEqual(ctx.document.getElementById('superSalarySacrifice').value, '300', 'salary sacrifice must be restored, not reset to 0');
+  assertEqual(ctx.document.getElementById('superGrossSalary').dataset.salaryType, 'trp', 'the salary type toggle must restore to what was actually saved, not default back to "base"');
+});
+
 await check('no top-level function is declared more than once anywhere in the file (regression: silent shadowing caused both a data-loss bug and a broken legacy super-contribution modal)', () => {
   const fs = require('fs');
   const html = fs.readFileSync(APP_PATH, 'utf8');

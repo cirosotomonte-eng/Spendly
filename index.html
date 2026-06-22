@@ -2121,9 +2121,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.8.1';
+const APP_VERSION = '2.8.2';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '23 Jun 2026 7:20 AM AEDT';
+const BUILD_TIME = '23 Jun 2026 9:09 AM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -15086,8 +15086,13 @@ function setAcctType(type) {
           <button type="button" id="superEmpFixedBtn" onclick="setSuperContribType('fixed')" style="flex:1;padding:7px;border-radius:8px;border:1.5px solid var(--border);background:var(--surface);color:var(--muted);font-size:12px;font-weight:600;font-family:var(--font);cursor:pointer">Fixed $</button>
         </div>
         <div id="superEmpPctFields">
+          <div style="display:flex;gap:6px;margin-bottom:8px">
+            <button type="button" id="superSalTypeBaseBtn" onclick="setSuperSalaryType('base')" style="flex:1;padding:6px;border-radius:7px;border:1.5px solid var(--accent);background:var(--accent-dim);color:var(--accent);font-size:11px;font-weight:600;font-family:var(--font);cursor:pointer">Base salary</button>
+            <button type="button" id="superSalTypeTrpBtn" onclick="setSuperSalaryType('trp')" style="flex:1;padding:6px;border-radius:7px;border:1.5px solid var(--border);background:var(--surface);color:var(--muted);font-size:11px;font-weight:600;font-family:var(--font);cursor:pointer">Total package</button>
+          </div>
+          <div style="font-size:10px;color:var(--muted);margin-bottom:8px;line-height:1.4" id="superSalTypeHint">Super is paid additionally, on top of this salary</div>
           <div style="display:flex;gap:8px">
-            <div style="flex:1"><label style="font-size:10px;color:var(--muted)">Gross annual salary ($)</label><input type="number" id="superGrossSalary" value="0" style="width:100%;padding:8px 10px;border-radius:8px;border:1.5px solid var(--surface2);background:var(--surface);color:var(--text);font-size:14px;font-family:var(--font);box-sizing:border-box;margin-top:3px"></div>
+            <div style="flex:1"><label style="font-size:10px;color:var(--muted)" id="superGrossSalaryLabel">Base annual salary ($)</label><input type="number" id="superGrossSalary" value="0" style="width:100%;padding:8px 10px;border-radius:8px;border:1.5px solid var(--surface2);background:var(--surface);color:var(--text);font-size:14px;font-family:var(--font);box-sizing:border-box;margin-top:3px"></div>
             <div style="width:80px"><label style="font-size:10px;color:var(--muted)">Rate %</label><input type="number" id="superEmpPct" step="0.1" value="11.5" style="width:100%;padding:8px 10px;border-radius:8px;border:1.5px solid var(--surface2);background:var(--surface);color:var(--text);font-size:14px;font-family:var(--font);box-sizing:border-box;margin-top:3px"></div>
           </div>
         </div>
@@ -15101,6 +15106,7 @@ function setAcctType(type) {
         <label style="font-size:10px;color:var(--muted)">Additional monthly amount ($)</label>
         <input type="number" id="superSalarySacrifice" value="0" style="width:100%;padding:8px 10px;border-radius:8px;border:1.5px solid var(--surface2);background:var(--surface);color:var(--text);font-size:14px;font-family:var(--font);box-sizing:border-box;margin-top:3px">
       </div>`;
+    setSuperSalaryType('base'); // visually default a brand-new super account's toggle to "Base salary"
   }
   if (superSec) superSec.style.display = type === 'super' ? '' : 'none';
 }
@@ -15114,6 +15120,28 @@ function setSuperContribType(t) {
   document.getElementById('superEmpFixedBtn').style.border = t === 'fixed' ? '2px solid var(--accent)' : '1.5px solid var(--border)';
   document.getElementById('superEmpFixedBtn').style.background = t === 'fixed' ? 'var(--accent-dim)' : 'var(--surface)';
   document.getElementById('superEmpFixedBtn').style.color = t === 'fixed' ? 'var(--accent)' : 'var(--muted)';
+}
+
+// 'base' = super paid additionally on top of this salary (the common setup).
+// 'trp'  = this figure is a Total Remuneration Package that already INCLUDES
+// super, so the super portion must be backed out of it rather than added on
+// top — otherwise the contribution would be overstated.
+function setSuperSalaryType(t) {
+  const baseBtn = document.getElementById('superSalTypeBaseBtn');
+  const trpBtn = document.getElementById('superSalTypeTrpBtn');
+  const label = document.getElementById('superGrossSalaryLabel');
+  const hint = document.getElementById('superSalTypeHint');
+  baseBtn.style.border = t === 'base' ? '1.5px solid var(--accent)' : '1.5px solid var(--border)';
+  baseBtn.style.background = t === 'base' ? 'var(--accent-dim)' : 'var(--surface)';
+  baseBtn.style.color = t === 'base' ? 'var(--accent)' : 'var(--muted)';
+  trpBtn.style.border = t === 'trp' ? '1.5px solid var(--accent)' : '1.5px solid var(--border)';
+  trpBtn.style.background = t === 'trp' ? 'var(--accent-dim)' : 'var(--surface)';
+  trpBtn.style.color = t === 'trp' ? 'var(--accent)' : 'var(--muted)';
+  label.textContent = t === 'trp' ? 'Total package ($)' : 'Base annual salary ($)';
+  hint.textContent = t === 'trp'
+    ? 'Super is included in this figure — the super portion will be backed out, not added on top'
+    : 'Super is paid additionally, on top of this salary';
+  document.getElementById('superGrossSalary').dataset.salaryType = t;
 }
 
 function toggleSalaryFields() {
@@ -15165,6 +15193,21 @@ function openEditAccount(id) {
   document.getElementById('acctDeleteBtn').style.display = 'block';
   buildColorGridFor('acctColorGrid', acct.color);
   setAcctType(acct.type || 'transaction');
+  // Restore super account fields — previously these silently reset to form
+  // defaults on every edit, risking the saved values being overwritten.
+  if (acct.type === 'super') {
+    const setVal = (id, v) => { const el = document.getElementById(id); if (el) el.value = v; };
+    setVal('superCurrentAge', acct.currentAge || 30);
+    setVal('superRetirementAge', acct.retirementAge || 67);
+    setVal('superReturnRate', acct.returnRate || 7);
+    setVal('superInflationRate', acct.inflationRate || 2.5);
+    setVal('superGrossSalary', acct.grossSalary || 0);
+    setVal('superEmpPct', acct.employerContribPct || 11.5);
+    setVal('superEmpFixed', acct.employerContribFixed || 0);
+    setVal('superSalarySacrifice', acct.salarysacrifice || 0);
+    setSuperContribType(acct.employerContribType || 'pct');
+    setSuperSalaryType(acct.salaryType || 'base');
+  }
   // Restore salary account fields
   const cb = document.getElementById('acctIsSalary');
   const toggle = document.getElementById('acctIsSalaryToggle');
@@ -15193,6 +15236,7 @@ function saveAccount() {
     inflationRate: parseFloat(document.getElementById('superInflationRate')?.value) || 2.5,
     employerContribType: document.getElementById('superEmpFixedFields')?.style.display === 'none' ? 'pct' : 'fixed',
     grossSalary: parseFloat(document.getElementById('superGrossSalary')?.value) || 0,
+    salaryType: document.getElementById('superGrossSalary')?.dataset.salaryType || 'base',
     employerContribPct: parseFloat(document.getElementById('superEmpPct')?.value) || 11.5,
     employerContribFixed: parseFloat(document.getElementById('superEmpFixed')?.value) || 0,
     salarysacrifice: parseFloat(document.getElementById('superSalarySacrifice')?.value) || 0,
@@ -16565,8 +16609,20 @@ function renderAccounts() {
       const grossSalary = s.employerContribType === 'pct'
         ? (s.grossSalary || 0)
         : 0;
+      const empRate = (s.employerContribPct || 11.5) / 100;
+      // 'base' (default): super is paid additionally, on top of this salary —
+      // contribution = salary x rate, as usual.
+      // 'trp' (Total Remuneration Package): this figure already INCLUDES
+      // super, so the super portion must be backed out rather than added on
+      // top: if TRP = base + base*rate = base*(1+rate), then
+      // super = TRP - TRP/(1+rate) = TRP * rate/(1+rate).
+      const employerAnnual = s.employerContribType === 'pct'
+        ? (s.salaryType === 'trp'
+            ? grossSalary * empRate / (1 + empRate)
+            : grossSalary * empRate)
+        : (s.employerContribFixed || 0) * 12;
       const employerMonthly = s.employerContribType === 'pct'
-        ? (grossSalary * (s.employerContribPct || 11.5) / 100) / 12
+        ? employerAnnual / 12
         : (s.employerContribFixed || 0);
       const sacrificeMonthly = s.salarysacrifice || 0;
       const totalMonthly = employerMonthly + sacrificeMonthly;
@@ -16617,7 +16673,7 @@ function renderAccounts() {
       // Contributions breakdown
       h += '<div style="background:var(--surface);border-radius:12px;padding:14px;margin-bottom:14px">';
       h += '<div style="font-size:12px;font-weight:700;margin-bottom:10px">Monthly contributions</div>';
-      h += '<div style="display:flex;justify-content:space-between;font-size:12px;padding:4px 0"><span style="color:var(--muted)">Employer (' + (s.employerContribType === 'pct' ? (s.employerContribPct||11.5) + '%)' : 'fixed') + '</span><span style="font-weight:600">+' + fmtB(employerMonthly) + '</span></div>';
+      h += '<div style="display:flex;justify-content:space-between;font-size:12px;padding:4px 0"><span style="color:var(--muted)">Employer (' + (s.employerContribType === 'pct' ? (s.employerContribPct||11.5) + '%' + (s.salaryType === 'trp' ? ' of package' : '') + ')' : 'fixed') + '</span><span style="font-weight:600">+' + fmtB(employerMonthly) + '</span></div>';
       if (sacrificeMonthly > 0) {
         h += '<div style="display:flex;justify-content:space-between;font-size:12px;padding:4px 0"><span style="color:var(--muted)">Salary sacrifice</span><span style="font-weight:600">+' + fmtB(sacrificeMonthly) + '</span></div>';
       }
