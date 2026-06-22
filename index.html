@@ -1049,8 +1049,8 @@ async function applyUpdate() {
       </div>
     </div>
 
-    <!-- ── Move attachments to cloud storage ──────────────── -->
-    <div class="settings-group" style="margin-top:8px">
+    <!-- ── Move attachments to cloud storage (only shown if something needs it) ── -->
+    <div class="settings-group" id="migrateAttachmentsSection" style="margin-top:8px;display:none">
       <div class="settings-row" style="cursor:default;flex-direction:column;align-items:flex-start;gap:6px">
         <div style="display:flex;align-items:center;gap:8px;width:100%">
           <span style="font-size:20px;flex-shrink:0;width:24px;text-align:center">🗂️</span>
@@ -2121,9 +2121,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.8.0';
+const APP_VERSION = '2.8.1';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '22 Jun 2026 10:40 PM AEDT';
+const BUILD_TIME = '23 Jun 2026 7:20 AM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -6907,6 +6907,7 @@ function openSettings() {
   // applyModeUI handles signOut/syncIndicator visibility
   applyModeUI();
   renderThemePicker();
+  updateMigrateAttachmentsVisibility();
   openModal('settingsModal');
   setTimeout(updateLastSyncDisplay, 100);
 }
@@ -11445,6 +11446,14 @@ function dataURLToFile(dataUrl, filename) {
   return new File([bytes], filename, { type: mime });
 }
 
+function updateMigrateAttachmentsVisibility() {
+  const section = document.getElementById('migrateAttachmentsSection');
+  if (!section) return;
+  const hasEmbeddedGiftCards = (state.giftCards||[]).some(gc => gc.image && gc.image.startsWith('data:'));
+  const hasEmbeddedTax = (state.taxTransactions||[]).some(t => t.attachment && t.attachment.data && t.attachment.data.startsWith('data:'));
+  section.style.display = (hasEmbeddedGiftCards || hasEmbeddedTax) ? '' : 'none';
+}
+
 async function migrateAttachmentsToStorage() {
   if (!getCurrentUserId()) { showToast('❌ Not logged in', 2000); return; }
   const giftCardsToMigrate = (state.giftCards||[]).filter(gc => gc.image && gc.image.startsWith('data:'));
@@ -11479,6 +11488,7 @@ async function migrateAttachmentsToStorage() {
     setTimeout(() => forceSyncToSupabase(), 200); // push the now-much-smaller payload promptly
   }
   renderContent();
+  updateMigrateAttachmentsVisibility(); // hide the section immediately if nothing embedded remains
 
   if (failed === 0) {
     showToast('✅ Migrated ' + migrated + ' image' + (migrated!==1?'s':'') + ' to cloud storage', 4000);

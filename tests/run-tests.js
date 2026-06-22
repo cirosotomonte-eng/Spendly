@@ -850,6 +850,43 @@ await check('CC accounts are unaffected by the cycle-grouping change — still a
 });
 
 // ─────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────
+console.log('\n── Migrate-attachments section: hidden unless something actually needs migrating ──');
+
+await check('updateMigrateAttachmentsVisibility() hides the section when no embedded images remain', () => {
+  ctx.state = buildMockState();
+  ctx.state.giftCards = [{ id: 'gc1', name: 'Test', image: 'someuser/giftcards/already_migrated.jpg' }];
+  ctx.state.taxTransactions = [];
+  ctx.updateMigrateAttachmentsVisibility();
+  const section = ctx.document.getElementById('migrateAttachmentsSection');
+  assertEqual(section.style.display, 'none', 'section must stay hidden when nothing is still embedded as base64');
+});
+
+await check('updateMigrateAttachmentsVisibility() shows the section when an embedded gift card image still exists', () => {
+  ctx.state = buildMockState();
+  ctx.state.giftCards = [{ id: 'gc2', name: 'Test', image: 'data:image/png;base64,abc123' }];
+  ctx.state.taxTransactions = [];
+  ctx.updateMigrateAttachmentsVisibility();
+  const section = ctx.document.getElementById('migrateAttachmentsSection');
+  assertEqual(section.style.display, '', 'section must show when a gift card still has an embedded base64 image');
+});
+
+await check('updateMigrateAttachmentsVisibility() shows the section when an embedded tax attachment still exists', () => {
+  ctx.state = buildMockState();
+  ctx.state.giftCards = [];
+  ctx.state.taxTransactions = [{ id: 't1', attachment: { data: 'data:image/png;base64,abc123', name: 'receipt.jpg' } }];
+  ctx.updateMigrateAttachmentsVisibility();
+  const section = ctx.document.getElementById('migrateAttachmentsSection');
+  assertEqual(section.style.display, '', 'section must show when a tax transaction still has an embedded base64 attachment');
+});
+
+await check('openSettings() and migrateAttachmentsToStorage() both refresh the section\'s visibility', () => {
+  const settingsSrc = ctx.openSettings.toString();
+  const migrateSrc = ctx.migrateAttachmentsToStorage.toString();
+  assertTrue(settingsSrc.includes('updateMigrateAttachmentsVisibility'), "opening Settings must re-check whether the migrate section is still needed");
+  assertTrue(migrateSrc.includes('updateMigrateAttachmentsVisibility'), 'completing a migration must immediately hide the section if nothing embedded remains, without needing to reopen Settings');
+});
+
 await check('no top-level function is declared more than once anywhere in the file (regression: silent shadowing caused both a data-loss bug and a broken legacy super-contribution modal)', () => {
   const fs = require('fs');
   const html = fs.readFileSync(APP_PATH, 'utf8');
