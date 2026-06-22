@@ -2108,9 +2108,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.7.1';
+const APP_VERSION = '2.7.2';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '22 Jun 2026 8:57 AM AEDT';
+const BUILD_TIME = '22 Jun 2026 9:35 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -14838,6 +14838,17 @@ function getAccountTransactions(accountId) {
     (state.savingsDeposits||[]).forEach(d => {
       if (!linkedGoalIds.has(d.catId)) return;
       if (d.sourceAccountId === accountId) return; // don't double-count direct offset deposits
+      // If this withdrawal exists to cover a specific expense AND that expense
+      // was itself paid directly from this same offset account, the expense
+      // entry already fully represents the money movement — showing the goal
+      // withdrawal too would double-display the exact same transaction. Only
+      // show the withdrawal when the expense was paid from a DIFFERENT
+      // account (e.g. a credit card) — in that case this is the only place
+      // the offset balance's drop gets explained at all.
+      if (d.linkedExpenseId) {
+        const linkedExpense = (state.expenses||[]).find(e => e.id === d.linkedExpenseId);
+        if (linkedExpense && linkedExpense.paymentAccountId === accountId) return;
+      }
       const goal = savingsCatById(d.catId);
       const fromAcct = d.sourceAccountId ? accountById(d.sourceAccountId) : null;
       const isWithdrawal = d.type === 'withdrawal' || d.type === 'bill-payment';

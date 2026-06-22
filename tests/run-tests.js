@@ -602,6 +602,42 @@ await check('loadState() applies the saved theme on every successful load', () =
   assertTrue(src.includes('applyTheme'), 'loadState must apply the saved theme choice so it is correct from the moment data loads, on any device');
 });
 
+// ─────────────────────────────────────────────────────────────────────────
+console.log('\n── Offset history: an expense paid directly from offset must not also show its goal withdrawal ──');
+
+await check('getAccountTransactions() does not duplicate an expense paid from offset with the goal withdrawal that covers it', () => {
+  ctx.state = buildMockState();
+  ctx.state.expenses.push({
+    id: 'exp1', date: '2026-06-22', amount: 201.99, categoryId: 'cat1',
+    paymentAccountId: 'offset1', linkedGoalId: 'goal1', goalCoveredAmount: 201.99,
+  });
+  ctx.state.savingsDeposits.push({
+    id: 'dep1', catId: 'goal1', amount: 201.99, date: '2026-06-22',
+    type: 'bill-payment', linkedExpenseId: 'exp1', note: 'Expense withdrawal',
+  });
+  const rows = ctx.getAccountTransactions('offset1');
+  const expenseRows = rows.filter(r => r.id === 'exp1');
+  const withdrawalRows = rows.filter(r => r.id === 'dep1_offset');
+  assertEqual(expenseRows.length, 1, 'the expense itself should appear exactly once');
+  assertEqual(withdrawalRows.length, 0, 'the goal withdrawal must NOT also appear — the expense paid directly from this offset already fully represents the transaction');
+});
+
+await check('getAccountTransactions() DOES show the goal withdrawal when the linked expense was paid from a different account', () => {
+  ctx.state = buildMockState();
+  ctx.state.accounts.push({ id: 'cc1', name: 'Credit Card', type: 'credit' });
+  ctx.state.expenses.push({
+    id: 'exp2', date: '2026-06-22', amount: 50, categoryId: 'cat1',
+    paymentAccountId: 'cc1', linkedGoalId: 'goal1', goalCoveredAmount: 50,
+  });
+  ctx.state.savingsDeposits.push({
+    id: 'dep2', catId: 'goal1', amount: 50, date: '2026-06-22',
+    type: 'bill-payment', linkedExpenseId: 'exp2', note: 'Expense withdrawal',
+  });
+  const rows = ctx.getAccountTransactions('offset1');
+  const withdrawalRows = rows.filter(r => r.id === 'dep2_offset');
+  assertEqual(withdrawalRows.length, 1, 'when the expense was paid from a DIFFERENT account, the offset still needs the withdrawal entry — it is the only place this balance change is explained');
+});
+
 await check('no top-level function is declared more than once anywhere in the file (regression: silent shadowing caused both a data-loss bug and a broken legacy super-contribution modal)', () => {
   const fs = require('fs');
   const html = fs.readFileSync(APP_PATH, 'utf8');
