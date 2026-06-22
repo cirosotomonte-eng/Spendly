@@ -686,6 +686,24 @@ await check('other account types (e.g. a savings account) are completely unaffec
   assertEqual(expenseRows[0].amount, 100, 'non-offset accounts must show the full original amount — the net-amount adjustment is scoped to offset accounts only');
 });
 
+await check('withdrawal labels in offset history show destination, not a misleading up-arrow or the word "withdrawal"', () => {
+  ctx.state = buildMockState();
+  ctx.state.expenses.push({
+    id: 'exp6', date: '2026-06-22', amount: 100, categoryId: 'cat1', name: 'Mortgage',
+    paymentAccountId: 'offset1', linkedGoalId: 'goal1', goalCoveredAmount: 100,
+  });
+  ctx.state.savingsDeposits.push({
+    id: 'dep6', catId: 'goal1', amount: 100, date: '2026-06-22',
+    type: 'bill-payment', linkedExpenseId: 'exp6', note: 'Expense withdrawal',
+  });
+  const rows = ctx.getAccountTransactions('offset1');
+  const withdrawalRow = rows.find(r => r.id === 'dep6_offset');
+  assertTrue(!!withdrawalRow, 'withdrawal row should exist');
+  assertTrue(!withdrawalRow.label.includes('↑'), 'label must not use the up-arrow — it misleadingly suggests an increase for what is actually a decrease');
+  assertTrue(!withdrawalRow.label.toLowerCase().includes('withdrawal'), 'the word "withdrawal" is redundant once the sign/color already shows it as an outflow — label should show destination instead');
+  assertTrue(withdrawalRow.label.includes('Mortgage'), 'label should show WHERE the money went (the linked expense), mirroring how deposits show where money came FROM');
+});
+
 await check('renderAccounts() excludes closed goals from the "Goals included in balance" breakdown', () => {
   const src = ctx.renderAccounts.toString();
   assertTrue(/linkedGoals = \(state\.savingsCategories\|\|\[\]\)\.filter\(g => g\.linkedAccountId === _viewingAccountId && g\.status !== 'closed'\)/.test(src),

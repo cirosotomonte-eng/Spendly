@@ -2108,9 +2108,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.7.3';
+const APP_VERSION = '2.7.4';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '22 Jun 2026 9:50 PM AEDT';
+const BUILD_TIME = '22 Jun 2026 9:59 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -14856,9 +14856,19 @@ function getAccountTransactions(accountId) {
       const goal = savingsCatById(d.catId);
       const fromAcct = d.sourceAccountId ? accountById(d.sourceAccountId) : null;
       const isWithdrawal = d.type === 'withdrawal' || d.type === 'bill-payment';
-      const label = isWithdrawal
-        ? (goal ? '↑ ' + goal.icon + ' ' + goal.name + ' withdrawal' : 'Goal withdrawal')
-        : (goal ? goal.icon + ' ' + goal.name + (fromAcct ? ' ← ' + fromAcct.name : '') : d.note || 'Savings deposit');
+      // No arrow icon needed either direction — the +/- sign and color already
+      // convey in vs out unambiguously. Instead, both directions show WHERE the
+      // money is going to/from, which is actually useful context (symmetric
+      // '←' for deposits showing the source, '→' for withdrawals showing what
+      // it covered) rather than just restating what the sign already says.
+      let label;
+      if (isWithdrawal) {
+        const linkedExpense = d.linkedExpenseId ? (state.expenses||[]).find(e => e.id === d.linkedExpenseId) : null;
+        const destName = linkedExpense ? (linkedExpense.name || (catById(linkedExpense.categoryId)||{}).name) : null;
+        label = goal ? goal.icon + ' ' + goal.name + (destName ? ' → ' + destName : '') : (d.note || 'Goal withdrawal');
+      } else {
+        label = goal ? goal.icon + ' ' + goal.name + (fromAcct ? ' ← ' + fromAcct.name : '') : (d.note || 'Savings deposit');
+      }
       rows.push({
         id: d.id + '_offset', date: d.date, label,
         amount: d.amount,
