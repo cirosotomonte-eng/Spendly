@@ -2108,9 +2108,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.7.4';
+const APP_VERSION = '2.7.5';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '22 Jun 2026 9:59 PM AEDT';
+const BUILD_TIME = '22 Jun 2026 10:13 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -16409,6 +16409,16 @@ function reverseDuplicateCCPayment() {
   showToast('✅ ' + dupes.length + ' duplicate' + (dupes.length!==1?'s':' ') + ' removed — balance restored', 3000);
 }
 
+function toggleHistoryCycle(key) {
+  if (!window._expandedHistoryCycles) window._expandedHistoryCycles = new Set();
+  if (window._expandedHistoryCycles.has(key)) {
+    window._expandedHistoryCycles.delete(key);
+  } else {
+    window._expandedHistoryCycles.add(key);
+  }
+  renderAccounts();
+}
+
 function renderAccounts() {
   const el = document.getElementById('content');
   if (!state.accounts) state.accounts = [];
@@ -17143,25 +17153,21 @@ function renderAccounts() {
     html += pendingCCHtml;
     html += reconciliationHtml;
 
-    // For CC accounts, filter history to current cycle only
+    // For CC accounts, filter history to current cycle only (unchanged — CC
+    // statements are naturally cycle-bound already)
     const displayTxns = (acct.type === 'credit') ? (() => {
       const { cycleStart: _hcs } = getCycleRange(0);
       const _hcsStr = dateToStr(_hcs);
       return txns.filter(t => t.date >= _hcsStr);
     })() : txns;
 
-    if (displayTxns.length === 0) {
-      html += '<div class="empty"><div class="empty-icon">📭</div><div class="empty-text">' + (acct.type==='credit' ? 'No charges this cycle' : 'No transactions yet') + '</div><div class="empty-sub">' + (acct.type==='credit' ? 'Charges made with this card from 18 Apr will appear here' : 'Log income or make a transfer to get started') + '</div></div>';
-    } else {
-      html += '<div class="section-label">' + (acct.type==='credit' ? 'Current cycle charges' : 'Transaction history') + '</div>';
-      html += '<div style="background:var(--surface);border-radius:var(--r);overflow:hidden">';
-      displayTxns.forEach((t, i) => {
-        const isIn = t.direction === 'in';
-        const isSaving = t.type === 'saving';
-        const typeIcon = t.type === 'income' ? '💵' : t.type === 'transfer' ? '⇄' : t.type === 'saving' ? '💚' : t.type === 'ccRefund' ? '↩' : t.type === 'ccPayment' ? '💳' : '💳';
-        const canDelete = t.type === 'ccPayment' || (t.type === 'transfer' && isIn);
-        const rowOnClick = !canDelete ? (t.type === 'income' ? 'openEditIncome(\'' + t.id + '\')' : '') : '';
-        html += '<div style="display:flex;align-items:center;gap:12px;padding:11px 14px;' + (i>0?'border-top:1px solid var(--surface2)':'') + '"' + (rowOnClick ? ' onclick="' + rowOnClick + '"' : '') + '>' +
+    function renderTxnRowHtml(t, i, withTopBorder) {
+      const isIn = t.direction === 'in';
+      const isSaving = t.type === 'saving';
+      const typeIcon = t.type === 'income' ? '💵' : t.type === 'transfer' ? '⇄' : t.type === 'saving' ? '💚' : t.type === 'ccRefund' ? '↩' : t.type === 'ccPayment' ? '💳' : '💳';
+      const canDelete = t.type === 'ccPayment' || (t.type === 'transfer' && isIn);
+      const rowOnClick = !canDelete ? (t.type === 'income' ? 'openEditIncome(\'' + t.id + '\')' : '') : '';
+      return '<div style="display:flex;align-items:center;gap:12px;padding:11px 14px;' + (withTopBorder?'border-top:1px solid var(--surface2)':'') + '"' + (rowOnClick ? ' onclick="' + rowOnClick + '"' : '') + '>' +
           '<div style="width:36px;height:36px;border-radius:10px;background:' + (isIn?'rgba(52,199,89,0.12)':'rgba(255,92,92,0.1)') + ';display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">' + typeIcon + '</div>' +
           '<div style="flex:1;min-width:0">' +
             '<div style="font-size:13px;font-weight:600">' + t.label + '</div>' +
@@ -17171,8 +17177,56 @@ function renderAccounts() {
             ? '<button onclick="deleteCCTransaction(\'' + t.id + '\',\'' + acct.id + '\')" style="flex-shrink:0;background:rgba(255,59,48,0.1);color:var(--red);border:1px solid rgba(255,59,48,0.25);border-radius:8px;padding:5px 10px;font-size:11px;font-weight:600;font-family:var(--font);cursor:pointer">Delete</button>'
             : '<div style="font-size:13px;font-weight:700;color:' + (isSaving?'rgba(52,199,89,0.8)':t.type==='ccRefund'?'#34C759':isIn?'#34C759':'var(--red)') + '">' + (isSaving?'-':isIn?'+':'-') + fmtB(t.amount) + '</div>') +
         '</div>';
-      });
+    }
+
+    if (displayTxns.length === 0) {
+      html += '<div class="empty"><div class="empty-icon">📭</div><div class="empty-text">' + (acct.type==='credit' ? 'No charges this cycle' : 'No transactions yet') + '</div><div class="empty-sub">' + (acct.type==='credit' ? 'Charges made with this card from 18 Apr will appear here' : 'Log income or make a transfer to get started') + '</div></div>';
+    } else if (acct.type === 'credit') {
+      // CC: unchanged flat list, already scoped to current cycle
+      html += '<div class="section-label">Current cycle charges</div>';
+      html += '<div style="background:var(--surface);border-radius:var(--r);overflow:hidden">';
+      displayTxns.forEach((t, i) => { html += renderTxnRowHtml(t, i, i > 0); });
       html += '</div>';
+    } else {
+      // Non-CC accounts: group by budget cycle, collapsible, current cycle
+      // expanded by default — keeps full history accessible without an
+      // ever-growing unbounded list to scroll through.
+      html += '<div class="section-label">Transaction history</div>';
+      const _currentCycleKey = dateToStr(getCycleRange(0).cycleStart);
+      if (!window._expandedHistoryCycles) window._expandedHistoryCycles = new Set([_currentCycleKey]);
+      const _cycleGroups = {};
+      displayTxns.forEach(t => {
+        const { cycleStart: _tcs, cycleEnd: _tce } = getCycleRangeForDate(t.date);
+        const key = dateToStr(_tcs);
+        if (!_cycleGroups[key]) _cycleGroups[key] = { start: _tcs, end: _tce, txns: [] };
+        _cycleGroups[key].txns.push(t);
+      });
+      const _cycleKeys = Object.keys(_cycleGroups).sort().reverse(); // most recent first
+      _cycleKeys.forEach(key => {
+        const g = _cycleGroups[key];
+        const isExpanded = window._expandedHistoryCycles.has(key);
+        const isCurrent = key === _currentCycleKey;
+        const label = g.start.toLocaleDateString('en-AU',{day:'numeric',month:'short'}) + ' – ' + g.end.toLocaleDateString('en-AU',{day:'numeric',month:'short',year:'numeric'});
+        const netTotal = g.txns.reduce((s,t) => s + (t.direction === 'in' ? t.amount : -t.amount), 0);
+        html += '<div style="margin-bottom:10px">' +
+          '<div onclick="toggleHistoryCycle(\'' + key + '\')" style="display:flex;align-items:center;justify-content:space-between;background:var(--surface);border-radius:' + (isExpanded?'var(--r) var(--r) 0 0':'var(--r)') + ';padding:12px 14px;cursor:pointer">' +
+            '<div style="display:flex;align-items:center;gap:8px">' +
+              '<svg width="10" height="10" viewBox="0 0 12 12" fill="none" style="transform:rotate(' + (isExpanded?'90':'0') + 'deg);transition:transform 0.15s;flex-shrink:0"><path d="M3 2l5 4-5 4" stroke="var(--muted)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>' +
+              '<span style="font-size:13px;font-weight:700">' + (isCurrent ? 'Current cycle' : label) + '</span>' +
+              (isCurrent ? '<span style="font-size:10px;color:var(--muted)">' + label + '</span>' : '') +
+            '</div>' +
+            '<div style="display:flex;align-items:center;gap:8px">' +
+              '<span style="font-size:11px;color:var(--muted)">' + g.txns.length + ' txn' + (g.txns.length!==1?'s':'') + '</span>' +
+              '<span style="font-size:13px;font-weight:700;color:' + (netTotal>=0?'#34C759':'var(--red)') + '">' + (netTotal>=0?'+':'') + fmtB(netTotal) + '</span>' +
+            '</div>' +
+          '</div>';
+        if (isExpanded) {
+          html += '<div style="background:var(--surface);border-radius:0 0 var(--r) var(--r);overflow:hidden;border-top:1px solid var(--surface2)">';
+          g.txns.forEach((t, i) => { html += renderTxnRowHtml(t, i, i > 0); });
+          html += '</div>';
+        }
+        html += '</div>';
+      });
     }
 
     el.innerHTML = html;

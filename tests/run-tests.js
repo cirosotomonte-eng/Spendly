@@ -712,6 +712,51 @@ await check('renderAccounts() excludes closed goals from the "Goals included in 
 
 
 
+// ─────────────────────────────────────────────────────────────────────────
+console.log('\n── Offset/savings history: grouped by cycle, current cycle expanded by default ──');
+
+await check('renderAccounts() detail view groups non-CC transaction history by cycle without throwing', () => {
+  ctx.state = buildMockState();
+  ctx.state.currentTab = 'accounts';
+  ctx._viewingAccountId = 'offset1';
+  ctx._expandedHistoryCycles = undefined; // simulate first-ever render
+  const { cycleStart: curStart } = ctx.getCycleRange(0);
+  const { cycleStart: prevStart } = ctx.getCycleRange(-1);
+  ctx.state.accountTransactions.push(
+    { id: 'tx1', type: 'income', accountId: 'offset1', amount: 100, date: ctx.dateToStr(curStart), note: 'Pay' },
+    { id: 'tx2', type: 'income', accountId: 'offset1', amount: 50, date: ctx.dateToStr(prevStart), note: 'Pay' }
+  );
+  assertNoThrow(() => ctx.renderAccounts());
+  const html = ctx.document.getElementById('content').innerHTML;
+  assertTrue(html.includes('Current cycle'), 'should label the current cycle distinctly rather than just its date range');
+});
+
+await check('toggleHistoryCycle() adds and removes a cycle key from the expanded set', () => {
+  ctx._expandedHistoryCycles = new Set(['2026-06-18']);
+  ctx.toggleHistoryCycle('2026-05-18');
+  assertTrue(ctx._expandedHistoryCycles.has('2026-05-18'), 'toggling a collapsed cycle should expand it');
+  ctx.toggleHistoryCycle('2026-05-18');
+  assertTrue(!ctx._expandedHistoryCycles.has('2026-05-18'), 'toggling an expanded cycle should collapse it again');
+});
+
+await check('the current cycle is expanded by default on first render (no prior interaction)', () => {
+  ctx.state = buildMockState();
+  ctx.state.currentTab = 'accounts';
+  ctx._viewingAccountId = 'offset1';
+  ctx._expandedHistoryCycles = undefined;
+  const { cycleStart: curStart } = ctx.getCycleRange(0);
+  ctx.state.accountTransactions.push({ id: 'tx3', type: 'income', accountId: 'offset1', amount: 75, date: ctx.dateToStr(curStart), note: 'Pay' });
+  ctx.renderAccounts();
+  const currentKey = ctx.dateToStr(ctx.getCycleRange(0).cycleStart);
+  assertTrue(ctx._expandedHistoryCycles.has(currentKey), 'the current cycle must be expanded by default the very first time this view renders');
+});
+
+await check('CC accounts are unaffected by the cycle-grouping change — still a flat current-cycle-only list', () => {
+  const src = ctx.renderAccounts.toString();
+  assertTrue(src.includes("acct.type === 'credit'") && src.includes('Current cycle charges'),
+    'CC accounts must keep their existing flat current-cycle-only display, not be grouped into collapsible cycle sections');
+});
+
 await check('no top-level function is declared more than once anywhere in the file (regression: silent shadowing caused both a data-loss bug and a broken legacy super-contribution modal)', () => {
   const fs = require('fs');
   const html = fs.readFileSync(APP_PATH, 'utf8');
