@@ -948,6 +948,45 @@ await check('openEditAccount() restores ALL previously-saved super fields, not j
   assertEqual(ctx.document.getElementById('superGrossSalary').dataset.salaryType, 'trp', 'the salary type toggle must restore to what was actually saved, not default back to "base"');
 });
 
+// ─────────────────────────────────────────────────────────────────────────
+console.log('\n── Super contribution: skipping must never add the amount to the balance ──');
+
+await check('skipSuperContrib() marks the item skipped WITHOUT touching the account balance', () => {
+  ctx.state = buildMockState();
+  ctx.state.accounts.push({ id: 'super5', name: 'My Super', type: 'super', currentBalance: 10000 });
+  ctx.state.superContributions = [{ id: 'c1', acctId: 'super5', net: 500, employer: 500, sacrifice: 0, label: 'June 2026', status: 'pending' }];
+  ctx.skipSuperContrib('c1');
+  const acct = ctx.accountById('super5');
+  assertEqual(acct.currentBalance, 10000, 'skipping must NOT add the contribution amount to the balance — that is the whole point, the money already landed another way');
+  const c = ctx.state.superContributions.find(x => x.id === 'c1');
+  assertEqual(c.status, 'skipped', 'the item must be marked skipped so it disappears from the pending list');
+  assertTrue(!!c.skippedAt, 'should record when it was skipped');
+});
+
+await check('a skipped contribution no longer appears in the pending list', () => {
+  ctx.state = buildMockState();
+  ctx.state.currentTab = 'accounts';
+  ctx.state.accounts.push({ id: 'super6', name: 'My Super', type: 'super', currentBalance: 5000 });
+  ctx.state.superContributions = [{ id: 'c2', acctId: 'super6', net: 300, employer: 300, sacrifice: 0, label: 'May 2026', status: 'skipped', skippedAt: new Date().toISOString() }];
+  ctx._viewingAccountId = 'super6';
+  assertNoThrow(() => ctx.renderAccounts());
+  const html = ctx.document.getElementById('content').innerHTML;
+  assertTrue(!html.includes('⏳ Pending contributions') || !html.includes('Confirm & add to balance'),
+    'a skipped item should not show a Confirm button — it is no longer pending');
+});
+
+await check('a skipped contribution shows in Recent contributions labeled "Skipped", not as an added amount', () => {
+  ctx.state = buildMockState();
+  ctx.state.currentTab = 'accounts';
+  ctx.state.accounts.push({ id: 'super7', name: 'My Super', type: 'super', currentBalance: 5000 });
+  ctx.state.superContributions = [{ id: 'c3', acctId: 'super7', net: 300, employer: 300, sacrifice: 0, label: 'May 2026', status: 'skipped', skippedAt: new Date().toISOString() }];
+  ctx._viewingAccountId = 'super7';
+  ctx.renderAccounts();
+  const html = ctx.document.getElementById('content').innerHTML;
+  assertTrue(html.includes('Skipped'), 'a skipped contribution should still be visible in the history, clearly labeled, rather than just vanishing with no record');
+  assertTrue(!html.includes('+$300.00'), 'must NOT show as a +amount — that would misleadingly suggest it was added to the balance');
+});
+
 await check('no top-level function is declared more than once anywhere in the file (regression: silent shadowing caused both a data-loss bug and a broken legacy super-contribution modal)', () => {
   const fs = require('fs');
   const html = fs.readFileSync(APP_PATH, 'utf8');

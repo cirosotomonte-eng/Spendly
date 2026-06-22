@@ -2121,9 +2121,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.8.2';
+const APP_VERSION = '2.8.3';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '23 Jun 2026 9:09 AM AEDT';
+const BUILD_TIME = '23 Jun 2026 9:18 AM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -16035,6 +16035,20 @@ function confirmSuperContrib(contribId) {
   showToast('✅ +' + fmt(c.net) + ' added to ' + acct.name + ' · New balance: ' + fmt(acct.currentBalance), 3000);
 }
 
+// For when the contribution already landed some other way — e.g. you used
+// "Update balance" with a fresh statement figure that already includes it.
+// Marks the pending item handled WITHOUT adding its amount to the balance,
+// so it can never be silently double-counted.
+function skipSuperContrib(contribId) {
+  const c = (state.superContributions||[]).find(x => x.id === contribId);
+  if (!c) return;
+  c.status = 'skipped';
+  c.skippedAt = new Date().toISOString();
+  saveState();
+  renderAccounts();
+  showToast('Skipped — ' + fmt(c.net) + ' not added to balance', 2500);
+}
+
 function openUpdateSuperBalance(acctId) {
   const acct = accountById(acctId);
   if (!acct) return;
@@ -16724,7 +16738,8 @@ function renderAccounts() {
       // ── Pending super contributions ─────────────────────────────────────
       if (!state.superContributions) state.superContributions = [];
       const pendingContribs = state.superContributions.filter(c => c.acctId === acct.id && c.status === 'pending');
-      const paidContribs = state.superContributions.filter(c => c.acctId === acct.id && c.status === 'paid').slice(-6).reverse();
+      const paidContribs = state.superContributions.filter(c => c.acctId === acct.id && (c.status === 'paid' || c.status === 'skipped'))
+        .sort((a,b) => (b.paidAt||b.skippedAt||'').localeCompare(a.paidAt||a.skippedAt||'')).slice(0,6);
 
       // Auto-generate next pending if none exists
       const today = new Date();
@@ -16752,7 +16767,10 @@ function renderAccounts() {
           h += '<div style="background:var(--surface2);border-radius:10px;padding:12px;margin-bottom:8px">';
           h += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">';
           h += '<div style="font-size:13px;font-weight:700">' + c.label + '</div>';
+          h += '<div style="display:flex;align-items:center;gap:8px">';
           h += '<div style="font-size:16px;font-weight:800;color:#34C759">+' + fmtB(c.net) + '</div>';
+          h += '<button onclick="skipSuperContrib(\'' + c.id + '\')" title="Already landed another way — skip without adding to balance" style="width:22px;height:22px;border-radius:50%;background:var(--surface);border:1px solid var(--surface3);color:var(--muted);font-size:13px;font-weight:700;font-family:var(--font);cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1;padding:0">×</button>';
+          h += '</div>';
           h += '</div>';
           h += '<div style="font-size:11px;color:var(--muted);margin-bottom:10px">';
           if (c.employer > 0) h += 'Employer: +' + fmtB(c.employer);
@@ -16771,9 +16789,12 @@ function renderAccounts() {
         h += '<div style="background:var(--surface);border-radius:var(--r);padding:14px;margin-bottom:14px">';
         h += '<div style="font-size:12px;font-weight:700;color:var(--muted);margin-bottom:10px">Recent contributions</div>';
         paidContribs.forEach((c,i) => {
+          const isSkipped = c.status === 'skipped';
           h += '<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;' + (i>0?'border-top:1px solid var(--surface2)':'') + '">';
           h += '<span style="font-size:12px;color:var(--muted)">' + c.label + '</span>';
-          h += '<span style="font-size:12px;font-weight:600;color:#34C759">+' + fmtB(c.net) + '</span>';
+          h += isSkipped
+            ? '<span style="font-size:11px;color:var(--muted);font-style:italic">Skipped</span>'
+            : '<span style="font-size:12px;font-weight:600;color:#34C759">+' + fmtB(c.net) + '</span>';
           h += '</div>';
         });
         h += '</div>';
