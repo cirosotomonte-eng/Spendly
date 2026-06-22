@@ -603,9 +603,9 @@ await check('loadState() applies the saved theme on every successful load', () =
 });
 
 // ─────────────────────────────────────────────────────────────────────────
-console.log('\n── Offset history: an expense paid directly from offset must not also show its goal withdrawal ──');
+console.log('\n── Offset history: goal-covered expenses must show which goal funded them, with no duplicate amounts ──');
 
-await check('getAccountTransactions() does not duplicate an expense paid from offset with the goal withdrawal that covers it', () => {
+await check('fully goal-covered expense (paid from offset): expense row hidden, withdrawal row shows the goal', () => {
   ctx.state = buildMockState();
   ctx.state.expenses.push({
     id: 'exp1', date: '2026-06-22', amount: 201.99, categoryId: 'cat1',
@@ -618,11 +618,44 @@ await check('getAccountTransactions() does not duplicate an expense paid from of
   const rows = ctx.getAccountTransactions('offset1');
   const expenseRows = rows.filter(r => r.id === 'exp1');
   const withdrawalRows = rows.filter(r => r.id === 'dep1_offset');
-  assertEqual(expenseRows.length, 1, 'the expense itself should appear exactly once');
-  assertEqual(withdrawalRows.length, 0, 'the goal withdrawal must NOT also appear — the expense paid directly from this offset already fully represents the transaction');
+  assertEqual(expenseRows.length, 0, 'fully-covered expense row must be hidden — nothing uncovered left to show, and showing it would duplicate the withdrawal amount');
+  assertEqual(withdrawalRows.length, 1, 'the withdrawal row must show, clearly labeled with which goal funded it');
+  assertEqual(withdrawalRows[0].amount, 201.99, 'withdrawal amount must equal the full covered amount');
 });
 
-await check('getAccountTransactions() DOES show the goal withdrawal when the linked expense was paid from a different account', () => {
+await check('partially goal-covered expense (paid from offset): expense row shows only the uncovered remainder, withdrawal row shows the covered portion', () => {
+  ctx.state = buildMockState();
+  ctx.state.expenses.push({
+    id: 'exp3', date: '2026-06-22', amount: 200, categoryId: 'cat1',
+    paymentAccountId: 'offset1', linkedGoalId: 'goal1', goalCoveredAmount: 150,
+  });
+  ctx.state.savingsDeposits.push({
+    id: 'dep3', catId: 'goal1', amount: 150, date: '2026-06-22',
+    type: 'bill-payment', linkedExpenseId: 'exp3', note: 'Expense withdrawal',
+  });
+  const rows = ctx.getAccountTransactions('offset1');
+  const expenseRows = rows.filter(r => r.id === 'exp3');
+  const withdrawalRows = rows.filter(r => r.id === 'dep3_offset');
+  assertEqual(expenseRows.length, 1, 'the uncovered remainder must still show as its own row');
+  assertEqual(expenseRows[0].amount, 50, 'expense row must show only the NET uncovered amount (200 - 150), not the full gross amount');
+  assertEqual(withdrawalRows.length, 1, 'the covered portion must show as a separate, goal-labeled withdrawal row');
+  assertEqual(withdrawalRows[0].amount, 150, 'withdrawal amount must equal exactly the covered portion');
+  // Together they must sum back to the original total — no money silently lost or duplicated in the display
+  assertEqual(expenseRows[0].amount + withdrawalRows[0].amount, 200, 'the two rows together must sum to the original expense total');
+});
+
+await check('expense with NO goal coverage (paid from offset): shows the full amount as a single plain row, unaffected by any of this logic', () => {
+  ctx.state = buildMockState();
+  ctx.state.expenses.push({
+    id: 'exp4', date: '2026-06-22', amount: 75, categoryId: 'cat1', paymentAccountId: 'offset1',
+  });
+  const rows = ctx.getAccountTransactions('offset1');
+  const expenseRows = rows.filter(r => r.id === 'exp4');
+  assertEqual(expenseRows.length, 1);
+  assertEqual(expenseRows[0].amount, 75, 'an expense with no goal coverage at all must show its full amount, completely unchanged');
+});
+
+await check('goal-covered expense paid from a DIFFERENT account (not this offset): only the withdrawal shows here, expense row is correctly absent', () => {
   ctx.state = buildMockState();
   ctx.state.accounts.push({ id: 'cc1', name: 'Credit Card', type: 'credit' });
   ctx.state.expenses.push({
@@ -634,9 +667,32 @@ await check('getAccountTransactions() DOES show the goal withdrawal when the lin
     type: 'bill-payment', linkedExpenseId: 'exp2', note: 'Expense withdrawal',
   });
   const rows = ctx.getAccountTransactions('offset1');
+  const expenseRows = rows.filter(r => r.id === 'exp2');
   const withdrawalRows = rows.filter(r => r.id === 'dep2_offset');
-  assertEqual(withdrawalRows.length, 1, 'when the expense was paid from a DIFFERENT account, the offset still needs the withdrawal entry — it is the only place this balance change is explained');
+  assertEqual(expenseRows.length, 0, 'an expense paid from a different account never appears in the offset account\'s own expense listing — that is correct and unrelated to goal coverage');
+  assertEqual(withdrawalRows.length, 1, 'the withdrawal must still show for an expense paid elsewhere - this is the ONLY place this offset accounts balance change is explained at all');
 });
+
+await check('other account types (e.g. a savings account) are completely unaffected by the offset-specific net-amount logic', () => {
+  ctx.state = buildMockState();
+  ctx.state.accounts.push({ id: 'txn1', name: 'Everyday', type: 'transaction' });
+  ctx.state.expenses.push({
+    id: 'exp5', date: '2026-06-22', amount: 100, categoryId: 'cat1',
+    paymentAccountId: 'txn1', linkedGoalId: 'goal1', goalCoveredAmount: 100,
+  });
+  const rows = ctx.getAccountTransactions('txn1');
+  const expenseRows = rows.filter(r => r.id === 'exp5');
+  assertEqual(expenseRows.length, 1, 'a non-offset account must still show the expense row even when fully goal-covered');
+  assertEqual(expenseRows[0].amount, 100, 'non-offset accounts must show the full original amount — the net-amount adjustment is scoped to offset accounts only');
+});
+
+await check('renderAccounts() excludes closed goals from the "Goals included in balance" breakdown', () => {
+  const src = ctx.renderAccounts.toString();
+  assertTrue(/linkedGoals = \(state\.savingsCategories\|\|\[\]\)\.filter\(g => g\.linkedAccountId === _viewingAccountId && g\.status !== 'closed'\)/.test(src),
+    'the linkedGoals filter used for the offset balance breakdown must exclude closed-status goals — a closed goal still showing here was a real reported bug');
+});
+
+
 
 await check('no top-level function is declared more than once anywhere in the file (regression: silent shadowing caused both a data-loss bug and a broken legacy super-contribution modal)', () => {
   const fs = require('fs');

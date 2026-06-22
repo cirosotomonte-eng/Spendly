@@ -2108,9 +2108,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.7.2';
+const APP_VERSION = '2.7.3';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '22 Jun 2026 9:35 PM AEDT';
+const BUILD_TIME = '22 Jun 2026 9:50 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -14798,9 +14798,24 @@ function getAccountTransactions(accountId) {
   });
 
   // Expenses
+  const _acctForNet = accountById(accountId);
   (state.expenses||[]).forEach(e => {
     if (e.paymentAccountId === accountId) {
       const cat = catById(e.categoryId);
+      // For OFFSET accounts specifically: if a savings goal covered some or
+      // all of this expense, that covered portion is shown separately below
+      // as a clearly goal-labeled withdrawal entry (so you can see WHICH goal
+      // funded it). Showing the full gross amount here too would double-count
+      // the same money movement. Only the portion NOT covered by a goal —
+      // what actually came directly from this account — belongs in this row.
+      // Other account types (credit cards, salary, savings) are unaffected;
+      // they continue showing the full original amount exactly as before.
+      if (_acctForNet && _acctForNet.type === 'offset' && e.goalCoveredAmount > 0) {
+        const net = Math.round((e.amount - e.goalCoveredAmount) * 100) / 100;
+        if (net <= 0.01) return; // fully covered by a goal — nothing left to show here
+        rows.push({ id: e.id, date: e.date, label: e.name || (cat ? cat.name : 'Expense'), amount: net, direction: 'out', type: 'expense', raw: e });
+        return;
+      }
       rows.push({ id: e.id, date: e.date, label: e.name || (cat ? cat.name : 'Expense'), amount: e.amount, direction: 'out', type: 'expense', raw: e });
     }
   });
@@ -14838,17 +14853,6 @@ function getAccountTransactions(accountId) {
     (state.savingsDeposits||[]).forEach(d => {
       if (!linkedGoalIds.has(d.catId)) return;
       if (d.sourceAccountId === accountId) return; // don't double-count direct offset deposits
-      // If this withdrawal exists to cover a specific expense AND that expense
-      // was itself paid directly from this same offset account, the expense
-      // entry already fully represents the money movement — showing the goal
-      // withdrawal too would double-display the exact same transaction. Only
-      // show the withdrawal when the expense was paid from a DIFFERENT
-      // account (e.g. a credit card) — in that case this is the only place
-      // the offset balance's drop gets explained at all.
-      if (d.linkedExpenseId) {
-        const linkedExpense = (state.expenses||[]).find(e => e.id === d.linkedExpenseId);
-        if (linkedExpense && linkedExpense.paymentAccountId === accountId) return;
-      }
       const goal = savingsCatById(d.catId);
       const fromAcct = d.sourceAccountId ? accountById(d.sourceAccountId) : null;
       const isWithdrawal = d.type === 'withdrawal' || d.type === 'bill-payment';
@@ -16615,7 +16619,7 @@ function renderAccounts() {
     // Unallocated calc for savings accounts
     // Use getOffsetBalance() for offset type — it reads offsetTransactions only, not savingsDeposits
     // This avoids double-counting where both balance and allocatedTotal shift by the same amount
-    const linkedGoals = (state.savingsCategories||[]).filter(g => g.linkedAccountId === _viewingAccountId);
+    const linkedGoals = (state.savingsCategories||[]).filter(g => g.linkedAccountId === _viewingAccountId && g.status !== 'closed');
     const allocatedTotal = linkedGoals.reduce((s,g) => s + totalSavedForCat(g.id), 0);
     const balanceForUnalloc = balance; // balance already uses getTrueOffsetBalance() for offset accounts
     const unallocated = balanceForUnalloc - allocatedTotal;
