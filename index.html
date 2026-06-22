@@ -1022,17 +1022,30 @@ async function applyUpdate() {
       </div>
     </div>
 
-    <!-- ── Appearance / theme picker ───────────────────────── -->
+    <!-- ── Appearance: color + light/dark mode ─────────────── -->
     <div class="settings-group" style="margin-top:8px">
       <div class="settings-row" style="cursor:default;flex-direction:column;align-items:flex-start;gap:10px">
         <div style="display:flex;align-items:center;gap:8px;width:100%">
           <span style="font-size:20px;flex-shrink:0;width:24px;text-align:center">🎨</span>
           <div style="flex:1">
-            <div style="font-size:15px;font-weight:500">Appearance</div>
-            <div style="font-size:12px;color:var(--muted);margin-top:1px">Choose a color theme — synced across your devices</div>
+            <div style="font-size:15px;font-weight:500">Color</div>
+            <div style="font-size:12px;color:var(--muted);margin-top:1px">Synced across your devices</div>
           </div>
         </div>
         <div id="themePickerGrid" style="display:flex;justify-content:space-between;width:100%;padding:4px 2px"></div>
+      </div>
+    </div>
+
+    <div class="settings-group" style="margin-top:8px">
+      <div class="settings-row" style="cursor:default;flex-direction:column;align-items:flex-start;gap:10px">
+        <div style="display:flex;align-items:center;gap:8px;width:100%">
+          <span style="font-size:20px;flex-shrink:0;width:24px;text-align:center">🌗</span>
+          <div style="flex:1">
+            <div style="font-size:15px;font-weight:500">Appearance mode</div>
+            <div style="font-size:12px;color:var(--muted);margin-top:1px">Auto follows this device's own setting</div>
+          </div>
+        </div>
+        <div id="themeModeSeg" style="width:100%"></div>
       </div>
     </div>
 
@@ -2108,9 +2121,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.7.6';
+const APP_VERSION = '2.8.0';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '22 Jun 2026 10:24 PM AEDT';
+const BUILD_TIME = '22 Jun 2026 10:40 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -2397,13 +2410,13 @@ async function signOut() {
   _consecutiveSyncFailures = 0;
   _hasUnsyncedChanges = false;
   hideSyncTroubleBanner();
-  applyTheme('auto');
   _stateHydrated = false;
   await getSB().auth.signOut();
   _sbSession = null;
   try { sessionStorage.clear(); } catch(e) {}
   // Reset state and show auth screen
   state = { currentTab:'dashboard', viewingCycleOffset:0, budget:0, cycleDay:1, appName:'', categories:[], expenses:[], recurringExpenses:[], recurringSavings:[], recurringIncome:[], recurringSkips:[], savingsCategories:[], savingsSubcategories:[], savingsDeposits:[], recyclingTrips:[], mortgage:{}, taxCategories:[], taxTransactions:[], giftCards:[], portfolio:[], netWorth:[], notes:[], accounts:[], accountTransactions:[], pendingPayments:[], ccPayments:[], lastActiveDate:'', setupDone:false };
+  applyTheme(); // fresh empty state — defaults to blue/auto for a clean login screen
   showAuthScreen();
   document.getElementById('app').style.visibility = 'hidden';
 }
@@ -2772,98 +2785,141 @@ function getPersistableState() {
 }
 
 // ── Visual themes ─────────────────────────────────────────────────────────────
-const THEME_PRESETS = {
-  default: {
-    label: 'Default', bg:'#0f0f0f', surface:'#1a1a1a', surface2:'#242424', surface3:'#2e2e2e',
-    border:'#333', text:'#f0f0f0', muted:'#888', accent:'#4F8EF7', accentDim:'rgba(79,142,247,0.12)'
+// ── Appearance: color family (independent of light/dark) + mode ──────────────
+// Each color family carries its own light AND dark neutral set, so the accent
+// stays consistent and the background correctly follows whichever mode is
+// active — rather than baking light/dark into the same choice as the accent.
+const COLOR_FAMILIES = {
+  blue: {
+    label: 'Blue', accent: '#4F8EF7', accentDim: 'rgba(79,142,247,0.12)',
+    dark:  { bg:'#0f0f0f', surface:'#1a1a1a', surface2:'#242424', surface3:'#2e2e2e', border:'#333333', text:'#f0f0f0', muted:'#888888' },
+    light: { bg:'#f8f7f3', surface:'#ffffff', surface2:'#f2f1ed', surface3:'#eceae5', border:'#e0e0da', text:'#111111', muted:'#888888' },
   },
-  midnightNavy: {
-    label: 'Midnight navy', bg:'#0c1320', surface:'#131b2e', surface2:'#1a2438', surface3:'#212d45',
-    border:'#2a3650', text:'#eef2fb', muted:'#6b7aa0', accent:'#2dd4a8', accentDim:'rgba(45,212,168,0.14)'
+  mint: {
+    label: 'Mint', accent: '#2dd4a8', accentDim: 'rgba(45,212,168,0.14)',
+    dark:  { bg:'#0c1320', surface:'#131b2e', surface2:'#1a2438', surface3:'#212d45', border:'#2a3650', text:'#eef2fb', muted:'#6b7aa0' },
+    light: { bg:'#f3f5fa', surface:'#ffffff', surface2:'#eaeef6', surface3:'#dfe5f0', border:'#d8deea', text:'#131b2e', muted:'#6b7aa0' },
   },
-  warmCharcoal: {
-    label: 'Warm charcoal', bg:'#181513', surface:'#1f1b17', surface2:'#262019', surface3:'#2d251e',
-    border:'#3a3126', text:'#f3efe9', muted:'#9a8f80', accent:'#e2a662', accentDim:'rgba(226,166,98,0.14)'
+  amber: {
+    label: 'Amber', accent: '#e2a662', accentDim: 'rgba(226,166,98,0.14)',
+    dark:  { bg:'#181513', surface:'#1f1b17', surface2:'#262019', surface3:'#2d251e', border:'#3a3126', text:'#f3efe9', muted:'#9a8f80' },
+    light: { bg:'#f7f2ec', surface:'#fffdfa', surface2:'#f0e9e0', surface3:'#e8ddd0', border:'#ddd0bd', text:'#211c16', muted:'#9a8f80' },
   },
-  deepPlum: {
-    label: 'Deep plum', bg:'#190f22', surface:'#20142b', surface2:'#281a35', surface3:'#31203f',
-    border:'#3d2a4d', text:'#f1ecf5', muted:'#9686ab', accent:'#d4af5a', accentDim:'rgba(212,175,90,0.14)'
+  gold: {
+    label: 'Gold', accent: '#d4af5a', accentDim: 'rgba(212,175,90,0.14)',
+    dark:  { bg:'#190f22', surface:'#20142b', surface2:'#281a35', surface3:'#31203f', border:'#3d2a4d', text:'#f1ecf5', muted:'#9686ab' },
+    light: { bg:'#f6f2f9', surface:'#fffcff', surface2:'#ede4f0', surface3:'#e2d6e8', border:'#d6c5dd', text:'#20142b', muted:'#9686ab' },
   },
-  softStone: {
-    label: 'Soft stone', bg:'#f3f0ea', surface:'#ffffff', surface2:'#ece8e0', surface3:'#e2ddd2',
-    border:'#ddd7ca', text:'#211f1a', muted:'#8c8676', accent:'#2f6b4f', accentDim:'rgba(47,107,79,0.10)'
-  },
-  classicCream: {
-    label: 'Classic cream', bg:'#f8f7f3', surface:'#ffffff', surface2:'#f2f1ed', surface3:'#eceae5',
-    border:'#e0e0da', text:'#111111', muted:'#888888', accent:'#4F8EF7', accentDim:'rgba(79,142,247,0.12)'
+  forest: {
+    label: 'Forest', accent: '#2f6b4f', accentDim: 'rgba(47,107,79,0.10)',
+    dark:  { bg:'#131611', surface:'#1a1e16', surface2:'#20251c', surface3:'#272d21', border:'#333a2b', text:'#ece9e0', muted:'#8c9080' },
+    light: { bg:'#f3f0ea', surface:'#ffffff', surface2:'#ece8e0', surface3:'#e2ddd2', border:'#ddd7ca', text:'#211f1a', muted:'#8c8676' },
   },
 };
 
-function applyTheme(themeKey) {
-  const root = document.documentElement;
-  if (themeKey === 'auto') {
-    // Remove all explicit overrides so the stylesheet's own
-    // @media (prefers-color-scheme: light) rule can take over again —
-    // restores native, automatic system-following light/dark switching,
-    // exactly like before the theme picker existed.
-    ['--bg','--surface','--surface2','--surface3','--border','--text','--muted','--accent','--accent-dim']
-      .forEach(v => root.style.removeProperty(v));
-    return;
-  }
-  const theme = THEME_PRESETS[themeKey] || THEME_PRESETS.default;
-  root.style.setProperty('--bg', theme.bg);
-  root.style.setProperty('--surface', theme.surface);
-  root.style.setProperty('--surface2', theme.surface2);
-  root.style.setProperty('--surface3', theme.surface3);
-  root.style.setProperty('--border', theme.border);
-  root.style.setProperty('--text', theme.text);
-  root.style.setProperty('--muted', theme.muted);
-  root.style.setProperty('--accent', theme.accent);
-  root.style.setProperty('--accent-dim', theme.accentDim);
+// Legacy single-key theme names (v2.7.0–2.7.6) mapped onto the new two-axis
+// model, so anyone who already picked one keeps the same look after this update.
+const LEGACY_THEME_MAP = {
+  auto:         { themeColor: 'blue',   themeMode: 'auto'  },
+  default:      { themeColor: 'blue',   themeMode: 'dark'  },
+  midnightNavy: { themeColor: 'mint',   themeMode: 'dark'  },
+  warmCharcoal: { themeColor: 'amber',  themeMode: 'dark'  },
+  deepPlum:     { themeColor: 'gold',   themeMode: 'dark'  },
+  softStone:    { themeColor: 'forest', themeMode: 'light' },
+  classicCream: { themeColor: 'blue',   themeMode: 'light' },
+};
+
+function migrateThemeToV2() {
+  if (state.themeColor || state.themeMode) return; // already on the new model
+  const picked = LEGACY_THEME_MAP[state.theme] || LEGACY_THEME_MAP.auto;
+  state.themeColor = picked.themeColor;
+  state.themeMode = picked.themeMode;
 }
 
-function setTheme(themeKey) {
-  if (themeKey !== 'auto' && !THEME_PRESETS[themeKey]) return;
-  state.theme = themeKey;
-  applyTheme(themeKey);
+function getEffectiveMode(themeMode) {
+  if (themeMode === 'light' || themeMode === 'dark') return themeMode;
+  try {
+    return (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
+  } catch(e) { return 'dark'; }
+}
+
+function applyTheme() {
+  const family = COLOR_FAMILIES[state.themeColor] || COLOR_FAMILIES.blue;
+  const effectiveMode = getEffectiveMode(state.themeMode || 'auto');
+  const neutrals = family[effectiveMode] || family.dark;
+  const root = document.documentElement;
+  root.style.setProperty('--bg', neutrals.bg);
+  root.style.setProperty('--surface', neutrals.surface);
+  root.style.setProperty('--surface2', neutrals.surface2);
+  root.style.setProperty('--surface3', neutrals.surface3);
+  root.style.setProperty('--border', neutrals.border);
+  root.style.setProperty('--text', neutrals.text);
+  root.style.setProperty('--muted', neutrals.muted);
+  root.style.setProperty('--accent', family.accent);
+  root.style.setProperty('--accent-dim', family.accentDim);
+}
+
+// Keeps the app live-updating if the system light/dark setting changes while
+// the app is open and mode is 'auto' — without this it would only pick up
+// the change on next load.
+let _autoModeListenerSetup = false;
+function setupAutoModeListener() {
+  if (_autoModeListenerSetup || !window.matchMedia) return;
+  _autoModeListenerSetup = true;
+  const mq = window.matchMedia('(prefers-color-scheme: dark)');
+  const handler = () => { if ((state.themeMode || 'auto') === 'auto') applyTheme(); };
+  if (mq.addEventListener) mq.addEventListener('change', handler);
+  else if (mq.addListener) mq.addListener(handler);
+}
+
+function setThemeColor(key) {
+  if (!COLOR_FAMILIES[key]) return;
+  state.themeColor = key;
+  applyTheme();
   saveState();
-  renderThemePicker(); // refresh the picker's selected state
+  renderThemePicker();
+  showToast('✅ Theme updated', 1500);
+}
+
+function setThemeMode(mode) {
+  if (!['auto','light','dark'].includes(mode)) return;
+  state.themeMode = mode;
+  applyTheme();
+  saveState();
+  renderThemePicker();
   showToast('✅ Theme updated', 1500);
 }
 
 function renderThemePicker() {
   const container = document.getElementById('themePickerGrid');
-  if (!container) return;
-  const current = state.theme || 'auto';
-  container.style.flexWrap = 'wrap';
-  container.style.gap = '10px';
+  const modeContainer = document.getElementById('themeModeSeg');
+  if (!container && !modeContainer) return;
 
-  // 'Auto' isn't a fixed color theme — it means "follow this device's own
-  // system light/dark setting", exactly like the app behaved before the
-  // theme picker existed. Shown first since it's the recommended default
-  // for anyone who hasn't deliberately picked a fixed look.
-  const autoSelected = current === 'auto';
-  let html = '<button onclick="setTheme(\'auto\')" style="display:flex;flex-direction:column;align-items:center;gap:6px;background:none;border:none;cursor:pointer;font-family:var(--font);padding:4px">' +
-    '<div style="width:48px;height:48px;border-radius:50%;overflow:hidden;border:2px solid ' + (autoSelected ? 'var(--accent)' : 'var(--border)') + ';position:relative;display:flex">' +
-      '<div style="width:50%;height:100%;background:#0f0f0f"></div>' +
-      '<div style="width:50%;height:100%;background:#f8f7f3"></div>' +
-      (autoSelected ? '<div style="position:absolute;bottom:-3px;right:-3px;width:16px;height:16px;border-radius:50%;background:var(--accent);display:flex;align-items:center;justify-content:center"><svg width="9" height="9" viewBox="0 0 12 12" fill="none"><path d="M2 6l3 3 5-6" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></div>' : '') +
-    '</div>' +
-    '<span style="font-size:11px;color:' + (autoSelected ? 'var(--text)' : 'var(--muted)') + ';font-weight:' + (autoSelected ? '700' : '500') + ';text-align:center">Auto</span>' +
-  '</button>';
+  if (container) {
+    container.style.flexWrap = 'wrap';
+    container.style.gap = '10px';
+    const currentColor = state.themeColor || 'blue';
+    container.innerHTML = Object.entries(COLOR_FAMILIES).map(([key, f]) => {
+      const selected = key === currentColor;
+      return '<button onclick="setThemeColor(\'' + key + '\')" style="display:flex;flex-direction:column;align-items:center;gap:6px;background:none;border:none;cursor:pointer;font-family:var(--font);padding:4px">' +
+        '<div style="width:40px;height:40px;border-radius:50%;background:' + f.accent + ';border:2px solid ' + (selected ? 'var(--accent)' : 'var(--border)') + ';position:relative">' +
+          (selected ? '<div style="position:absolute;bottom:-3px;right:-3px;width:14px;height:14px;border-radius:50%;background:var(--accent);display:flex;align-items:center;justify-content:center;border:2px solid var(--surface)"><svg width="7" height="7" viewBox="0 0 12 12" fill="none"><path d="M2 6l3 3 5-6" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></div>' : '') +
+        '</div>' +
+        '<span style="font-size:11px;color:' + (selected ? 'var(--text)' : 'var(--muted)') + ';font-weight:' + (selected ? '700' : '500') + ';text-align:center">' + f.label + '</span>' +
+      '</button>';
+    }).join('');
+  }
 
-  html += Object.entries(THEME_PRESETS).map(([key, t]) => {
-    const selected = key === current;
-    return '<button onclick="setTheme(\'' + key + '\')" style="display:flex;flex-direction:column;align-items:center;gap:6px;background:none;border:none;cursor:pointer;font-family:var(--font);padding:4px">' +
-      '<div style="width:48px;height:48px;border-radius:50%;background:' + t.bg + ';border:2px solid ' + (selected ? 'var(--accent)' : 'var(--border)') + ';position:relative;display:flex;align-items:center;justify-content:center">' +
-        '<div style="width:18px;height:18px;border-radius:50%;background:' + t.accent + '"></div>' +
-        (selected ? '<div style="position:absolute;bottom:-3px;right:-3px;width:16px;height:16px;border-radius:50%;background:var(--accent);display:flex;align-items:center;justify-content:center"><svg width="9" height="9" viewBox="0 0 12 12" fill="none"><path d="M2 6l3 3 5-6" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></div>' : '') +
-      '</div>' +
-      '<span style="font-size:11px;color:' + (selected ? 'var(--text)' : 'var(--muted)') + ';font-weight:' + (selected ? '700' : '500') + ';text-align:center">' + t.label + '</span>' +
-    '</button>';
-  }).join('');
-
-  container.innerHTML = html;
+  if (modeContainer) {
+    const currentMode = state.themeMode || 'auto';
+    const modes = [{ key:'auto', label:'Auto' }, { key:'light', label:'Light' }, { key:'dark', label:'Dark' }];
+    const idx = modes.findIndex(m => m.key === currentMode);
+    modeContainer.innerHTML =
+      '<div style="position:relative;display:flex;background:var(--surface2);border-radius:999px;padding:4px">' +
+        '<div style="position:absolute;top:4px;left:calc(' + (idx*33.333) + '% + 4px);width:calc(33.333% - 8px);height:calc(100% - 8px);background:var(--surface);border-radius:999px;transition:left 0.2s ease"></div>' +
+        modes.map(m => '<button onclick="setThemeMode(\'' + m.key + '\')" style="flex:1;position:relative;z-index:1;padding:8px 0;border:none;background:none;font-size:12px;font-weight:' + (m.key===currentMode?'700':'500') + ';font-family:var(--font);cursor:pointer;color:' + (m.key===currentMode?'var(--text)':'var(--muted)') + '">' + m.label + '</button>').join('') +
+      '</div>';
+  }
 }
 
 function saveState() {
@@ -2914,7 +2970,7 @@ async function loadState() {
     // out again and keep growing.
     if ('data' in state) { console.warn('Stripped stray nested "data" field from loaded state'); delete state.data; }
     if (!state.setupDone) { state.setupDone = true; }
-    applyTheme(state.theme || 'auto');
+    migrateThemeToV2(); applyTheme();
     _stateHydrated = true; // confirmed real data loaded — safe to allow writes now
     _hasUnsyncedChanges = false; // fresh load — in-memory state exactly matches the server
     setSyncStatus('saved');
@@ -2925,7 +2981,7 @@ async function loadState() {
   if (result.status === 'empty') {
     // Confirmed via a clean response that this account genuinely has no row yet.
     // Safe to treat as a new user and allow writes from here on.
-    applyTheme('auto');
+    applyTheme();
     _stateHydrated = true;
     _hasUnsyncedChanges = false;
     return;
@@ -17876,7 +17932,7 @@ function importBackup(input) {
       // Apply backup data
       state = { ...state, ...parsed.data };
       if ('data' in state) { console.warn('Stripped stray nested "data" field from imported backup'); delete state.data; }
-      applyTheme(state.theme || 'auto');
+      migrateThemeToV2(); applyTheme();
       // The user just deliberately supplied complete, verified data via file
       // picker — this is ground truth regardless of cloud-load timing, so
       // explicitly open the hydration gate rather than depending on it having
@@ -17955,6 +18011,7 @@ function hideLaunchScreen(callback) {
 async function init() {
   state.currentTab = 'expenses';
   applyModeUI(); // hide/show cloud-only UI elements
+  setupAutoModeListener(); // keep theme live-updating if system light/dark changes while app is open
 
   if (SPENDLY_MODE === 'cloud') {
     // ── Cloud mode: check Supabase session first ───────────────────────────

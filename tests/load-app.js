@@ -30,7 +30,7 @@ function loadApp(htmlPath) {
   scriptSrc += '\n;function __setFailures(v) { _consecutiveSyncFailures = v; }\n;function __getFailures() { return _consecutiveSyncFailures; }\n';
   scriptSrc += '\n;function __setUnsynced(v) { _hasUnsyncedChanges = v; }\n;function __getUnsynced() { return _hasUnsyncedChanges; }\n';
   scriptSrc += '\n;function __setAnSection(v) { analyticsSection = v; }\n;function __getAnSection() { return analyticsSection; }\n';
-  scriptSrc += '\n;function __getThemePresets() { return THEME_PRESETS; }\n';
+  scriptSrc += '\n;function __getColorFamilies() { return COLOR_FAMILIES; }\n';
   scriptSrc += '\n;function __setViewingAccount(v) { _viewingAccountId = v; }\n;function __getViewingAccount() { return _viewingAccountId; }\n';
 
   const fakeDocument = makeFakeDocument();
@@ -101,8 +101,8 @@ function loadApp(htmlPath) {
     set(v) { context.__setAnSection(v); },
     configurable: true,
   });
-  Object.defineProperty(context, 'THEME_PRESETS', {
-    get() { return context.__getThemePresets(); },
+  Object.defineProperty(context, 'COLOR_FAMILIES', {
+    get() { return context.__getColorFamilies(); },
     configurable: true,
   });
   Object.defineProperty(context, '_viewingAccountId', {

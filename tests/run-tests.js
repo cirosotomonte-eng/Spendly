@@ -565,41 +565,133 @@ await check('renderAnalyticsForecast() does not throw when recurring expenses ex
 });
 
 // ─────────────────────────────────────────────────────────────────────────
-console.log('\n── Theme system: all 5 presets must apply cleanly and persist ──');
+console.log('\n── Appearance: color family and light/dark mode are independent axes ──');
 
-await check('THEME_PRESETS contains exactly the 6 agreed options with complete color sets', () => {
-  const keys = Object.keys(ctx.THEME_PRESETS);
-  assertEqual(keys.length, 6, 'should have exactly 6 theme presets');
-  const requiredFields = ['bg', 'surface', 'surface2', 'surface3', 'border', 'text', 'muted', 'accent', 'accentDim', 'label'];
+await check('COLOR_FAMILIES contains exactly 5 families, each with complete dark+light neutral sets', () => {
+  const keys = Object.keys(ctx.COLOR_FAMILIES);
+  assertEqual(keys.length, 5, 'should have exactly 5 color families');
+  const neutralFields = ['bg', 'surface', 'surface2', 'surface3', 'border', 'text', 'muted'];
   keys.forEach(k => {
-    requiredFields.forEach(f => {
-      assertTrue(!!ctx.THEME_PRESETS[k][f], `theme "${k}" is missing required field "${f}"`);
+    const f = ctx.COLOR_FAMILIES[k];
+    assertTrue(!!f.accent && !!f.accentDim && !!f.label, `family "${k}" is missing accent/accentDim/label`);
+    ['dark', 'light'].forEach(mode => {
+      neutralFields.forEach(field => {
+        assertTrue(!!f[mode][field], `family "${k}" mode "${mode}" is missing required field "${field}"`);
+      });
     });
   });
 });
 
-await check('applyTheme() falls back to default for an unknown key rather than throwing', () => {
-  assertNoThrow(() => ctx.applyTheme('notARealTheme'), 'an invalid theme key must fall back gracefully, not crash the app');
+await check('the SAME accent color is used in both light and dark mode for a given family', () => {
+  ctx.state = buildMockState();
+  ctx.state.themeColor = 'amber';
+  ctx.state.themeMode = 'dark';
+  ctx.applyTheme();
+  const darkAccent = ctx.document.documentElement.style.getPropertyValue('--accent');
+  ctx.state.themeMode = 'light';
+  ctx.applyTheme();
+  const lightAccent = ctx.document.documentElement.style.getPropertyValue('--accent');
+  assertEqual(darkAccent, lightAccent, 'switching mode must not change the accent — that is the whole point of separating the two axes');
+  assertEqual(darkAccent, '#e2a662', 'should be the amber family accent specifically');
 });
 
-await check('setTheme() persists the choice onto state.theme', () => {
+await check('the background DOES change between light and dark mode for the same color family', () => {
+  ctx.state = buildMockState();
+  ctx.state.themeColor = 'amber';
+  ctx.state.themeMode = 'dark';
+  ctx.applyTheme();
+  const darkBg = ctx.document.documentElement.style.getPropertyValue('--bg');
+  ctx.state.themeMode = 'light';
+  ctx.applyTheme();
+  const lightBg = ctx.document.documentElement.style.getPropertyValue('--bg');
+  assertTrue(darkBg !== lightBg, 'the neutral background must actually differ between modes — that is the other half of the point');
+});
+
+await check('mode "auto" resolves via system preference (matchMedia), not a fixed mode', () => {
+  ctx.state = buildMockState();
+  ctx.state.themeColor = 'blue';
+  ctx.state.themeMode = 'auto';
+  assertNoThrow(() => ctx.applyTheme(), 'auto mode must consult matchMedia without throwing even in a minimal/stubbed environment');
+});
+
+await check('setThemeColor() persists the choice and re-applies, without touching themeMode', () => {
   ctx.state = buildMockState();
   ctx._sbSession = { access_token: 'fake', user: { id: 'user123' } };
   ctx._stateHydrated = true;
-  ctx.setTheme('warmCharcoal');
-  assertEqual(ctx.state.theme, 'warmCharcoal', 'choosing a theme must be saved onto state so it syncs across devices');
+  ctx.state.themeMode = 'dark';
+  ctx.setThemeColor('mint');
+  assertEqual(ctx.state.themeColor, 'mint', 'color choice must persist onto state');
+  assertEqual(ctx.state.themeMode, 'dark', 'changing color must not affect the independently-chosen mode');
 });
 
-await check('setTheme() with an invalid key does not corrupt state.theme', () => {
+await check('setThemeMode() persists the choice and re-applies, without touching themeColor', () => {
+  ctx.state = buildMockState();
+  ctx._sbSession = { access_token: 'fake', user: { id: 'user123' } };
+  ctx._stateHydrated = true;
+  ctx.state.themeColor = 'gold';
+  ctx.setThemeMode('light');
+  assertEqual(ctx.state.themeMode, 'light', 'mode choice must persist onto state');
+  assertEqual(ctx.state.themeColor, 'gold', 'changing mode must not affect the independently-chosen color');
+});
+
+await check('setThemeColor() rejects an invalid key rather than corrupting state', () => {
+  ctx.state = buildMockState();
+  ctx.state.themeColor = 'mint';
+  ctx.setThemeColor('notARealColor');
+  assertEqual(ctx.state.themeColor, 'mint', 'an invalid color choice must be ignored');
+});
+
+await check('setThemeMode() rejects an invalid value rather than corrupting state', () => {
+  ctx.state = buildMockState();
+  ctx.state.themeMode = 'dark';
+  ctx.setThemeMode('sideways');
+  assertEqual(ctx.state.themeMode, 'dark', 'an invalid mode must be ignored');
+});
+
+await check('migrateThemeToV2() correctly maps every legacy single-key theme onto the new color+mode pair', () => {
   ctx.state = buildMockState();
   ctx.state.theme = 'warmCharcoal';
-  ctx.setTheme('madeUpTheme');
-  assertEqual(ctx.state.theme, 'warmCharcoal', 'an invalid theme choice must be ignored, not overwrite a valid existing choice');
+  ctx.migrateThemeToV2();
+  assertEqual(ctx.state.themeColor, 'amber');
+  assertEqual(ctx.state.themeMode, 'dark');
+
+  ctx.state = buildMockState();
+  ctx.state.theme = 'softStone';
+  ctx.migrateThemeToV2();
+  assertEqual(ctx.state.themeColor, 'forest');
+  assertEqual(ctx.state.themeMode, 'light');
+
+  ctx.state = buildMockState();
+  ctx.state.theme = 'classicCream';
+  ctx.migrateThemeToV2();
+  assertEqual(ctx.state.themeColor, 'blue');
+  assertEqual(ctx.state.themeMode, 'light');
 });
 
-await check('loadState() applies the saved theme on every successful load', () => {
+await check('migrateThemeToV2() does nothing if already on the new model — never overwrites an explicit choice', () => {
+  ctx.state = buildMockState();
+  ctx.state.theme = 'deepPlum'; // legacy field present but should be ignored
+  ctx.state.themeColor = 'mint';
+  ctx.state.themeMode = 'dark';
+  ctx.migrateThemeToV2();
+  assertEqual(ctx.state.themeColor, 'mint', 'must not re-migrate over an already-set explicit choice');
+  assertEqual(ctx.state.themeMode, 'dark');
+});
+
+await check('loadState() runs the migration before applying the theme on every successful load', () => {
   const src = ctx.loadState.toString();
-  assertTrue(src.includes('applyTheme'), 'loadState must apply the saved theme choice so it is correct from the moment data loads, on any device');
+  assertTrue(src.includes('migrateThemeToV2') && src.includes('applyTheme()'), 'loadState must migrate any legacy theme choice and apply the resulting color+mode on every load');
+});
+
+await check('signOut() resets to the blue/auto defaults for a clean login screen', () => {
+  const src = ctx.signOut.toString();
+  assertTrue(src.includes('applyTheme()'), 'signOut must re-apply the theme after resetting state, so the login screen shows neutral defaults rather than a previous session');
+});
+
+await check('renderThemePicker() renders both the color swatches and the mode segmented control', () => {
+  const src = ctx.renderThemePicker.toString();
+  assertTrue(src.includes('themePickerGrid') && src.includes('themeModeSeg'), 'the picker must populate both the color grid and the separate mode control');
+  assertTrue(src.includes('setThemeColor') && src.includes('setThemeMode'), 'must wire up both independent setters');
 });
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -758,42 +850,6 @@ await check('CC accounts are unaffected by the cycle-grouping change — still a
 });
 
 // ─────────────────────────────────────────────────────────────────────────
-console.log('\n── Theme "auto" mode: must restore native system light/dark following ──');
-console.log('   (regression — picking no theme had silently locked everyone into forced dark)');
-
-await check('applyTheme("auto") removes all explicit CSS overrides instead of setting fixed colors', () => {
-  const root = ctx.document.documentElement;
-  // Pollute with a fixed theme first, to prove auto actually clears it
-  ctx.applyTheme('warmCharcoal');
-  assertTrue(root.style.getPropertyValue('--bg') === '#181513', 'sanity: a fixed theme should set an explicit --bg');
-  ctx.applyTheme('auto');
-  assertEqual(root.style.getPropertyValue('--bg'), '', 'auto mode must remove the explicit --bg override so the stylesheet/media-query can take over again');
-  assertEqual(root.style.getPropertyValue('--accent'), '', 'auto mode must remove the explicit --accent override too');
-});
-
-await check('the default fallback (no theme ever chosen) is "auto", not a forced fixed theme', () => {
-  const src = ctx.loadState.toString();
-  assertTrue(src.includes("state.theme || 'auto'"), 'loadState must default an unset theme to auto (system-following) — defaulting to a fixed dark theme was the actual reported bug: it silently disabled native dark mode for every user who never opened the picker');
-});
-
-await check('setTheme("auto") is accepted as a valid choice, not rejected as an unknown theme key', () => {
-  ctx.state = buildMockState();
-  ctx._sbSession = { access_token: 'fake', user: { id: 'user123' } };
-  ctx._stateHydrated = true;
-  ctx.setTheme('auto');
-  assertEqual(ctx.state.theme, 'auto', 'auto must be a legitimate, persistable theme choice');
-});
-
-await check('signOut() resets to auto, not a forced fixed theme, before the next login choice loads', () => {
-  const src = ctx.signOut.toString();
-  assertTrue(src.includes("applyTheme('auto')"), 'the login screen shown after sign-out should follow system preference, not be stuck on a forced theme from a previous session');
-});
-
-await check('renderThemePicker() renders Auto as a selectable option alongside the fixed themes', () => {
-  const src = ctx.renderThemePicker.toString();
-  assertTrue(src.includes("setTheme(") && src.includes('auto'), 'the picker must offer Auto as an explicit, tappable option');
-});
-
 await check('no top-level function is declared more than once anywhere in the file (regression: silent shadowing caused both a data-loss bug and a broken legacy super-contribution modal)', () => {
   const fs = require('fs');
   const html = fs.readFileSync(APP_PATH, 'utf8');
