@@ -757,6 +757,43 @@ await check('CC accounts are unaffected by the cycle-grouping change — still a
     'CC accounts must keep their existing flat current-cycle-only display, not be grouped into collapsible cycle sections');
 });
 
+// ─────────────────────────────────────────────────────────────────────────
+console.log('\n── Theme "auto" mode: must restore native system light/dark following ──');
+console.log('   (regression — picking no theme had silently locked everyone into forced dark)');
+
+await check('applyTheme("auto") removes all explicit CSS overrides instead of setting fixed colors', () => {
+  const root = ctx.document.documentElement;
+  // Pollute with a fixed theme first, to prove auto actually clears it
+  ctx.applyTheme('warmCharcoal');
+  assertTrue(root.style.getPropertyValue('--bg') === '#181513', 'sanity: a fixed theme should set an explicit --bg');
+  ctx.applyTheme('auto');
+  assertEqual(root.style.getPropertyValue('--bg'), '', 'auto mode must remove the explicit --bg override so the stylesheet/media-query can take over again');
+  assertEqual(root.style.getPropertyValue('--accent'), '', 'auto mode must remove the explicit --accent override too');
+});
+
+await check('the default fallback (no theme ever chosen) is "auto", not a forced fixed theme', () => {
+  const src = ctx.loadState.toString();
+  assertTrue(src.includes("state.theme || 'auto'"), 'loadState must default an unset theme to auto (system-following) — defaulting to a fixed dark theme was the actual reported bug: it silently disabled native dark mode for every user who never opened the picker');
+});
+
+await check('setTheme("auto") is accepted as a valid choice, not rejected as an unknown theme key', () => {
+  ctx.state = buildMockState();
+  ctx._sbSession = { access_token: 'fake', user: { id: 'user123' } };
+  ctx._stateHydrated = true;
+  ctx.setTheme('auto');
+  assertEqual(ctx.state.theme, 'auto', 'auto must be a legitimate, persistable theme choice');
+});
+
+await check('signOut() resets to auto, not a forced fixed theme, before the next login choice loads', () => {
+  const src = ctx.signOut.toString();
+  assertTrue(src.includes("applyTheme('auto')"), 'the login screen shown after sign-out should follow system preference, not be stuck on a forced theme from a previous session');
+});
+
+await check('renderThemePicker() renders Auto as a selectable option alongside the fixed themes', () => {
+  const src = ctx.renderThemePicker.toString();
+  assertTrue(src.includes("setTheme(") && src.includes('auto'), 'the picker must offer Auto as an explicit, tappable option');
+});
+
 await check('no top-level function is declared more than once anywhere in the file (regression: silent shadowing caused both a data-loss bug and a broken legacy super-contribution modal)', () => {
   const fs = require('fs');
   const html = fs.readFileSync(APP_PATH, 'utf8');

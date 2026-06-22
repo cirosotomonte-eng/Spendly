@@ -2108,9 +2108,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.7.5';
+const APP_VERSION = '2.7.6';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '22 Jun 2026 10:13 PM AEDT';
+const BUILD_TIME = '22 Jun 2026 10:24 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -2397,7 +2397,7 @@ async function signOut() {
   _consecutiveSyncFailures = 0;
   _hasUnsyncedChanges = false;
   hideSyncTroubleBanner();
-  applyTheme('default');
+  applyTheme('auto');
   _stateHydrated = false;
   await getSB().auth.signOut();
   _sbSession = null;
@@ -2800,8 +2800,17 @@ const THEME_PRESETS = {
 };
 
 function applyTheme(themeKey) {
-  const theme = THEME_PRESETS[themeKey] || THEME_PRESETS.default;
   const root = document.documentElement;
+  if (themeKey === 'auto') {
+    // Remove all explicit overrides so the stylesheet's own
+    // @media (prefers-color-scheme: light) rule can take over again —
+    // restores native, automatic system-following light/dark switching,
+    // exactly like before the theme picker existed.
+    ['--bg','--surface','--surface2','--surface3','--border','--text','--muted','--accent','--accent-dim']
+      .forEach(v => root.style.removeProperty(v));
+    return;
+  }
+  const theme = THEME_PRESETS[themeKey] || THEME_PRESETS.default;
   root.style.setProperty('--bg', theme.bg);
   root.style.setProperty('--surface', theme.surface);
   root.style.setProperty('--surface2', theme.surface2);
@@ -2814,7 +2823,7 @@ function applyTheme(themeKey) {
 }
 
 function setTheme(themeKey) {
-  if (!THEME_PRESETS[themeKey]) return;
+  if (themeKey !== 'auto' && !THEME_PRESETS[themeKey]) return;
   state.theme = themeKey;
   applyTheme(themeKey);
   saveState();
@@ -2825,8 +2834,25 @@ function setTheme(themeKey) {
 function renderThemePicker() {
   const container = document.getElementById('themePickerGrid');
   if (!container) return;
-  const current = state.theme || 'default';
-  container.innerHTML = Object.entries(THEME_PRESETS).map(([key, t]) => {
+  const current = state.theme || 'auto';
+  container.style.flexWrap = 'wrap';
+  container.style.gap = '10px';
+
+  // 'Auto' isn't a fixed color theme — it means "follow this device's own
+  // system light/dark setting", exactly like the app behaved before the
+  // theme picker existed. Shown first since it's the recommended default
+  // for anyone who hasn't deliberately picked a fixed look.
+  const autoSelected = current === 'auto';
+  let html = '<button onclick="setTheme(\'auto\')" style="display:flex;flex-direction:column;align-items:center;gap:6px;background:none;border:none;cursor:pointer;font-family:var(--font);padding:4px">' +
+    '<div style="width:48px;height:48px;border-radius:50%;overflow:hidden;border:2px solid ' + (autoSelected ? 'var(--accent)' : 'var(--border)') + ';position:relative;display:flex">' +
+      '<div style="width:50%;height:100%;background:#0f0f0f"></div>' +
+      '<div style="width:50%;height:100%;background:#f8f7f3"></div>' +
+      (autoSelected ? '<div style="position:absolute;bottom:-3px;right:-3px;width:16px;height:16px;border-radius:50%;background:var(--accent);display:flex;align-items:center;justify-content:center"><svg width="9" height="9" viewBox="0 0 12 12" fill="none"><path d="M2 6l3 3 5-6" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></div>' : '') +
+    '</div>' +
+    '<span style="font-size:11px;color:' + (autoSelected ? 'var(--text)' : 'var(--muted)') + ';font-weight:' + (autoSelected ? '700' : '500') + ';text-align:center">Auto</span>' +
+  '</button>';
+
+  html += Object.entries(THEME_PRESETS).map(([key, t]) => {
     const selected = key === current;
     return '<button onclick="setTheme(\'' + key + '\')" style="display:flex;flex-direction:column;align-items:center;gap:6px;background:none;border:none;cursor:pointer;font-family:var(--font);padding:4px">' +
       '<div style="width:48px;height:48px;border-radius:50%;background:' + t.bg + ';border:2px solid ' + (selected ? 'var(--accent)' : 'var(--border)') + ';position:relative;display:flex;align-items:center;justify-content:center">' +
@@ -2836,6 +2862,8 @@ function renderThemePicker() {
       '<span style="font-size:11px;color:' + (selected ? 'var(--text)' : 'var(--muted)') + ';font-weight:' + (selected ? '700' : '500') + ';text-align:center">' + t.label + '</span>' +
     '</button>';
   }).join('');
+
+  container.innerHTML = html;
 }
 
 function saveState() {
@@ -2886,7 +2914,7 @@ async function loadState() {
     // out again and keep growing.
     if ('data' in state) { console.warn('Stripped stray nested "data" field from loaded state'); delete state.data; }
     if (!state.setupDone) { state.setupDone = true; }
-    applyTheme(state.theme || 'default');
+    applyTheme(state.theme || 'auto');
     _stateHydrated = true; // confirmed real data loaded — safe to allow writes now
     _hasUnsyncedChanges = false; // fresh load — in-memory state exactly matches the server
     setSyncStatus('saved');
@@ -2897,7 +2925,7 @@ async function loadState() {
   if (result.status === 'empty') {
     // Confirmed via a clean response that this account genuinely has no row yet.
     // Safe to treat as a new user and allow writes from here on.
-    applyTheme('default');
+    applyTheme('auto');
     _stateHydrated = true;
     _hasUnsyncedChanges = false;
     return;
@@ -17848,7 +17876,7 @@ function importBackup(input) {
       // Apply backup data
       state = { ...state, ...parsed.data };
       if ('data' in state) { console.warn('Stripped stray nested "data" field from imported backup'); delete state.data; }
-      applyTheme(state.theme || 'default');
+      applyTheme(state.theme || 'auto');
       // The user just deliberately supplied complete, verified data via file
       // picker — this is ground truth regardless of cloud-load timing, so
       // explicitly open the hydration gate rather than depending on it having
