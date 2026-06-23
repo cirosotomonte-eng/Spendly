@@ -987,6 +987,92 @@ await check('a skipped contribution shows in Recent contributions labeled "Skipp
   assertTrue(!html.includes('+$300.00'), 'must NOT show as a +amount — that would misleadingly suggest it was added to the balance');
 });
 
+// ─────────────────────────────────────────────────────────────────────────
+console.log('\n── Super contribution scheduling: date/frequency-driven, fires without viewing the page ──');
+
+await check('isSuperContribDueOn() matches monthly frequency on the chosen day only', () => {
+  const acct = { contribFrequency: 'monthly', contribMonthDay: 15 };
+  assertTrue(ctx.isSuperContribDueOn(acct, '2026-07-15'), 'should be due on the 15th');
+  assertTrue(!ctx.isSuperContribDueOn(acct, '2026-07-14'), 'should not be due a day early');
+  assertTrue(!ctx.isSuperContribDueOn(acct, '2026-07-16'), 'should not be due a day late');
+});
+
+await check('isSuperContribDueOn() clamps day 31 to the actual last day of shorter months', () => {
+  const acct = { contribFrequency: 'monthly', contribMonthDay: 31 };
+  assertTrue(ctx.isSuperContribDueOn(acct, '2026-02-28'), 'Feb 2026 only has 28 days — day 31 should clamp to the 28th, not silently never fire');
+  assertTrue(ctx.isSuperContribDueOn(acct, '2026-01-31'), 'January genuinely has 31 days, should fire on the 31st normally');
+});
+
+await check('isSuperContribDueOn() matches fortnightly frequency every 14 days from the anchor date', () => {
+  const acct = { contribFrequency: 'fortnightly', contribAnchorDate: '2026-07-01' };
+  assertTrue(ctx.isSuperContribDueOn(acct, '2026-07-01'), 'due on the anchor date itself');
+  assertTrue(ctx.isSuperContribDueOn(acct, '2026-07-15'), 'due exactly 14 days later');
+  assertTrue(!ctx.isSuperContribDueOn(acct, '2026-07-08'), 'should NOT be due halfway between (7 days)');
+});
+
+await check('isSuperContribDueOn() matches quarterly frequency every ~91 days from the anchor date', () => {
+  const acct = { contribFrequency: 'quarterly', contribAnchorDate: '2026-01-01' };
+  assertTrue(ctx.isSuperContribDueOn(acct, '2026-01-01'));
+  assertTrue(ctx.isSuperContribDueOn(acct, '2026-04-02')); // 91 days later
+  assertTrue(!ctx.isSuperContribDueOn(acct, '2026-02-01'));
+});
+
+await check('isSuperContribDueOn() returns false (never throws) when required fields are missing', () => {
+  assertNoThrow(() => ctx.isSuperContribDueOn({ contribFrequency: 'fortnightly' }, '2026-07-01'), 'missing anchorDate must fail safely, not throw');
+  assertEqual(ctx.isSuperContribDueOn({ contribFrequency: 'fortnightly' }, '2026-07-01'), false);
+});
+
+await check('applySuperContributions() generates a pending entry on first run for an account due today', () => {
+  ctx.state = buildMockState();
+  const todayStr = ctx.todayStr();
+  ctx.state.accounts.push({
+    id: 'super8', name: 'My Super', type: 'super', employerContribType: 'pct',
+    grossSalary: 120000, employerContribPct: 12, contribFrequency: 'monthly',
+    contribMonthDay: parseInt(todayStr.slice(8,10)), // due today
+  });
+  ctx.applySuperContributions();
+  const c = (ctx.state.superContributions||[]).find(x => x.acctId === 'super8' && x.dueDate === todayStr);
+  assertTrue(!!c, 'should generate a pending contribution for today since the account is due today');
+  assertEqual(c.status, 'pending');
+});
+
+await check('applySuperContributions() catches up on MISSED periods, not just today — the actual reported gap', () => {
+  ctx.state = buildMockState();
+  const today = new Date(); today.setHours(0,0,0,0);
+  const tenDaysAgo = new Date(today); tenDaysAgo.setDate(today.getDate() - 10);
+  ctx.state.accounts.push({
+    id: 'super9', name: 'My Super', type: 'super', employerContribType: 'fixed',
+    employerContribFixed: 100, contribFrequency: 'fortnightly',
+    contribAnchorDate: ctx.dateToStr(tenDaysAgo), // anchor 10 days ago -> one occurrence missed if checked daily, but should catch up
+    lastContribCheckDate: ctx.dateToStr(tenDaysAgo), // simulate: last checked 10 days ago, nothing since
+  });
+  ctx.applySuperContributions();
+  const entries = (ctx.state.superContributions||[]).filter(x => x.acctId === 'super9');
+  assertTrue(entries.length >= 1, 'must catch up and generate the missed occurrence(s) since the last check, not just skip straight to today');
+  assertTrue(entries.some(e => e.dueDate === ctx.dateToStr(tenDaysAgo)), 'the anchor date itself (10 days ago) should have generated an entry via catch-up');
+});
+
+await check('applySuperContributions() never creates a duplicate entry for the same due date', () => {
+  ctx.state = buildMockState();
+  const todayStr = ctx.todayStr();
+  ctx.state.accounts.push({
+    id: 'super10', name: 'My Super', type: 'super', employerContribType: 'fixed',
+    employerContribFixed: 200, contribFrequency: 'monthly',
+    contribMonthDay: parseInt(todayStr.slice(8,10)),
+  });
+  ctx.applySuperContributions();
+  ctx.applySuperContributions(); // run again immediately
+  const entries = (ctx.state.superContributions||[]).filter(x => x.acctId === 'super10' && x.dueDate === todayStr);
+  assertEqual(entries.length, 1, 'running the generator twice for the same day must never create a duplicate pending entry');
+});
+
+await check('applySuperContributions() is wired into the app/day-change flow, not only the account detail view', () => {
+  const fs = require('fs');
+  const html = fs.readFileSync(APP_PATH, 'utf8');
+  const callSites = (html.match(/applySuperContributions\(\)/g) || []).length;
+  assertTrue(callSites >= 4, 'should be called from init/day-change flow (at least 3 sites) plus the account detail view fallback — generation must not depend on the user opening this specific page');
+});
+
 await check('no top-level function is declared more than once anywhere in the file (regression: silent shadowing caused both a data-loss bug and a broken legacy super-contribution modal)', () => {
   const fs = require('fs');
   const html = fs.readFileSync(APP_PATH, 'utf8');

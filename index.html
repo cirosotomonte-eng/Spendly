@@ -2121,9 +2121,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.8.3';
+const APP_VERSION = '2.9.0';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '23 Jun 2026 9:18 AM AEDT';
+const BUILD_TIME = '23 Jun 2026 12:54 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -13180,7 +13180,87 @@ function migrateBudgetHistory() {
 function repairMissingRecurringExpenses() {
   // Always reset the lock for manual runs — user explicitly requested this
   _applyRecurringRunning = false;
-  applyRecurringExpenses(); applyRecurringSavings(); applyRecurringIncome(); migrateOffsetToAccount(); backfillDepositCycleDates(); backfillRecurringSavingsGoalId();
+  applyRecurringExpenses(); applyRecurringSavings(); applyRecurringIncome(); applySuperContributions(); migrateOffsetToAccount(); backfillDepositCycleDates(); backfillRecurringSavingsGoalId();
+}
+
+// ── Super contributions: date/frequency-driven auto-generation ───────────────
+// Mirrors the recurring-expense pattern: a due-date check per frequency type,
+// plus a catch-up loop so missed periods are still generated retroactively —
+// fires on app load/day-change, not tied to viewing the super account page.
+function isSuperContribDueOn(acct, dateStr) {
+  const freq = acct.contribFrequency || 'monthly';
+  const d = new Date(dateStr + 'T00:00:00');
+  if (freq === 'monthly') {
+    const day = acct.contribMonthDay || 1;
+    // Clamp to the last actual day of shorter months (e.g. day 31 in Feb)
+    const lastDayOfMonth = new Date(d.getFullYear(), d.getMonth()+1, 0).getDate();
+    return d.getDate() === Math.min(day, lastDayOfMonth);
+  }
+  if (freq === 'fortnightly' && acct.contribAnchorDate) {
+    const base = new Date(acct.contribAnchorDate + 'T00:00:00');
+    const diffDays = Math.round((d - base) / 86400000);
+    return diffDays >= 0 && diffDays % 14 === 0;
+  }
+  if (freq === 'quarterly' && acct.contribAnchorDate) {
+    const base = new Date(acct.contribAnchorDate + 'T00:00:00');
+    const diffDays = Math.round((d - base) / 86400000);
+    return diffDays >= 0 && diffDays % 91 === 0;
+  }
+  return false;
+}
+
+function applySuperContributions() {
+  const superAccts = (state.accounts||[]).filter(a => a.type === 'super' && a.employerContribType && a.contribFrequency);
+  if (!superAccts.length) return;
+  const today = new Date(); today.setHours(0,0,0,0);
+  const todayDateStr = todayStr();
+  const msPerDay = 86400000;
+  if (!state.superContributions) state.superContributions = [];
+  let added = false;
+
+  superAccts.forEach(acct => {
+    const empRate = (acct.employerContribPct || 11.5) / 100;
+    const grossSalary = acct.employerContribType === 'pct' ? (acct.grossSalary || 0) : 0;
+    const employerAnnual = acct.employerContribType === 'pct'
+      ? (acct.salaryType === 'trp' ? grossSalary * empRate / (1 + empRate) : grossSalary * empRate)
+      : (acct.employerContribFixed || 0) * 12;
+    const sacrificeAnnual = (acct.salarysacrifice || 0) * 12;
+    const totalAnnual = employerAnnual + sacrificeAnnual;
+    if (totalAnnual <= 0) return;
+
+    const freq = acct.contribFrequency || 'monthly';
+    const occurrencesPerYear = freq === 'fortnightly' ? 26 : freq === 'quarterly' ? 4 : 12;
+    const employerPerOcc = employerAnnual / occurrencesPerYear;
+    const sacrificePerOcc = sacrificeAnnual / occurrencesPerYear;
+    const netPerOcc = totalAnnual / occurrencesPerYear;
+
+    // Catch-up window: from the day after we last checked, up to today, capped
+    // at 120 days so a long-unused account doesn't generate an unbounded backlog.
+    const lastCheck = acct.lastContribCheckDate ? new Date(acct.lastContribCheckDate + 'T00:00:00') : null;
+    const daysSince = lastCheck ? Math.round((today - lastCheck) / msPerDay) : 0;
+    const catchUpDays = lastCheck ? Math.min(Math.max(daysSince, 0), 120) : 0;
+
+    for (let i = catchUpDays; i >= 0; i--) {
+      const checkDate = new Date(today);
+      checkDate.setDate(today.getDate() - i);
+      const checkDateStr = dateToStr(checkDate);
+      if (!isSuperContribDueOn(acct, checkDateStr)) continue;
+      const alreadyExists = state.superContributions.some(c => c.acctId === acct.id && c.dueDate === checkDateStr);
+      if (alreadyExists) continue;
+      state.superContributions.push({
+        id: uid(), acctId: acct.id, dueDate: checkDateStr,
+        label: checkDate.toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' }),
+        employer: Math.round(employerPerOcc * 100) / 100,
+        sacrifice: Math.round(sacrificePerOcc * 100) / 100,
+        net: Math.round(netPerOcc * 100) / 100,
+        status: 'pending', createdAt: new Date().toISOString(),
+      });
+      added = true;
+    }
+    acct.lastContribCheckDate = todayDateStr;
+  });
+
+  if (added) saveState();
 }
 
 let _applyRecurringRunning = false;
@@ -15105,8 +15185,26 @@ function setAcctType(type) {
         <div style="font-size:12px;font-weight:700;margin-bottom:6px">Salary sacrifice (optional)</div>
         <label style="font-size:10px;color:var(--muted)">Additional monthly amount ($)</label>
         <input type="number" id="superSalarySacrifice" value="0" style="width:100%;padding:8px 10px;border-radius:8px;border:1.5px solid var(--surface2);background:var(--surface);color:var(--text);font-size:14px;font-family:var(--font);box-sizing:border-box;margin-top:3px">
+      </div>
+      <div style="margin-top:10px;padding:12px;background:var(--surface2);border-radius:10px">
+        <div style="font-size:12px;font-weight:700;margin-bottom:8px">Contribution schedule</div>
+        <div style="font-size:10px;color:var(--muted);margin-bottom:8px">When pending contributions should appear automatically — fires on its own, no need to open this account</div>
+        <div style="display:flex;gap:6px;margin-bottom:10px">
+          <button type="button" id="superFreqMonthlyBtn" onclick="setSuperContribFrequency('monthly')" style="flex:1;padding:7px;border-radius:7px;border:1.5px solid var(--accent);background:var(--accent-dim);color:var(--accent);font-size:11px;font-weight:600;font-family:var(--font);cursor:pointer">Monthly</button>
+          <button type="button" id="superFreqFortnightlyBtn" onclick="setSuperContribFrequency('fortnightly')" style="flex:1;padding:7px;border-radius:7px;border:1.5px solid var(--border);background:var(--surface);color:var(--muted);font-size:11px;font-weight:600;font-family:var(--font);cursor:pointer">Fortnightly</button>
+          <button type="button" id="superFreqQuarterlyBtn" onclick="setSuperContribFrequency('quarterly')" style="flex:1;padding:7px;border-radius:7px;border:1.5px solid var(--border);background:var(--surface);color:var(--muted);font-size:11px;font-weight:600;font-family:var(--font);cursor:pointer">Quarterly</button>
+        </div>
+        <div id="superFreqMonthlyFields">
+          <label style="font-size:10px;color:var(--muted)">Day of month</label>
+          <input type="number" id="superContribMonthDay" min="1" max="28" value="1" style="width:100%;padding:8px 10px;border-radius:8px;border:1.5px solid var(--surface2);background:var(--surface);color:var(--text);font-size:14px;font-family:var(--font);box-sizing:border-box;margin-top:3px">
+        </div>
+        <div id="superFreqAnchorFields" style="display:none">
+          <label style="font-size:10px;color:var(--muted)">First contribution date</label>
+          <input type="date" id="superContribAnchorDate" onchange="this.blur()" style="width:100%;padding:8px 10px;border-radius:8px;border:1.5px solid var(--surface2);background:var(--surface);color:var(--text);font-size:14px;font-family:var(--font);box-sizing:border-box;margin-top:3px">
+        </div>
       </div>`;
     setSuperSalaryType('base'); // visually default a brand-new super account's toggle to "Base salary"
+    setSuperContribFrequency('monthly');
   }
   if (superSec) superSec.style.display = type === 'super' ? '' : 'none';
 }
@@ -15142,6 +15240,24 @@ function setSuperSalaryType(t) {
     ? 'Super is included in this figure — the super portion will be backed out, not added on top'
     : 'Super is paid additionally, on top of this salary';
   document.getElementById('superGrossSalary').dataset.salaryType = t;
+}
+
+function setSuperContribFrequency(freq) {
+  const btns = { monthly: 'superFreqMonthlyBtn', fortnightly: 'superFreqFortnightlyBtn', quarterly: 'superFreqQuarterlyBtn' };
+  Object.entries(btns).forEach(([key, id]) => {
+    const btn = document.getElementById(id);
+    if (!btn) return;
+    const active = key === freq;
+    btn.style.border = active ? '1.5px solid var(--accent)' : '1.5px solid var(--border)';
+    btn.style.background = active ? 'var(--accent-dim)' : 'var(--surface)';
+    btn.style.color = active ? 'var(--accent)' : 'var(--muted)';
+  });
+  const monthlyFields = document.getElementById('superFreqMonthlyFields');
+  const anchorFields = document.getElementById('superFreqAnchorFields');
+  if (monthlyFields) monthlyFields.style.display = freq === 'monthly' ? '' : 'none';
+  if (anchorFields) anchorFields.style.display = freq === 'monthly' ? 'none' : '';
+  const dayInput = document.getElementById('superContribMonthDay');
+  if (dayInput) dayInput.dataset.freq = freq;
 }
 
 function toggleSalaryFields() {
@@ -15207,6 +15323,9 @@ function openEditAccount(id) {
     setVal('superSalarySacrifice', acct.salarysacrifice || 0);
     setSuperContribType(acct.employerContribType || 'pct');
     setSuperSalaryType(acct.salaryType || 'base');
+    setVal('superContribMonthDay', acct.contribMonthDay || 1);
+    setVal('superContribAnchorDate', acct.contribAnchorDate || '');
+    setSuperContribFrequency(acct.contribFrequency || 'monthly');
   }
   // Restore salary account fields
   const cb = document.getElementById('acctIsSalary');
@@ -15237,6 +15356,9 @@ function saveAccount() {
     employerContribType: document.getElementById('superEmpFixedFields')?.style.display === 'none' ? 'pct' : 'fixed',
     grossSalary: parseFloat(document.getElementById('superGrossSalary')?.value) || 0,
     salaryType: document.getElementById('superGrossSalary')?.dataset.salaryType || 'base',
+    contribFrequency: document.getElementById('superContribMonthDay')?.dataset.freq || 'monthly',
+    contribMonthDay: parseInt(document.getElementById('superContribMonthDay')?.value) || 1,
+    contribAnchorDate: document.getElementById('superContribAnchorDate')?.value || '',
     employerContribPct: parseFloat(document.getElementById('superEmpPct')?.value) || 11.5,
     employerContribFixed: parseFloat(document.getElementById('superEmpFixed')?.value) || 0,
     salarysacrifice: parseFloat(document.getElementById('superSalarySacrifice')?.value) || 0,
@@ -16736,29 +16858,16 @@ function renderAccounts() {
         backLabel: 'Accounts',
       });
       // ── Pending super contributions ─────────────────────────────────────
+      // Generation itself now happens in applySuperContributions() — driven by
+      // the account's own chosen date/frequency, fired on app load/day-change
+      // rather than only when this page happens to be viewed. Call it here too
+      // as an immediate fallback (e.g. right after first setting up a new
+      // super account's contribution schedule).
       if (!state.superContributions) state.superContributions = [];
+      applySuperContributions();
       const pendingContribs = state.superContributions.filter(c => c.acctId === acct.id && c.status === 'pending');
       const paidContribs = state.superContributions.filter(c => c.acctId === acct.id && (c.status === 'paid' || c.status === 'skipped'))
         .sort((a,b) => (b.paidAt||b.skippedAt||'').localeCompare(a.paidAt||a.skippedAt||'')).slice(0,6);
-
-      // Auto-generate next pending if none exists
-      const today = new Date();
-      const thisMonth = today.getFullYear() + '-' + String(today.getMonth()+1).padStart(2,'0');
-      const alreadyHasThisMonth = (state.superContributions||[]).some(c => c.acctId === acct.id && c.month === thisMonth);
-      if (!alreadyHasThisMonth && totalMonthly > 0) {
-        const newContrib = {
-          id: uid(), acctId: acct.id, month: thisMonth,
-          label: today.toLocaleDateString('en-AU',{month:'long',year:'numeric'}),
-          employer: Math.round(employerMonthly * 100) / 100,
-          sacrifice: Math.round(sacrificeMonthly * 100) / 100,
-          net: Math.round(totalMonthly * 100) / 100,
-          status: 'pending',
-          createdAt: new Date().toISOString(),
-        };
-        state.superContributions.push(newContrib);
-        saveState();
-        pendingContribs.push(newContrib);
-      }
 
       if (pendingContribs.length > 0) {
         h += '<div style="background:var(--surface);border-radius:var(--r);padding:14px;margin-bottom:14px">';
@@ -18462,14 +18571,14 @@ document.addEventListener('visibilitychange', () => {
       // Day has changed — reload from cloud first to get fresh data, then apply recurring
       _lastRecurringCheckDate = currentDate;
       loadState().then(() => {
-        applyRecurringExpenses(); applyRecurringSavings(); applyRecurringIncome(); migrateOffsetToAccount(); backfillDepositCycleDates(); backfillRecurringSavingsGoalId();
+        applyRecurringExpenses(); applyRecurringSavings(); applyRecurringIncome(); applySuperContributions(); migrateOffsetToAccount(); backfillDepositCycleDates(); backfillRecurringSavingsGoalId();
         recordTodayOffsetSaving();
         renderContent();
       });
     } else {
       // Same day — just apply recurring on existing state (do NOT reload from cloud —
       // that would overwrite any unsaved in-memory changes)
-      applyRecurringExpenses(); applyRecurringSavings(); applyRecurringIncome(); migrateOffsetToAccount(); backfillDepositCycleDates(); backfillRecurringSavingsGoalId();
+      applyRecurringExpenses(); applyRecurringSavings(); applyRecurringIncome(); applySuperContributions(); migrateOffsetToAccount(); backfillDepositCycleDates(); backfillRecurringSavingsGoalId();
       renderContent();
     }
   }
