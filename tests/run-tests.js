@@ -1493,14 +1493,58 @@ await check('acting on one item never affects unrelated items in other sections'
   assertTrue(!ctx.window._reconciliation.resolved['missing-1'], 'second item must remain unresolved — resolving one item must not affect others');
 });
 
-await check('closeReconciliationReview() removes the screen and clears the stored state', () => {
+await check('minimizeReconciliationReview() (the X button) hides the screen but KEEPS the reconciliation state', () => {
   ctx.state = buildMockState();
+  ctx.state.currentTab = 'accounts';
+  const result = { matched: [], missingFromSpendly: [{date:'2026-06-01', merchant:'A', amount:10}], missingFromStatement: [], splitSuggestions: [], creditsWithMatch: [], creditsUnmatched: [] };
+  ctx.showStatementReconciliationResults('cc1', result, null);
+  const screenBefore = ctx.document.getElementById('reconcileReviewScreen');
+  ctx.minimizeReconciliationReview();
+  assertTrue(screenBefore._removed === true, 'the screen element should actually be removed from the page');
+  assertTrue(!!ctx.window._reconciliation, 'progress must NOT be lost just from tapping X — that was the actual reported problem: having to re-upload just to keep working through a list');
+});
+
+await check('finishReconciliationReview() (Done reviewing) is the only action that actually clears the state', () => {
+  ctx.state = buildMockState();
+  ctx.state.currentTab = 'accounts';
   const result = { matched: [], missingFromSpendly: [], missingFromStatement: [], splitSuggestions: [], creditsWithMatch: [], creditsUnmatched: [] };
   ctx.showStatementReconciliationResults('cc1', result, null);
-  assertTrue(!!ctx.window._reconciliation);
-  ctx.closeReconciliationReview();
-  assertTrue(!ctx.window._reconciliation, 'closing must clear the stored reconciliation state');
+  ctx.finishReconciliationReview();
+  assertTrue(!ctx.window._reconciliation, 'explicitly finishing must fully clear the reconciliation state');
 });
+
+await check('renderAccounts() shows a resumable "Continue" card on the CC page when a reconciliation was minimized, not finished', () => {
+  ctx.state = buildMockState();
+  ctx.state.currentTab = 'accounts';
+  ctx.state.accounts.push({ id: 'cc5', name: 'Card', type: 'credit' });
+  ctx._viewingAccountId = 'cc5';
+  const result = { matched: [], missingFromSpendly: [{date:'2026-06-01', merchant:'A', amount:10}], missingFromStatement: [], splitSuggestions: [], creditsWithMatch: [], creditsUnmatched: [] };
+  ctx.showStatementReconciliationResults('cc5', result, null);
+  ctx.minimizeReconciliationReview();
+  const html = ctx.document.getElementById('content').innerHTML;
+  assertTrue(html.includes('Statement review in progress'), 'a resumable card must appear on the CC account page after minimizing, so the user can return to it without re-uploading');
+  assertTrue(html.includes('1 item'), 'should show an accurate count of items still needing action');
+});
+
+await check('the resumable card never appears for a DIFFERENT account in-progress reconciliation', () => {
+  ctx.state = buildMockState();
+  ctx.state.currentTab = 'accounts';
+  ctx.state.accounts.push({ id: 'cc6', name: 'Card A', type: 'credit' }, { id: 'cc7', name: 'Card B', type: 'credit' });
+  const result = { matched: [], missingFromSpendly: [{date:'2026-06-01', merchant:'A', amount:10}], missingFromStatement: [], splitSuggestions: [], creditsWithMatch: [], creditsUnmatched: [] };
+  ctx.showStatementReconciliationResults('cc6', result, null); // in-progress reconciliation belongs to cc6
+  ctx.minimizeReconciliationReview();
+  ctx._viewingAccountId = 'cc7'; // but we're viewing cc7
+  ctx.renderAccounts();
+  const html = ctx.document.getElementById('content').innerHTML;
+  assertTrue(!html.includes('Statement review in progress'), 'viewing a different card must not show a resumable card belonging to another cards reconciliation');
+});
+
+await check('renderReconciliationReview() preserves scroll position across re-renders, instead of resetting to the top on every action', () => {
+  const src = ctx.renderReconciliationReview.toString();
+  assertTrue(src.includes('savedScrollTop') && src.includes('scrollTop = savedScrollTop'), 'every action rebuilds the screen content — without explicitly restoring scroll position, each tap would jump the user back to the top, making it impossible to work through a long list');
+});
+
+
 
 await check('toggleReconcileSection() does not throw and toggles collapsed state', () => {
   ctx.state = buildMockState();
