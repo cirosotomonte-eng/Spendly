@@ -2121,9 +2121,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.10.4';
+const APP_VERSION = '2.10.5';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '24 Jun 2026 9:11 PM AEDT';
+const BUILD_TIME = '24 Jun 2026 9:14 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -14479,7 +14479,7 @@ function openPortfolioImport() {
       content.push({ type: 'text', text: 'These ' + files.length + ' screenshots are from a broker app showing a share portfolio (Summary, P&L, and/or Holdings views). Extract ALL holdings visible across all screenshots and merge into one JSON array — deduplicate by ticker, combining data from different screenshots. Return ONLY valid JSON, no markdown, no explanation. Format: [{"ticker":"QAN","name":"Qantas Airways","exchange":"ASX","units":1257,"currentPrice":8.35,"avgCost":5.585}]. Use null for missing fields. Assume ASX exchange.' });
 
       const response = await callClaudeViaProxy({
-        model: 'claude-sonnet-4-20250514',
+        model: 'claude-sonnet-4-6',
         max_tokens: 2000,
         messages: [{ role: 'user', content }]
       });
@@ -16056,7 +16056,7 @@ function openStatementUpload(ccAccountId) {
       });
 
       const response = await callClaudeViaProxy({
-        model: 'claude-sonnet-4-20250514',
+        model: 'claude-sonnet-4-6',
         max_tokens: 8000,
         messages: [{ role: 'user', content }]
       });

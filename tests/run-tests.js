@@ -1367,6 +1367,14 @@ await check('the results summary surfaces which cycle was inferred, so a wrong g
   assertTrue(src.includes('Reconciling against cycle'), 'the inferred cycle must be visibly shown to the user, not applied invisibly — a wrong guess needs to be obvious immediately');
 });
 
+await check('both AI call sites use a current model string, not a retired dated snapshot', () => {
+  const fs = require('fs');
+  const html = fs.readFileSync(APP_PATH, 'utf8');
+  assertTrue(!html.includes('claude-sonnet-4-20250514'), 'this specific dated snapshot was retired by Anthropic — using it causes a real, reported API error');
+  const currentModelCount = (html.match(/model: 'claude-sonnet-4-6'/g) || []).length;
+  assertEqual(currentModelCount, 2, 'both the portfolio import and the statement upload must use the current model string');
+});
+
 await check('no top-level function is declared more than once anywhere in the file (regression: silent shadowing caused both a data-loss bug and a broken legacy super-contribution modal)', () => {
   const fs = require('fs');
   const html = fs.readFileSync(APP_PATH, 'utf8');
