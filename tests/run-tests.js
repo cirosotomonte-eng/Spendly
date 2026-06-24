@@ -1132,6 +1132,109 @@ await check('getGoalContributions (inside openPayCCFromSalary) filters unsettled
   assertTrue(src.includes('getEffectiveBillingCycleEnd'), 'the owed calculation must use the deferral-aware effective cycle end, not the raw expense date, to decide what counts as billable by a given cycle');
 });
 
+// ─────────────────────────────────────────────────────────────────────────
+console.log('\n── Statement reconciliation, phase 2: the matching algorithm itself ──');
+console.log('   (using the actual scenarios from a real statement)');
+
+await check('reconcileStatement() matches an exact same-day, same-amount charge', () => {
+  const statement = [{ date: '2026-05-19', merchant: 'WOOLWORTHS', amount: 208.80, isCredit: false }];
+  const spendly = [{ id: 'e1', date: '2026-05-19', amount: 208.80, categoryId: 'cat1' }];
+  const r = ctx.reconcileStatement(statement, spendly, []);
+  assertEqual(r.matched.length, 1);
+  assertEqual(r.missingFromSpendly.length, 0);
+  assertEqual(r.missingFromStatement.length, 0);
+});
+
+await check('reconcileStatement() matches within date tolerance (Date Processed vs Date of Transaction can differ)', () => {
+  const statement = [{ date: '2026-05-14', merchant: 'EATCLUB', amount: 254.76, isCredit: false }];
+  const spendly = [{ id: 'e2', date: '2026-05-16', amount: 254.76, categoryId: 'cat1' }]; // logged 2 days later
+  const r = ctx.reconcileStatement(statement, spendly, [], { dateToleranceDays: 3 });
+  assertEqual(r.matched.length, 1, 'should still match within the 3-day tolerance window');
+});
+
+await check('reconcileStatement() correctly 1:1 matches genuine duplicate amounts on the same day (the gift card case)', () => {
+  const statement = [
+    { date: '2026-05-24', merchant: 'EDRGIFTCARD BELLAVISTA', amount: 24.00, isCredit: false },
+    { date: '2026-05-24', merchant: 'EDRGIFTCARD BELLAVISTA', amount: 24.00, isCredit: false },
+  ];
+  const spendly = [
+    { id: 'gc1', date: '2026-05-24', amount: 24.00, categoryId: 'cat1' },
+    { id: 'gc2', date: '2026-05-24', amount: 24.00, categoryId: 'cat1' },
+  ];
+  const r = ctx.reconcileStatement(statement, spendly, []);
+  assertEqual(r.matched.length, 2, 'two real duplicate charges with two real matching Spendly entries must both match — not collapse onto one');
+  assertEqual(r.missingFromSpendly.length, 0);
+  assertEqual(r.missingFromStatement.length, 0);
+});
+
+await check('reconcileStatement() flags only the SECOND duplicate as missing when only one was logged', () => {
+  const statement = [
+    { date: '2026-05-24', merchant: 'EDRGIFTCARD BELLAVISTA', amount: 24.00, isCredit: false },
+    { date: '2026-05-24', merchant: 'EDRGIFTCARD BELLAVISTA', amount: 24.00, isCredit: false },
+  ];
+  const spendly = [{ id: 'gc1', date: '2026-05-24', amount: 24.00, categoryId: 'cat1' }]; // only ONE logged
+  const r = ctx.reconcileStatement(statement, spendly, []);
+  assertEqual(r.matched.length, 1, 'the first should still match the one that was logged');
+  assertEqual(r.missingFromSpendly.length, 1, 'the second, genuinely unlogged duplicate must be flagged as missing from Spendly');
+});
+
+await check('reconcileStatement() groups a split transaction (two Qantas charges) against one combined Spendly entry', () => {
+  const statement = [
+    { date: '2026-05-25', merchant: 'QANTAS AIR 0812387916170 LOS ANGELES', amount: 455.75, isCredit: false },
+    { date: '2026-05-25', merchant: 'QANTAS AIR 0812387916172 LOS ANGELES', amount: 455.75, isCredit: false },
+  ];
+  const spendly = [{ id: 'flight1', date: '2026-05-25', amount: 911.50, categoryId: 'cat1', name: 'Flights for both of us' }];
+  const r = ctx.reconcileStatement(statement, spendly, []);
+  assertEqual(r.matched.length, 0, 'should not exact-match either individual line against the combined total');
+  assertEqual(r.splitSuggestions.length, 1, 'should suggest grouping the two statement lines against the one combined Spendly entry');
+  assertEqual(r.splitSuggestions[0].sum, 911.50);
+  assertEqual(r.splitSuggestions[0].expense.id, 'flight1');
+  assertEqual(r.missingFromSpendly.length, 0, 'the grouped lines must not ALSO show up as missing');
+  assertEqual(r.missingFromStatement.length, 0);
+});
+
+await check('reconcileStatement() flags an expense as missing from statement when the bank simply has not billed it yet', () => {
+  const statement = []; // nothing on the statement
+  const spendly = [{ id: 'e3', date: '2026-06-17', amount: 2000, categoryId: 'cat1' }]; // logged, but bank hasn't processed it
+  const r = ctx.reconcileStatement(statement, spendly, []);
+  assertEqual(r.missingFromStatement.length, 1, 'an unmatched Spendly expense is exactly the defer-to-next-cycle candidate');
+  assertEqual(r.missingFromStatement[0].id, 'e3');
+});
+
+await check('reconcileStatement() treats a credit (refund) as its own category, never as a regular charge', () => {
+  const statement = [{ date: '2026-05-15', merchant: 'SP BATTERY MATE', amount: 76.79, isCredit: true }];
+  const r = ctx.reconcileStatement(statement, [], []);
+  assertEqual(r.matched.length, 0);
+  assertEqual(r.missingFromSpendly.length, 0, 'a credit must never be treated as a missing regular charge');
+});
+
+await check('reconcileStatement() finds the original expense for a credit by searching the wider history pool', () => {
+  const statement = [{ date: '2026-05-15', merchant: 'SP BATTERY MATE', amount: 76.79, isCredit: true }];
+  const history = [{ id: 'oldExp1', date: '2026-03-14', amount: 76.79, categoryId: 'cat1', name: 'SP Battery Mate' }]; // logged 2 cycles ago
+  const r = ctx.reconcileStatement(statement, [], history);
+  assertEqual(r.creditsWithMatch.length, 1, 'should find the plausible original charge even though it is outside the current cycle pool');
+  assertEqual(r.creditsWithMatch[0].matchedExpense.id, 'oldExp1');
+  assertEqual(r.creditsUnmatched.length, 0);
+});
+
+await check('reconcileStatement() leaves a credit unmatched (not guessed) when nothing plausible exists in history', () => {
+  const statement = [{ date: '2026-05-15', merchant: 'UNKNOWN REFUND', amount: 999.99, isCredit: true }];
+  const r = ctx.reconcileStatement(statement, [], []);
+  assertEqual(r.creditsUnmatched.length, 1, 'must fall into the explicit unmatched-credit bucket, never silently guess a match');
+  assertEqual(r.creditsWithMatch.length, 0);
+});
+
+await check('reconcileStatement() never throws on a completely empty statement or empty expense list', () => {
+  assertNoThrow(() => ctx.reconcileStatement([], [], []));
+  assertNoThrow(() => ctx.reconcileStatement([], [{ id: 'e1', date: '2026-05-01', amount: 10 }], []));
+});
+
+await check('normalizeMerchant() strips punctuation/case so similar merchant strings can be grouped', () => {
+  assertEqual(ctx.normalizeMerchant('SP *Battery-Mate!!'), ctx.normalizeMerchant('SP Battery Mate'), 'punctuation and case must not affect grouping');
+  assertEqual(ctx.normalizeMerchant('QANTAS AIR 0812387916170').slice(0, 12), ctx.normalizeMerchant('QANTAS AIR 0812387916172').slice(0, 12),
+    'two charges differing only in a trailing reference number must still share the same grouping prefix');
+});
+
 await check('no top-level function is declared more than once anywhere in the file (regression: silent shadowing caused both a data-loss bug and a broken legacy super-contribution modal)', () => {
   const fs = require('fs');
   const html = fs.readFileSync(APP_PATH, 'utf8');

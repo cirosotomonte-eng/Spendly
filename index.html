@@ -2121,9 +2121,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.10.0';
+const APP_VERSION = '2.10.1';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '24 Jun 2026 7:38 PM AEDT';
+const BUILD_TIME = '24 Jun 2026 7:48 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -16423,6 +16423,93 @@ function editPendingAmount(pendingId) {
 // billed), the cycle it's actually billable in is the one AFTER its own
 // natural date-based cycle. Used wherever CC payment logic decides what's
 // actually owed as of a given cycle's end.
+// ── Statement reconciliation: core matching algorithm ─────────────────────────
+// Pure function, no DOM/state access — takes already-extracted statement
+// transactions and the relevant pool(s) of existing Spendly expenses, returns
+// a fully categorized result. UI/API-extraction layers call this; this
+// function only does matching logic, so it can be tested in isolation.
+//
+// statementTxns: [{ date:'YYYY-MM-DD', merchant:string, amount:number, isCredit:boolean }]
+// cycleExpenses: Spendly expenses for this CC account, for the cycle being reconciled
+// historyExpenses: a WIDER pool (e.g. 3 cycles back) used only for credit/refund matching
+function normalizeMerchant(str) {
+  return (str || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+function reconcileStatement(statementTxns, cycleExpenses, historyExpenses, options) {
+  const dateToleranceDays = (options && options.dateToleranceDays) || 3;
+  const epsilon = 0.01;
+  const sameAmount = (a, b) => Math.abs(a - b) < epsilon;
+  const daysBetween = (d1, d2) => Math.abs(Math.round((new Date(d1 + 'T00:00:00') - new Date(d2 + 'T00:00:00')) / 86400000));
+
+  const charges = statementTxns.filter(t => !t.isCredit);
+  const credits = statementTxns.filter(t => t.isCredit);
+
+  // ── Pass 1: exact amount + date-tolerance, greedy 1:1 matching ──────────────
+  // Greedy with a consumed-set correctly handles duplicate amounts: if two
+  // statement lines and two Spendly expenses share the same amount, each
+  // statement line consumes a DIFFERENT expense rather than both matching the
+  // same one. If only one Spendly expense exists for that amount, the second
+  // statement line correctly falls through as unmatched.
+  const consumedExpenseIds = new Set();
+  const matched = [];
+  const unmatchedCharges = [];
+  charges.forEach(t => {
+    let best = null, bestDiff = Infinity;
+    cycleExpenses.forEach(e => {
+      if (consumedExpenseIds.has(e.id)) return;
+      if (!sameAmount(e.amount, t.amount)) return;
+      const diff = daysBetween(e.date, t.date);
+      if (diff <= dateToleranceDays && diff < bestDiff) { best = e; bestDiff = diff; }
+    });
+    if (best) { consumedExpenseIds.add(best.id); matched.push({ statementTxn: t, expense: best }); }
+    else { unmatchedCharges.push(t); }
+  });
+  const unmatchedExpenses = cycleExpenses.filter(e => !consumedExpenseIds.has(e.id));
+
+  // ── Pass 2: split/group fallback ─────────────────────────────────────────────
+  // For remaining unmatched statement lines, group by (date + loosely-normalized
+  // merchant prefix) — e.g. two QANTAS AIR charges with different trailing
+  // reference numbers still group together. If a group's lines SUM to exactly
+  // one still-unmatched Spendly expense, suggest it as a logged-combined entry
+  // rather than flagging both lines as separately missing.
+  const groupKey = t => t.date + '|' + normalizeMerchant(t.merchant).slice(0, 12);
+  const groups = {};
+  unmatchedCharges.forEach(t => { const k = groupKey(t); (groups[k] = groups[k] || []).push(t); });
+
+  const splitSuggestions = [];
+  const stillUnmatchedCharges = [];
+  const consumedInSplit = new Set();
+  Object.values(groups).forEach(group => {
+    if (group.length < 2) { group.forEach(t => stillUnmatchedCharges.push(t)); return; }
+    const sum = Math.round(group.reduce((s, t) => s + t.amount, 0) * 100) / 100;
+    const candidate = unmatchedExpenses.find(e => !consumedInSplit.has(e.id) && sameAmount(e.amount, sum));
+    if (candidate) { splitSuggestions.push({ statementTxns: group, expense: candidate, sum }); consumedInSplit.add(candidate.id); }
+    else { group.forEach(t => stillUnmatchedCharges.push(t)); }
+  });
+  const finalUnmatchedExpenses = unmatchedExpenses.filter(e => !consumedInSplit.has(e.id));
+
+  // ── Credits: search the wider history pool for a plausible original charge ──
+  const creditResults = credits.map(c => {
+    let best = null, bestDiff = Infinity;
+    (historyExpenses || []).forEach(e => {
+      if (!sameAmount(e.amount, c.amount)) return;
+      const diff = daysBetween(e.date, c.date);
+      if (diff < bestDiff) { best = e; bestDiff = diff; }
+    });
+    return { credit: c, matchedExpense: best };
+  });
+
+  return {
+    matched,
+    missingFromSpendly: stillUnmatchedCharges,
+    missingFromStatement: finalUnmatchedExpenses,
+    splitSuggestions,
+    creditsWithMatch: creditResults.filter(r => r.matchedExpense),
+    creditsUnmatched: creditResults.filter(r => !r.matchedExpense).map(r => r.credit),
+  };
+}
+
 function getEffectiveBillingCycleRange(e) {
   const natural = getCycleRangeForDate(e.date);
   if (!e.deferToNextCycle) return natural;
