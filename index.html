@@ -2121,9 +2121,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.9.0';
+const APP_VERSION = '2.10.0';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '23 Jun 2026 12:54 PM AEDT';
+const BUILD_TIME = '24 Jun 2026 7:38 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -3398,9 +3398,14 @@ function getCycleSummary(offset) {
     // cycle (fired or still pending). This matches the current-cycle "Left to Spend"
     // methodology, which also subtracts savings — otherwise money that moved from
     // salary into a goal never counts as spent, making past cycles look falsely under-budget.
+    const { cycleStart: _prevStart, cycleEnd: _prevEnd } = getCycleRange(offset - 1);
     const spent = (state.expenses||[]).filter(e => {
+      if (e.transactionType === 'saving') return false;
       const d = new Date(e.date + 'T00:00:00');
-      return d >= cycleStart && d <= cycleEnd && e.transactionType !== 'saving';
+      // Deferred expenses (statement reconciliation) count toward the cycle
+      // AFTER their own real date, not their own — see cycleExpenses().
+      if (e.deferToNextCycle) return d >= _prevStart && d <= _prevEnd;
+      return d >= cycleStart && d <= cycleEnd;
     }).reduce((s,e) => s + budgetAmount(e), 0);
     const savingsForCycle = getFiredRecurringSavingsTotal(offset);
     const totalSpent = Math.round((spent + savingsForCycle) * 100) / 100;
@@ -3493,10 +3498,22 @@ function getDaysLeft() {
   const { cycleEnd } = getCycleRange(0);
   return Math.max(Math.round((cycleEnd - today) / 86400000) + 1, 1);
 }
-function cycleExpenses() {
-  const { cycleStart, cycleEnd } = getCycleRange();
+// A logged expense normally counts toward whichever cycle its own date falls
+// in. Statement reconciliation can mark an expense deferToNextCycle=true —
+// meaning the bank hasn't actually billed it yet (it'll appear on next
+// month's statement), so for BUDGET purposes it should count toward the
+// FOLLOWING cycle instead, even though the date itself never changes. This
+// only affects budget math — Insights/Analytics intentionally keep using the
+// real date everywhere else, by simply never checking this flag.
+function cycleExpenses(offset) {
+  if (offset === undefined) offset = state.viewingCycleOffset || 0;
+  const { cycleStart, cycleEnd } = getCycleRange(offset);
+  const { cycleStart: prevStart, cycleEnd: prevEnd } = getCycleRange(offset - 1);
   return state.expenses.filter(e => {
     const d = new Date(e.date + 'T00:00:00');
+    if (e.deferToNextCycle) {
+      return d >= prevStart && d <= prevEnd;
+    }
     return d >= cycleStart && d <= cycleEnd;
   });
 }
@@ -16402,6 +16419,21 @@ function editPendingAmount(pendingId) {
   showToast('Amount updated to ' + fmt(p.amount), 1500);
 }
 
+// For a deferred expense (statement reconciliation marked it as not yet
+// billed), the cycle it's actually billable in is the one AFTER its own
+// natural date-based cycle. Used wherever CC payment logic decides what's
+// actually owed as of a given cycle's end.
+function getEffectiveBillingCycleRange(e) {
+  const natural = getCycleRangeForDate(e.date);
+  if (!e.deferToNextCycle) return natural;
+  const dayAfter = new Date(natural.cycleEnd);
+  dayAfter.setDate(dayAfter.getDate() + 1);
+  return getCycleRangeForDate(dateToStr(dayAfter));
+}
+function getEffectiveBillingCycleEnd(e) {
+  return getEffectiveBillingCycleRange(e).cycleEnd;
+}
+
 function openPayCCFromSalary(salaryAccountId) {
   const ccAccts = (state.accounts||[]).filter(a => a.type === 'credit');
   if (ccAccts.length === 0) { showToast('No credit card accounts found', 2000); return; }
@@ -16419,7 +16451,8 @@ function openPayCCFromSalary(salaryAccountId) {
   // disappear when a new cycle starts; only an actual payment settles it.
   function getGoalContributions(ccAcctId) {
     const unsettled = (state.expenses||[]).filter(e =>
-      e.paymentAccountId === ccAcctId && !_sIds.has(e.id) && e.date <= _pceStr
+      e.paymentAccountId === ccAcctId && !_sIds.has(e.id) &&
+      dateToStr(getEffectiveBillingCycleEnd(e)) <= _pceStr
     );
     // Track remaining goal balances during iteration to avoid over-drawing
     const goalBalances = {};
@@ -16552,10 +16585,14 @@ function confirmPayCCFromSalary(salaryAccountId, ccData) {
   const salaryAmount = ccInfo.salaryTotal; // net of goal contributions
   const goalContribs = ccInfo.contributions || []; // [{goalId, goalName, amount}]
 
-  // Settle all unsettled CC expenses for this cycle
-  const settledExpIds = (state.expenses||[]).filter(e =>
-    e.paymentAccountId === ccAcct.id && !_sIds.has(e.id) && e.date >= _pcsStr && e.date <= _pceStr
-  ).map(e => e.id);
+  // Settle EXACTLY the same set of expenses the preview's "you currently owe"
+  // figure was calculated from — previously this recomputed independently with
+  // a DIFFERENT (narrower, date-floor-bounded) filter, which could pull money
+  // for older unpaid debt while never actually recording those older charges
+  // as settled, leaving them perpetually "unsettled" despite being paid for.
+  // Reusing ccInfo.breakdown.unsettled also means this automatically respects
+  // deferToNextCycle correctly, same as the preview.
+  const settledExpIds = (ccInfo.breakdown && ccInfo.breakdown.unsettled || []).map(e => e.id);
 
   const paymentId = uid();
   state.ccPayments.push({
@@ -17261,7 +17298,7 @@ function renderAccounts() {
             // 18th-to-17th cycle each charge falls into
             const _byCycle = {};
             _currExp.forEach(e => {
-              const { cycleStart: _ecs, cycleEnd: _ece } = getCycleRangeForDate(e.date);
+              const { cycleStart: _ecs, cycleEnd: _ece } = getEffectiveBillingCycleRange(e);
               const key = dateToStr(_ecs);
               if (!_byCycle[key]) _byCycle[key] = { total: 0, start: _ecs, end: _ece };
               _byCycle[key].total += e.amount;

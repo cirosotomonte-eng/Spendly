@@ -1073,6 +1073,65 @@ await check('applySuperContributions() is wired into the app/day-change flow, no
   assertTrue(callSites >= 4, 'should be called from init/day-change flow (at least 3 sites) plus the account detail view fallback — generation must not depend on the user opening this specific page');
 });
 
+// ─────────────────────────────────────────────────────────────────────────
+console.log('\n── Statement reconciliation, phase 1: deferToNextCycle budget math ──');
+console.log('   (the $2k-on-last-day-of-cycle example — date stays real, budget math moves)');
+
+await check('cycleExpenses() excludes a deferred expense from its OWN natural cycle', () => {
+  ctx.state = buildMockState();
+  const { cycleStart } = ctx.getCycleRange(0);
+  ctx.state.expenses.push({ id: 'def1', date: ctx.dateToStr(cycleStart), amount: 2000, categoryId: 'cat1', deferToNextCycle: true });
+  const result = ctx.cycleExpenses(0);
+  assertTrue(!result.some(e => e.id === 'def1'), 'a deferred expense must not count toward the cycle its own date naturally falls in');
+});
+
+await check('cycleExpenses() includes a deferred expense in the FOLLOWING cycle instead', () => {
+  ctx.state = buildMockState();
+  const { cycleStart } = ctx.getCycleRange(-1); // previous cycle relative to "now"
+  ctx.state.expenses.push({ id: 'def2', date: ctx.dateToStr(cycleStart), amount: 2000, categoryId: 'cat1', deferToNextCycle: true });
+  const result = ctx.cycleExpenses(0); // viewing the CURRENT cycle, one after where the expense's date falls
+  assertTrue(result.some(e => e.id === 'def2'), 'a deferred expense dated in the previous cycle must count toward THIS (the following) cycle instead');
+});
+
+await check('cycleExpenses() leaves non-deferred expenses completely unaffected (no regression)', () => {
+  ctx.state = buildMockState();
+  const { cycleStart } = ctx.getCycleRange(0);
+  ctx.state.expenses.push({ id: 'reg1', date: ctx.dateToStr(cycleStart), amount: 50, categoryId: 'cat1' });
+  const result = ctx.cycleExpenses(0);
+  assertTrue(result.some(e => e.id === 'reg1'), 'an ordinary, non-deferred expense must still count toward its own natural cycle exactly as before');
+});
+
+await check('getCycleSummary() past-cycle branch is also defer-aware, not just cycleExpenses()', () => {
+  const src = ctx.getCycleSummary.toString();
+  assertTrue(src.includes('deferToNextCycle'), 'getCycleSummary has its own separate expense-filtering logic for past cycles — it must independently respect the defer flag too, not rely on cycleExpenses()');
+});
+
+await check('getEffectiveBillingCycleRange() returns the NEXT cycle for a deferred expense, the SAME cycle otherwise', () => {
+  ctx.state = buildMockState();
+  const { cycleStart, cycleEnd } = ctx.getCycleRange(0);
+  const midCycleDate = ctx.dateToStr(cycleStart);
+  const natural = ctx.getCycleRangeForDate(midCycleDate);
+
+  const regular = { date: midCycleDate, deferToNextCycle: false };
+  const regularRange = ctx.getEffectiveBillingCycleRange(regular);
+  assertEqual(ctx.dateToStr(regularRange.cycleStart), ctx.dateToStr(natural.cycleStart), 'a non-deferred expense\'s effective billing cycle must equal its natural cycle');
+
+  const deferred = { date: midCycleDate, deferToNextCycle: true };
+  const deferredRange = ctx.getEffectiveBillingCycleRange(deferred);
+  assertTrue(ctx.dateToStr(deferredRange.cycleStart) !== ctx.dateToStr(natural.cycleStart), 'a deferred expense\'s effective billing cycle must NOT equal its natural cycle');
+  assertTrue(deferredRange.cycleStart > natural.cycleEnd, 'the effective cycle must start strictly after the natural cycle ends — i.e. it is genuinely the following cycle');
+});
+
+await check('confirmPayCCFromSalary() settles EXACTLY the expenses the preview calculated owed from, not a separately-recomputed list', () => {
+  const src = ctx.confirmPayCCFromSalary.toString();
+  assertTrue(src.includes('ccInfo.breakdown') && src.includes('.unsettled'), 'must reuse the same unsettled list the "you currently owe" figure came from — recomputing independently with different date bounds was a real pre-existing consistency bug (and would also defeat defer-awareness)');
+});
+
+await check('getGoalContributions (inside openPayCCFromSalary) filters unsettled charges using effective billing cycle end, not raw date', () => {
+  const src = ctx.openPayCCFromSalary.toString();
+  assertTrue(src.includes('getEffectiveBillingCycleEnd'), 'the owed calculation must use the deferral-aware effective cycle end, not the raw expense date, to decide what counts as billable by a given cycle');
+});
+
 await check('no top-level function is declared more than once anywhere in the file (regression: silent shadowing caused both a data-loss bug and a broken legacy super-contribution modal)', () => {
   const fs = require('fs');
   const html = fs.readFileSync(APP_PATH, 'utf8');
