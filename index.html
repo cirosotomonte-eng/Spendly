@@ -2134,9 +2134,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.13.1';
+const APP_VERSION = '2.13.2';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '24 Jun 2026 10:18 PM AEDT';
+const BUILD_TIME = '24 Jun 2026 10:38 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -17084,9 +17084,17 @@ function reconcileStatement(statementTxns, cycleExpenses, historyExpenses, optio
   const finalUnmatchedExpenses = afterSplitUnmatchedExpenses.filter(e => !consumedInFuzzy.has(e.id));
 
   // ── Credits: search the wider history pool for a plausible original charge ──
+  // Must exclude anything already consumed by an earlier pass — otherwise a
+  // credit could suggest deleting an expense that's ALREADY confirmed real by
+  // an exact match elsewhere on the same statement (e.g. a charge that was
+  // later reversed: both the charge AND the reversal are genuine, separate
+  // line items — the charge being matched doesn't mean it should also be
+  // treated as refunded-and-deleted).
+  const allConsumedIds = new Set([...consumedExpenseIds, ...consumedInSplit, ...consumedInFuzzy]);
   const creditResults = credits.map(c => {
     let best = null, bestDiff = Infinity;
     (historyExpenses || []).forEach(e => {
+      if (allConsumedIds.has(e.id)) return;
       if (!sameAmount(e.amount, c.amount)) return;
       const diff = daysBetween(e.date, c.date);
       if (diff < bestDiff) { best = e; bestDiff = diff; }

@@ -1652,6 +1652,22 @@ await check('openStatementUpload() shows honest, discrete stage labels rather th
   assertTrue(src.includes('Step 1 of 3') && src.includes('Step 2 of 3') && src.includes('Step 3 of 3'), 'should show real, discrete stages (reading files, AI analysis, matching) since each one genuinely starts/ends at a knowable point — unlike a fabricated percentage for the single AI call, which has no real incremental signal');
 });
 
+await check('reconcileStatement() never suggests deleting an expense that an earlier pass already confirmed as a real charge (the Qantas charge-then-reversed case)', () => {
+  // Real scenario from an actual statement: the SAME merchant+amount appears
+  // as both a genuine charge AND a later reversal/credit of that exact
+  // amount — both are real, separate line items. The charge being correctly
+  // matched must NOT make the credit-matcher also suggest deleting it.
+  const statement = [
+    { date: '2026-05-28', merchant: 'QANTAS AIRWAYS LTD', amount: 69.97, isCredit: false },
+    { date: '2026-06-06', merchant: 'QANTAS AIRWAYS LTD', amount: 69.97, isCredit: true }, // reversal of a DIFFERENT charge, not this one
+  ];
+  const spendly = [{ id: 'qantas1', date: '2026-05-28', amount: 69.97, categoryId: 'cat1', name: 'Qantas flight' }];
+  const r = ctx.reconcileStatement(statement, spendly, spendly); // historyExpenses includes the same pool here
+  assertEqual(r.matched.length, 1, 'the charge must match normally');
+  assertEqual(r.creditsWithMatch.length, 0, 'the credit must NOT suggest deleting the expense that Pass 1 already confirmed as a real, separate charge');
+  assertEqual(r.creditsUnmatched.length, 1, 'with nothing else in history to explain it, the credit should fall into the unmatched bucket instead — never silently claim an already-matched expense');
+});
+
 await check('no top-level function is declared more than once anywhere in the file (regression: silent shadowing caused both a data-loss bug and a broken legacy super-contribution modal)', () => {
   const fs = require('fs');
   const html = fs.readFileSync(APP_PATH, 'utf8');
