@@ -1049,6 +1049,19 @@ async function applyUpdate() {
       </div>
     </div>
 
+    <div class="settings-group" style="margin-top:8px">
+      <div class="settings-row" style="cursor:pointer" onclick="setPrideMode(!state.prideMode)">
+        <span style="font-size:20px;flex-shrink:0;width:24px;text-align:center">🌈</span>
+        <div style="flex:1">
+          <div style="font-size:15px;font-weight:500">Pride background</div>
+          <div style="font-size:12px;color:var(--muted);margin-top:1px">A soft rainbow sweep, adapts to your light/dark mode</div>
+        </div>
+        <div id="prideToggle" style="width:46px;height:28px;border-radius:14px;position:relative;flex-shrink:0;transition:background 0.15s">
+          <div id="prideToggleDot" style="position:absolute;top:2px;width:24px;height:24px;border-radius:50%;background:#fff;transition:left 0.15s;box-shadow:0 1px 3px rgba(0,0,0,0.2)"></div>
+        </div>
+      </div>
+    </div>
+
     <!-- ── Move attachments to cloud storage (only shown if something needs it) ── -->
     <div class="settings-group" id="migrateAttachmentsSection" style="margin-top:8px;display:none">
       <div class="settings-row" style="cursor:default;flex-direction:column;align-items:flex-start;gap:6px">
@@ -2121,9 +2134,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.10.5';
+const APP_VERSION = '2.11.0';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '24 Jun 2026 9:14 PM AEDT';
+const BUILD_TIME = '24 Jun 2026 9:20 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -2864,6 +2877,18 @@ function getEffectiveMode(themeMode) {
   } catch(e) { return 'dark'; }
 }
 
+// Optional decorative background, independent of color/mode — a soft rainbow
+// sweep instead of a flat color. Adapts to whichever mode is active (a dark,
+// jewel-toned version for dark mode; a soft pastel version for light mode) so
+// it never clashes with the chosen accent or fights with text readability.
+// Only ever touches --bg — every actual content surface stays a solid,
+// opaque neutral card on top, so this shows only in the gaps between cards,
+// never behind dense text.
+const PRIDE_GRADIENT = {
+  dark: 'linear-gradient(135deg, #3a1620 0%, #3a2a16 17%, #2a3a16 33%, #163a2a 50%, #16263a 67%, #2a163a 83%, #3a1630 100%)',
+  light: 'linear-gradient(135deg, #ffe3ea 0%, #fff2dc 17%, #f3ffdc 33%, #dcffec 50%, #dcecff 67%, #efdcff 83%, #ffdcf3 100%)',
+};
+
 function applyTheme() {
   const family = COLOR_FAMILIES[state.themeColor] || COLOR_FAMILIES.blue;
   const effectiveMode = getEffectiveMode(state.themeMode || 'auto');
@@ -2878,6 +2903,16 @@ function applyTheme() {
   root.style.setProperty('--muted', neutrals.muted);
   root.style.setProperty('--accent', family.accent);
   root.style.setProperty('--accent-dim', family.accentDim);
+  if (state.prideMode) {
+    root.style.setProperty('--bg', PRIDE_GRADIENT[effectiveMode] || PRIDE_GRADIENT.dark);
+  }
+}
+
+function setPrideMode(on) {
+  state.prideMode = !!on;
+  applyTheme();
+  saveState();
+  renderThemePicker();
 }
 
 // Keeps the app live-updating if the system light/dark setting changes while
@@ -2940,6 +2975,14 @@ function renderThemePicker() {
         '<div style="position:absolute;top:4px;left:calc(' + (idx*33.333) + '% + 4px);width:calc(33.333% - 8px);height:calc(100% - 8px);background:var(--surface);border-radius:999px;transition:left 0.2s ease"></div>' +
         modes.map(m => '<button onclick="setThemeMode(\'' + m.key + '\')" style="flex:1;position:relative;z-index:1;padding:8px 0;border:none;background:none;font-size:12px;font-weight:' + (m.key===currentMode?'700':'500') + ';font-family:var(--font);cursor:pointer;color:' + (m.key===currentMode?'var(--text)':'var(--muted)') + '">' + m.label + '</button>').join('') +
       '</div>';
+  }
+
+  const prideToggle = document.getElementById('prideToggle');
+  const prideToggleDot = document.getElementById('prideToggleDot');
+  if (prideToggle && prideToggleDot) {
+    const on = !!state.prideMode;
+    prideToggle.style.background = on ? 'var(--accent)' : 'var(--surface3)';
+    prideToggleDot.style.left = on ? '20px' : '2px';
   }
 }
 

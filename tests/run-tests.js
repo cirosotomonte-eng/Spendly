@@ -1375,6 +1375,56 @@ await check('both AI call sites use a current model string, not a retired dated 
   assertEqual(currentModelCount, 2, 'both the portfolio import and the statement upload must use the current model string');
 });
 
+// ─────────────────────────────────────────────────────────────────────────
+console.log('\n── Pride background: optional, adapts to light/dark, never overrides text-bearing surfaces ──');
+
+await check('setPrideMode(true) sets --bg to a gradient, but leaves --surface as a solid color', () => {
+  ctx.state = buildMockState();
+  ctx.state.themeColor = 'blue';
+  ctx.state.themeMode = 'dark';
+  ctx.setPrideMode(true);
+  const root = ctx.document.documentElement;
+  assertTrue(root.style.getPropertyValue('--bg').includes('gradient'), 'pride mode should turn --bg into a gradient');
+  assertTrue(!root.style.getPropertyValue('--surface').includes('gradient'), '--surface must stay a flat solid color — that is what keeps text readable, the gradient should only ever show in the gaps between cards');
+});
+
+await check('setPrideMode(false) restores the normal flat --bg for the current color/mode', () => {
+  ctx.state = buildMockState();
+  ctx.state.themeColor = 'amber';
+  ctx.state.themeMode = 'dark';
+  ctx.setPrideMode(true);
+  ctx.setPrideMode(false);
+  const root = ctx.document.documentElement;
+  assertEqual(root.style.getPropertyValue('--bg'), ctx.COLOR_FAMILIES.amber.dark.bg, 'turning pride mode back off must restore the exact normal background for whatever color/mode is active');
+});
+
+await check('the pride gradient adapts to dark vs light mode rather than using one fixed gradient', () => {
+  ctx.state = buildMockState();
+  ctx.state.themeColor = 'blue';
+  ctx.state.themeMode = 'dark';
+  ctx.setPrideMode(true);
+  const darkGradient = ctx.document.documentElement.style.getPropertyValue('--bg');
+  ctx.state.themeMode = 'light';
+  ctx.applyTheme();
+  const lightGradient = ctx.document.documentElement.style.getPropertyValue('--bg');
+  assertTrue(darkGradient !== lightGradient, 'dark and light mode must use different pride gradients, not the exact same one regardless of mode');
+});
+
+await check('setPrideMode() persists the choice onto state.prideMode so it syncs across devices', () => {
+  ctx.state = buildMockState();
+  ctx._sbSession = { access_token: 'fake', user: { id: 'user123' } };
+  ctx._stateHydrated = true;
+  ctx.setPrideMode(true);
+  assertEqual(ctx.state.prideMode, true);
+});
+
+await check('renderThemePicker() does not throw when the pride toggle elements exist (uses direct id lookups, not DOM traversal)', () => {
+  ctx.state = buildMockState();
+  ctx.document.getElementById('prideToggle');
+  ctx.document.getElementById('prideToggleDot');
+  assertNoThrow(() => ctx.renderThemePicker());
+});
+
 await check('no top-level function is declared more than once anywhere in the file (regression: silent shadowing caused both a data-loss bug and a broken legacy super-contribution modal)', () => {
   const fs = require('fs');
   const html = fs.readFileSync(APP_PATH, 'utf8');
