@@ -1305,6 +1305,20 @@ await check('the extraction prompt explicitly instructs NOT deduplicating repeat
   assertTrue(/do NOT deduplicate|not deduplicate/i.test(src), 'genuinely duplicate charges (split flight bookings, repeated gift card purchases) must be preserved as separate lines, not collapsed');
 });
 
+await check('neither AI feature calls api.anthropic.com directly anymore — both go through the proxy', () => {
+  const fs = require('fs');
+  const html = fs.readFileSync(APP_PATH, 'utf8');
+  assertTrue(!html.includes("fetch('https://api.anthropic.com"), 'no direct Anthropic API call should remain in the client code - the real key must never be exposed, and direct calls fail with the x-api-key error anyway from outside Claude own sandbox');
+  const proxyCallSites = (html.match(/callClaudeViaProxy\(/g) || []).length;
+  assertTrue(proxyCallSites >= 2, 'both the portfolio import and the statement upload must route through callClaudeViaProxy()');
+});
+
+await check('callClaudeViaProxy() sends the shared secret header, never the real Anthropic key', () => {
+  const src = ctx.callClaudeViaProxy.toString();
+  assertTrue(src.includes('X-Proxy-Secret'), 'must authenticate to the Worker via the shared secret header');
+  assertTrue(!src.includes('x-api-key'), 'the client must never send or know the real Anthropic API key — that lives server-side in the Worker only');
+});
+
 await check('no top-level function is declared more than once anywhere in the file (regression: silent shadowing caused both a data-loss bug and a broken legacy super-contribution modal)', () => {
   const fs = require('fs');
   const html = fs.readFileSync(APP_PATH, 'utf8');
