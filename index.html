@@ -2134,9 +2134,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.12.0';
+const APP_VERSION = '2.12.1';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '24 Jun 2026 9:29 PM AEDT';
+const BUILD_TIME = '24 Jun 2026 9:39 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -13546,7 +13546,10 @@ function showAiLoadingOverlay(message) {
   overlay.id = 'aiLoadingOverlay';
   overlay.style.cssText = 'position:fixed;inset:0;z-index:999999;background:rgba(0,0,0,0.55);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px';
   overlay.innerHTML =
-    '<div style="width:48px;height:48px;border-radius:50%;border:4px solid rgba(255,255,255,0.25);border-top-color:#fff;animation:aiSpin 0.8s linear infinite"></div>' +
+    '<div style="position:relative;width:56px;height:56px;display:flex;align-items:center;justify-content:center">' +
+      '<div style="position:absolute;inset:0;border-radius:50%;border:4px solid rgba(255,255,255,0.25);border-top-color:#fff;animation:aiSpin 0.8s linear infinite"></div>' +
+      '<div style="font-size:22px;line-height:1;position:relative">🤖</div>' +
+    '</div>' +
     '<div id="aiLoadingText" style="color:#fff;font-size:15px;font-weight:600;font-family:var(--font);text-align:center;padding:0 24px;max-width:280px">' + (message || 'Working…') + '</div>' +
     '<style>@keyframes aiSpin { to { transform: rotate(360deg); } }</style>';
   document.body.appendChild(overlay);

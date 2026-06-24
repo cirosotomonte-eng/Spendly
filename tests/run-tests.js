@@ -1524,6 +1524,12 @@ await check('the loading overlay (showAiLoadingOverlay) is centered full-screen,
   assertTrue(!src.includes("showToast('🤖 Reading"), 'the old tiny toast call must be gone');
 });
 
+await check('showAiLoadingOverlay() places the robot emoji statically inside the spinning ring, not rotating with it', () => {
+  const src = ctx.showAiLoadingOverlay.toString();
+  assertTrue(src.includes('🤖'), 'the loading indicator should include the robot emoji');
+  assertTrue(src.includes('animation:aiSpin') && !/animation:aiSpin[^']*🤖/.test(src), 'the spin animation must apply to the ring element, not to the emoji itself, so the emoji stays upright while the ring rotates around it');
+});
+
 await check('no top-level function is declared more than once anywhere in the file (regression: silent shadowing caused both a data-loss bug and a broken legacy super-contribution modal)', () => {
   const fs = require('fs');
   const html = fs.readFileSync(APP_PATH, 'utf8');
