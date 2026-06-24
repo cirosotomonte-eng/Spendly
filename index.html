@@ -2134,9 +2134,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.11.0';
+const APP_VERSION = '2.12.0';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '24 Jun 2026 9:20 PM AEDT';
+const BUILD_TIME = '24 Jun 2026 9:29 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -13538,6 +13538,29 @@ function showRecurringDiagnostic() {
   openModal('recurringDiagModal');
 }
 
+// Large, centered, unmissable loading overlay — for operations that genuinely
+// take a while (AI extraction calls) where a small toast easily gets missed.
+function showAiLoadingOverlay(message) {
+  hideAiLoadingOverlay();
+  const overlay = document.createElement('div');
+  overlay.id = 'aiLoadingOverlay';
+  overlay.style.cssText = 'position:fixed;inset:0;z-index:999999;background:rgba(0,0,0,0.55);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px';
+  overlay.innerHTML =
+    '<div style="width:48px;height:48px;border-radius:50%;border:4px solid rgba(255,255,255,0.25);border-top-color:#fff;animation:aiSpin 0.8s linear infinite"></div>' +
+    '<div id="aiLoadingText" style="color:#fff;font-size:15px;font-weight:600;font-family:var(--font);text-align:center;padding:0 24px;max-width:280px">' + (message || 'Working…') + '</div>' +
+    '<style>@keyframes aiSpin { to { transform: rotate(360deg); } }</style>';
+  document.body.appendChild(overlay);
+}
+
+function updateAiLoadingText(message) {
+  const el = document.getElementById('aiLoadingText');
+  if (el) el.textContent = message;
+}
+
+function hideAiLoadingOverlay() {
+  document.getElementById('aiLoadingOverlay')?.remove();
+}
+
 function showToast(message, duration) {
   // Remove existing toast
   const existing = document.getElementById('spendlyToast');
@@ -14502,7 +14525,7 @@ function openPortfolioImport() {
   input.onchange = async (e) => {
     const files = Array.from(e.target.files).slice(0, 5); // max 5 images
     if (!files.length) return;
-    showToast('🤖 Reading ' + files.length + ' screenshot' + (files.length>1?'s':'') + '…', 15000);
+    showAiLoadingOverlay('Reading ' + files.length + ' screenshot' + (files.length>1?'s':'') + '…');
 
     const toBase64 = file => new Promise((res, rej) => {
       const r = new FileReader();
@@ -14530,13 +14553,14 @@ function openPortfolioImport() {
       if (!response.ok) {
         const errData = await response.json().catch(() => ({}));
         const msg = errData.error?.message || 'HTTP ' + response.status;
+        hideAiLoadingOverlay();
         showToast('❌ API error: ' + msg, 6000);
         return;
       }
 
       const data = await response.json();
       const text = (data.content||[]).find(b=>b.type==='text')?.text || '';
-      if (!text) { showToast('❌ No response from AI. Try again.', 4000); return; }
+      if (!text) { hideAiLoadingOverlay(); showToast('❌ No response from AI. Try again.', 4000); return; }
 
       let holdings = [];
       try {
@@ -14549,11 +14573,13 @@ function openPortfolioImport() {
       }
 
       const filtered = Array.isArray(holdings) ? holdings.filter(h => h.ticker && (h.units > 0 || h.units === 0)) : [];
+      hideAiLoadingOverlay();
       if (filtered.length === 0) {
         showToast('⚠️ No holdings found. Make sure screenshots show tickers and unit counts.', 5000); return;
       }
       showImportPreview(filtered);
     } catch(err) {
+      hideAiLoadingOverlay();
       console.error('Import error:', err);
       showToast('❌ Import error: ' + (err.message || 'Unknown error'), 4000);
     }
@@ -16063,7 +16089,7 @@ function openStatementUpload(ccAccountId) {
       showToast('❌ One of those files is too large (max 20MB each)', 3500);
       return;
     }
-    showToast('🤖 Reading ' + files.length + ' file' + (files.length>1?'s':'') + '…', 20000);
+    showAiLoadingOverlay('Reading ' + files.length + ' file' + (files.length>1?'s':'') + '…');
 
     const toBase64 = file => new Promise((res, rej) => {
       const r = new FileReader();
@@ -16107,13 +16133,14 @@ function openStatementUpload(ccAccountId) {
       if (!response.ok) {
         const errData = await response.json().catch(() => ({}));
         const msg = errData.error?.message || 'HTTP ' + response.status;
+        hideAiLoadingOverlay();
         showToast('❌ API error: ' + msg, 6000);
         return;
       }
 
       const data = await response.json();
       const text = (data.content||[]).find(b=>b.type==='text')?.text || '';
-      if (!text) { showToast('❌ No response from AI. Try again.', 4000); return; }
+      if (!text) { hideAiLoadingOverlay(); showToast('❌ No response from AI. Try again.', 4000); return; }
 
       let txns = [];
       try {
@@ -16126,13 +16153,17 @@ function openStatementUpload(ccAccountId) {
 
       const filtered = Array.isArray(txns) ? txns.filter(t => t.date && typeof t.amount === 'number') : [];
       if (filtered.length === 0) {
+        hideAiLoadingOverlay();
         showToast('⚠️ No transactions found. Try a clearer photo or a different page.', 5000);
         return;
       }
 
+      updateAiLoadingText('Matching against your logged expenses…');
       runStatementReconciliation(ccAccountId, filtered);
+      hideAiLoadingOverlay();
     } catch(err) {
       console.error('Statement import error:', err);
+      hideAiLoadingOverlay();
       showToast('❌ Import error: ' + (err.message || 'Unknown error'), 4000);
     }
   };
@@ -16190,32 +16221,277 @@ function runStatementReconciliation(ccAccountId, statementTxns, cycleOffset) {
 // Basic summary view for now — full interactive per-item actions (add/defer/
 // delete/skip buttons) are the next build phase. This confirms the whole
 // upload -> extraction -> matching pipeline end-to-end first.
+// ── Statement reconciliation: full review screen ──────────────────────────────
+// Persistent, full-screen, stays open across actions — only closes when you
+// explicitly tap Close. Each item gets its own action; acting on one marks it
+// resolved (shown with a checkmark) but keeps it visible rather than making it
+// vanish, so you always have a clear record of what you've already handled.
+
+function fmtDateAU(dateStr) {
+  return new Date(dateStr + 'T00:00:00').toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' });
+}
+
 function showStatementReconciliationResults(ccAccountId, result, cycleInfo) {
-  const existing = document.getElementById('reconcileResultsSheet');
-  if (existing) existing.remove();
-  const sheet = document.createElement('div');
-  sheet.id = 'reconcileResultsSheet';
-  sheet.className = 'modal-overlay open';
-  sheet.style.zIndex = '99997';
-  const row = (label, count, color) => '<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-top:1px solid var(--surface2)"><span style="font-size:13px;color:var(--text)">' + label + '</span><span style="font-size:14px;font-weight:700;color:' + color + '">' + count + '</span></div>';
+  window._reconciliation = { ccAccountId, result, cycleInfo, resolved: {}, collapsed: { matched: true } };
+  renderReconciliationReview();
+}
+
+function toggleReconcileSection(key) {
+  const rc = window._reconciliation;
+  if (!rc) return;
+  rc.collapsed[key] = !rc.collapsed[key];
+  renderReconciliationReview();
+}
+
+function reconcileMarkResolved(key) {
+  const rc = window._reconciliation;
+  if (!rc) return;
+  rc.resolved[key] = true;
+}
+
+function reconcileAddExpense(index) {
+  const rc = window._reconciliation;
+  if (!rc) return;
+  const item = rc.result.missingFromSpendly[index];
+  if (!item) return;
+  const firstCat = (state.categories || [])[0];
+  state.expenses.push({
+    id: uid(), date: item.date, amount: item.amount,
+    categoryId: firstCat ? firstCat.id : null,
+    name: item.merchant || '', paymentAccountId: rc.ccAccountId,
+  });
+  saveState();
+  reconcileMarkResolved('missing-' + index);
+  renderReconciliationReview();
+  showToast('✅ Added — edit it from Expenses to set the right category', 3000);
+}
+
+function reconcileDeferExpense(index) {
+  const rc = window._reconciliation;
+  if (!rc) return;
+  const expense = rc.result.missingFromStatement[index];
+  if (!expense) return;
+  const realExpense = (state.expenses || []).find(e => e.id === expense.id);
+  if (realExpense) realExpense.deferToNextCycle = true;
+  saveState();
+  reconcileMarkResolved('defer-' + index);
+  renderReconciliationReview();
+  showToast('📅 Deferred to next cycle', 2000);
+}
+
+function reconcileAcknowledgeSplit(index) {
+  reconcileMarkResolved('split-' + index);
+  renderReconciliationReview();
+}
+
+function reconcileDeleteRefundedExpense(index) {
+  const rc = window._reconciliation;
+  if (!rc) return;
+  const match = rc.result.creditsWithMatch[index];
+  if (!match || !match.matchedExpense) return;
+  state.expenses = (state.expenses || []).filter(e => e.id !== match.matchedExpense.id);
+  saveState();
+  reconcileMarkResolved('creditmatch-' + index);
+  renderReconciliationReview();
+  showToast('🗑️ Original expense deleted', 2000);
+}
+
+function reconcileKeepBothCredit(index) {
+  reconcileMarkResolved('creditmatch-' + index);
+  renderReconciliationReview();
+}
+
+function reconcileCreditAsIncome(index) {
+  const rc = window._reconciliation;
+  if (!rc) return;
+  const credit = rc.result.creditsUnmatched[index];
+  if (!credit) return;
+  if (!state.accountTransactions) state.accountTransactions = [];
+  state.accountTransactions.push({
+    id: uid(), type: 'income', accountId: rc.ccAccountId,
+    amount: credit.amount, date: credit.date, note: credit.merchant || 'Credit',
+  });
+  saveState();
+  reconcileMarkResolved('creditunmatched-' + index);
+  renderReconciliationReview();
+  showToast('💰 Logged as income', 2000);
+}
+
+function reconcileDismissCredit(index) {
+  reconcileMarkResolved('creditunmatched-' + index);
+  renderReconciliationReview();
+}
+
+function closeReconciliationReview() {
+  document.getElementById('reconcileReviewScreen')?.remove();
+  window._reconciliation = null;
+}
+
+function renderReconciliationReview() {
+  const rc = window._reconciliation;
+  if (!rc) return;
+  const { result, cycleInfo, resolved, collapsed } = rc;
+
+  let existing = document.getElementById('reconcileReviewScreen');
+  if (!existing) {
+    existing = document.createElement('div');
+    existing.id = 'reconcileReviewScreen';
+    existing.style.cssText = 'position:fixed;inset:0;z-index:99996;background:var(--bg);display:flex;flex-direction:column;overflow:hidden';
+    document.body.appendChild(existing);
+  }
+
   const cycleLabel = cycleInfo
     ? cycleInfo.cycleStart.toLocaleDateString('en-AU',{day:'numeric',month:'short'}) + ' – ' + cycleInfo.cycleEnd.toLocaleDateString('en-AU',{day:'numeric',month:'short',year:'numeric'})
     : null;
-  sheet.innerHTML =
-    '<div class="modal-sheet" style="max-width:420px">' +
-      '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px"><div style="font-size:17px;font-weight:700">Statement reconciliation</div><button onclick="document.getElementById(\'reconcileResultsSheet\').remove()" style="background:none;border:none;font-size:20px;color:var(--muted);cursor:pointer">×</button></div>' +
-      (cycleLabel ? '<div style="font-size:12px;color:var(--accent);font-weight:600;margin-bottom:8px">📅 Reconciling against cycle: ' + cycleLabel + ' — not the right cycle? Let me know.</div>' : '') +
-      '<div style="font-size:12px;color:var(--muted);margin-bottom:6px">Here\'s what we found — full review actions are coming next.</div>' +
-      row('✓ Matched', result.matched.length, '#34C759') +
-      row('🔗 Split/grouped transactions', result.splitSuggestions.length, 'var(--accent)') +
-      row('➕ On statement, missing from Spendly', result.missingFromSpendly.length, 'var(--red)') +
-      row('📅 Logged, not yet billed (defer candidates)', result.missingFromStatement.length, 'var(--orange)') +
-      row('↩ Credits matched to a past expense', result.creditsWithMatch.length, '#34C759') +
-      row('❓ Credits with no plausible match', result.creditsUnmatched.length, 'var(--muted)') +
-      '<button onclick="document.getElementById(\'reconcileResultsSheet\').remove()" style="width:100%;margin-top:16px;background:var(--accent);color:#fff;border:none;border-radius:10px;padding:12px;font-size:14px;font-weight:700;font-family:var(--font);cursor:pointer">Close</button>' +
+
+  function sectionHeader(key, icon, label, count, color) {
+    const isCollapsed = !!collapsed[key];
+    return '<div onclick="toggleReconcileSection(\'' + key + '\')" style="display:flex;align-items:center;justify-content:space-between;padding:14px 16px;background:var(--surface);border-radius:var(--r);cursor:pointer;margin-bottom:' + (isCollapsed ? '10' : '0') + 'px">' +
+      '<div style="display:flex;align-items:center;gap:8px">' +
+        '<svg width="10" height="10" viewBox="0 0 12 12" fill="none" style="transform:rotate(' + (isCollapsed?'0':'90') + 'deg);transition:transform 0.15s"><path d="M3 2l5 4-5 4" stroke="var(--muted)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>' +
+        '<span style="font-size:14px">' + icon + '</span>' +
+        '<span style="font-size:14px;font-weight:700">' + label + '</span>' +
+      '</div>' +
+      '<span style="font-size:13px;font-weight:700;color:' + color + '">' + count + '</span>' +
     '</div>';
-  document.body.appendChild(sheet);
-  window._lastReconciliationResult = result; // kept for the next build phase to act on
+  }
+
+  function actionButton(label, onclick, style) {
+    return '<button onclick="' + onclick + '" style="background:' + (style||'var(--accent)') + ';color:#fff;border:none;border-radius:8px;padding:7px 12px;font-size:12px;font-weight:700;font-family:var(--font);cursor:pointer;white-space:nowrap">' + label + '</button>';
+  }
+
+  function resolvedBadge(text) {
+    return '<span style="font-size:12px;font-weight:700;color:#34C759;display:flex;align-items:center;gap:4px">✓ ' + text + '</span>';
+  }
+
+  let html = '<div style="flex:1;overflow-y:auto;padding:16px;padding-bottom:90px">';
+
+  // Missing from Spendly
+  html += sectionHeader('missing', '➕', 'On statement, missing from Spendly', result.missingFromSpendly.length, 'var(--red)');
+  if (!collapsed.missing) {
+    html += '<div style="background:var(--surface);border-radius:0 0 var(--r) var(--r);overflow:hidden;margin-bottom:10px">';
+    result.missingFromSpendly.forEach((item, i) => {
+      const key = 'missing-' + i;
+      const isResolved = resolved[key];
+      html += '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 16px;border-top:1px solid var(--surface2)">' +
+        '<div style="min-width:0">' +
+          '<div style="font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + (item.merchant||'Unknown') + '</div>' +
+          '<div style="font-size:11px;color:var(--muted)">' + fmtDateAU(item.date) + ' · ' + fmt(item.amount) + '</div>' +
+        '</div>' +
+        (isResolved ? resolvedBadge('Added') : actionButton('+ Add', 'reconcileAddExpense(' + i + ')')) +
+      '</div>';
+    });
+    if (result.missingFromSpendly.length === 0) html += '<div style="padding:14px 16px;font-size:12px;color:var(--muted)">Nothing missing — every statement charge was already logged.</div>';
+    html += '</div>';
+  }
+
+  // Defer to next cycle
+  html += sectionHeader('defer', '📅', 'Logged, not yet billed', result.missingFromStatement.length, 'var(--orange)');
+  if (!collapsed.defer) {
+    html += '<div style="background:var(--surface);border-radius:0 0 var(--r) var(--r);overflow:hidden;margin-bottom:10px">';
+    result.missingFromStatement.forEach((item, i) => {
+      const key = 'defer-' + i;
+      const isResolved = resolved[key];
+      const cat = catById(item.categoryId);
+      html += '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 16px;border-top:1px solid var(--surface2)">' +
+        '<div style="min-width:0">' +
+          '<div style="font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + (item.name || (cat?cat.name:'Expense')) + '</div>' +
+          '<div style="font-size:11px;color:var(--muted)">' + fmtDateAU(item.date) + ' · ' + fmt(item.amount) + '</div>' +
+        '</div>' +
+        (isResolved ? resolvedBadge('Deferred') : actionButton('📅 Defer', 'reconcileDeferExpense(' + i + ')', 'var(--orange)')) +
+      '</div>';
+    });
+    if (result.missingFromStatement.length === 0) html += '<div style="padding:14px 16px;font-size:12px;color:var(--muted)">Nothing pending — every logged charge already appears on the statement.</div>';
+    html += '</div>';
+  }
+
+  // Split suggestions
+  html += sectionHeader('split', '🔗', 'Split/grouped transactions', result.splitSuggestions.length, 'var(--accent)');
+  if (!collapsed.split) {
+    html += '<div style="background:var(--surface);border-radius:0 0 var(--r) var(--r);overflow:hidden;margin-bottom:10px">';
+    result.splitSuggestions.forEach((sug, i) => {
+      const key = 'split-' + i;
+      const isResolved = resolved[key];
+      const linesText = sug.statementTxns.map(t => fmt(t.amount)).join(' + ');
+      html += '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 16px;border-top:1px solid var(--surface2)">' +
+        '<div style="min-width:0">' +
+          '<div style="font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + (sug.expense.name || 'Combined entry') + '</div>' +
+          '<div style="font-size:11px;color:var(--muted)">Statement: ' + linesText + ' = ' + fmt(sug.sum) + ' logged</div>' +
+        '</div>' +
+        (isResolved ? resolvedBadge('Got it') : actionButton('✓ Got it', 'reconcileAcknowledgeSplit(' + i + ')')) +
+      '</div>';
+    });
+    if (result.splitSuggestions.length === 0) html += '<div style="padding:14px 16px;font-size:12px;color:var(--muted)">No split or grouped transactions found.</div>';
+    html += '</div>';
+  }
+
+  // Credits matched to a past expense
+  html += sectionHeader('creditmatch', '↩', 'Credits matched to a past expense', result.creditsWithMatch.length, '#34C759');
+  if (!collapsed.creditmatch) {
+    html += '<div style="background:var(--surface);border-radius:0 0 var(--r) var(--r);overflow:hidden;margin-bottom:10px">';
+    result.creditsWithMatch.forEach((m, i) => {
+      const key = 'creditmatch-' + i;
+      const isResolved = resolved[key];
+      html += '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 16px;border-top:1px solid var(--surface2)">' +
+        '<div style="min-width:0">' +
+          '<div style="font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + (m.credit.merchant||'Refund') + ' · ' + fmt(m.credit.amount) + '</div>' +
+          '<div style="font-size:11px;color:var(--muted)">Looks like a refund of "' + (m.matchedExpense.name||'expense') + '" logged ' + fmtDateAU(m.matchedExpense.date) + '</div>' +
+        '</div>' +
+        (isResolved ? resolvedBadge('Handled') :
+          '<div style="display:flex;gap:6px">' + actionButton('🗑️ Delete', 'reconcileDeleteRefundedExpense(' + i + ')', 'var(--red)') + actionButton('Keep both', 'reconcileKeepBothCredit(' + i + ')', 'var(--surface3)') + '</div>') +
+      '</div>';
+    });
+    if (result.creditsWithMatch.length === 0) html += '<div style="padding:14px 16px;font-size:12px;color:var(--muted)">No credits matched to a past expense.</div>';
+    html += '</div>';
+  }
+
+  // Credits with no match
+  html += sectionHeader('creditunmatched', '❓', 'Credits with no plausible match', result.creditsUnmatched.length, 'var(--muted)');
+  if (!collapsed.creditunmatched) {
+    html += '<div style="background:var(--surface);border-radius:0 0 var(--r) var(--r);overflow:hidden;margin-bottom:10px">';
+    result.creditsUnmatched.forEach((credit, i) => {
+      const key = 'creditunmatched-' + i;
+      const isResolved = resolved[key];
+      html += '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 16px;border-top:1px solid var(--surface2)">' +
+        '<div style="min-width:0">' +
+          '<div style="font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + (credit.merchant||'Credit') + '</div>' +
+          '<div style="font-size:11px;color:var(--muted)">' + fmtDateAU(credit.date) + ' · ' + fmt(credit.amount) + '</div>' +
+        '</div>' +
+        (isResolved ? resolvedBadge('Handled') :
+          '<div style="display:flex;gap:6px">' + actionButton('💰 Income', 'reconcileCreditAsIncome(' + i + ')', '#34C759') + actionButton('Dismiss', 'reconcileDismissCredit(' + i + ')', 'var(--surface3)') + '</div>') +
+      '</div>';
+    });
+    if (result.creditsUnmatched.length === 0) html += '<div style="padding:14px 16px;font-size:12px;color:var(--muted)">No unexplained credits.</div>';
+    html += '</div>';
+  }
+
+  // Matched — collapsed by default, read-only
+  html += sectionHeader('matched', '✓', 'Matched', result.matched.length, '#34C759');
+  if (!collapsed.matched) {
+    html += '<div style="background:var(--surface);border-radius:0 0 var(--r) var(--r);overflow:hidden;margin-bottom:10px;max-height:280px;overflow-y:auto">';
+    result.matched.forEach((m, i) => {
+      html += '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 16px;' + (i>0?'border-top:1px solid var(--surface2)':'') + '">' +
+        '<div style="font-size:12px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + (m.statementTxn.merchant||m.expense.name||'') + '</div>' +
+        '<div style="font-size:12px;font-weight:600;color:var(--muted)">' + fmt(m.statementTxn.amount) + '</div>' +
+      '</div>';
+    });
+    html += '</div>';
+  }
+
+  html += '</div>';
+
+  existing.innerHTML =
+    '<div style="display:flex;align-items:center;justify-content:space-between;padding:16px;border-bottom:1px solid var(--surface2);flex-shrink:0">' +
+      '<div>' +
+        '<div style="font-size:17px;font-weight:700">Statement reconciliation</div>' +
+        (cycleLabel ? '<div style="font-size:12px;color:var(--accent);font-weight:600;margin-top:2px">📅 ' + cycleLabel + '</div>' : '') +
+      '</div>' +
+      '<button onclick="closeReconciliationReview()" style="background:var(--surface2);border:none;border-radius:50%;width:32px;height:32px;font-size:16px;color:var(--text);cursor:pointer">×</button>' +
+    '</div>' +
+    html +
+    '<div style="position:fixed;bottom:0;left:0;right:0;padding:14px 16px;background:var(--bg);border-top:1px solid var(--surface2)">' +
+      '<button onclick="closeReconciliationReview()" style="width:100%;background:var(--accent);color:#fff;border:none;border-radius:10px;padding:13px;font-size:14px;font-weight:700;font-family:var(--font);cursor:pointer">Done reviewing</button>' +
+    '</div>';
 }
 
 function openCCRefund(accountId) {

@@ -1362,9 +1362,9 @@ await check('runStatementReconciliation() uses the inferred cycle by default, no
   assertTrue(src.includes('inferCycleOffsetFromStatement'), 'the default cycle must come from inspecting the statement own dates - assuming today cycle was the actual reported gap');
 });
 
-await check('the results summary surfaces which cycle was inferred, so a wrong guess is never silent', () => {
-  const src = ctx.showStatementReconciliationResults.toString();
-  assertTrue(src.includes('Reconciling against cycle'), 'the inferred cycle must be visibly shown to the user, not applied invisibly — a wrong guess needs to be obvious immediately');
+await check('the results screen surfaces which cycle was inferred, so a wrong guess is never silent', () => {
+  const src = ctx.renderReconciliationReview.toString();
+  assertTrue(src.includes('cycleLabel'), 'the inferred cycle must be visibly shown to the user, not applied invisibly — a wrong guess needs to be obvious immediately');
 });
 
 await check('both AI call sites use a current model string, not a retired dated snapshot', () => {
@@ -1423,6 +1423,105 @@ await check('renderThemePicker() does not throw when the pride toggle elements e
   ctx.document.getElementById('prideToggle');
   ctx.document.getElementById('prideToggleDot');
   assertNoThrow(() => ctx.renderThemePicker());
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+console.log('\n── Statement reconciliation, phase 4: the persistent interactive review screen ──');
+
+await check('showStatementReconciliationResults() does not throw and creates a persistent screen', () => {
+  ctx.state = buildMockState();
+  const result = { matched: [], missingFromSpendly: [], missingFromStatement: [], splitSuggestions: [], creditsWithMatch: [], creditsUnmatched: [] };
+  assertNoThrow(() => ctx.showStatementReconciliationResults('cc1', result, null));
+  assertTrue(!!ctx.window._reconciliation, 'should store the reconciliation state for later actions');
+});
+
+await check('reconcileAddExpense() adds a real expense and marks the item resolved WITHOUT removing it from view', () => {
+  ctx.state = buildMockState();
+  const result = { matched: [], missingFromSpendly: [{ date: '2026-06-01', merchant: 'Test Shop', amount: 42.50 }], missingFromStatement: [], splitSuggestions: [], creditsWithMatch: [], creditsUnmatched: [] };
+  ctx.showStatementReconciliationResults('cc1', result, null);
+  const beforeCount = ctx.state.expenses.length;
+  ctx.reconcileAddExpense(0);
+  assertEqual(ctx.state.expenses.length, beforeCount + 1, 'a real expense must be created');
+  assertEqual(ctx.state.expenses[ctx.state.expenses.length-1].amount, 42.50);
+  assertTrue(ctx.window._reconciliation.resolved['missing-0'], 'item must be marked resolved');
+  assertTrue(ctx.window._reconciliation.result.missingFromSpendly.length === 1, 'the item must STILL be in the result list — resolved items stay visible, they do not disappear');
+});
+
+await check('reconcileDeferExpense() sets deferToNextCycle on the REAL expense object in state, not a copy', () => {
+  ctx.state = buildMockState();
+  ctx.state.expenses.push({ id: 'realExp1', date: '2026-06-17', amount: 2000, categoryId: 'cat1' });
+  const matchedExpense = ctx.state.expenses[ctx.state.expenses.length - 1];
+  const result = { matched: [], missingFromSpendly: [], missingFromStatement: [matchedExpense], splitSuggestions: [], creditsWithMatch: [], creditsUnmatched: [] };
+  ctx.showStatementReconciliationResults('cc1', result, null);
+  ctx.reconcileDeferExpense(0);
+  const realExpense = ctx.state.expenses.find(e => e.id === 'realExp1');
+  assertEqual(realExpense.deferToNextCycle, true, 'must set the flag on the actual expense in state.expenses, not a disconnected copy');
+  assertTrue(ctx.window._reconciliation.resolved['defer-0']);
+});
+
+await check('reconcileDeleteRefundedExpense() removes exactly the matched expense from state.expenses', () => {
+  ctx.state = buildMockState();
+  ctx.state.expenses.push({ id: 'toDelete1', date: '2026-03-14', amount: 76.79, categoryId: 'cat1', name: 'SP Battery Mate' });
+  ctx.state.expenses.push({ id: 'keepThis1', date: '2026-06-01', amount: 50, categoryId: 'cat1', name: 'Other' });
+  const matched = ctx.state.expenses.find(e => e.id === 'toDelete1');
+  const result = { matched: [], missingFromSpendly: [], missingFromStatement: [], splitSuggestions: [], creditsWithMatch: [{ credit: { merchant: 'Refund', amount: 76.79, date: '2026-05-15' }, matchedExpense: matched }], creditsUnmatched: [] };
+  ctx.showStatementReconciliationResults('cc1', result, null);
+  ctx.reconcileDeleteRefundedExpense(0);
+  assertTrue(!ctx.state.expenses.some(e => e.id === 'toDelete1'), 'the refunded expense must be deleted');
+  assertTrue(ctx.state.expenses.some(e => e.id === 'keepThis1'), 'unrelated expenses must be completely unaffected');
+});
+
+await check('reconcileCreditAsIncome() logs an income transaction on the correct CC account', () => {
+  ctx.state = buildMockState();
+  const result = { matched: [], missingFromSpendly: [], missingFromStatement: [], splitSuggestions: [], creditsWithMatch: [], creditsUnmatched: [{ date: '2026-05-15', merchant: 'Mystery refund', amount: 15.00 }] };
+  ctx.showStatementReconciliationResults('cc1', result, null);
+  ctx.reconcileCreditAsIncome(0);
+  const tx = (ctx.state.accountTransactions||[]).find(t => t.type === 'income' && t.accountId === 'cc1' && t.amount === 15.00);
+  assertTrue(!!tx, 'should create a real income transaction on the credit card account for the unmatched credit');
+});
+
+await check('acting on one item never affects unrelated items in other sections', () => {
+  ctx.state = buildMockState();
+  const result = {
+    matched: [],
+    missingFromSpendly: [{ date: '2026-06-01', merchant: 'A', amount: 10 }, { date: '2026-06-02', merchant: 'B', amount: 20 }],
+    missingFromStatement: [], splitSuggestions: [], creditsWithMatch: [], creditsUnmatched: [],
+  };
+  ctx.showStatementReconciliationResults('cc1', result, null);
+  ctx.reconcileAddExpense(0);
+  assertTrue(ctx.window._reconciliation.resolved['missing-0'], 'first item should be resolved');
+  assertTrue(!ctx.window._reconciliation.resolved['missing-1'], 'second item must remain unresolved — resolving one item must not affect others');
+});
+
+await check('closeReconciliationReview() removes the screen and clears the stored state', () => {
+  ctx.state = buildMockState();
+  const result = { matched: [], missingFromSpendly: [], missingFromStatement: [], splitSuggestions: [], creditsWithMatch: [], creditsUnmatched: [] };
+  ctx.showStatementReconciliationResults('cc1', result, null);
+  assertTrue(!!ctx.window._reconciliation);
+  ctx.closeReconciliationReview();
+  assertTrue(!ctx.window._reconciliation, 'closing must clear the stored reconciliation state');
+});
+
+await check('toggleReconcileSection() does not throw and toggles collapsed state', () => {
+  ctx.state = buildMockState();
+  const result = { matched: [], missingFromSpendly: [], missingFromStatement: [], splitSuggestions: [], creditsWithMatch: [], creditsUnmatched: [] };
+  ctx.showStatementReconciliationResults('cc1', result, null);
+  const before = !!ctx.window._reconciliation.collapsed.missing;
+  assertNoThrow(() => ctx.toggleReconcileSection('missing'));
+  assertTrue(!!ctx.window._reconciliation.collapsed.missing !== before, 'toggling a section must flip its collapsed state');
+});
+
+await check('the Matched section is collapsed by default — avoids overwhelming the screen with potentially 40+ items', () => {
+  ctx.state = buildMockState();
+  const result = { matched: [{},{},{}], missingFromSpendly: [], missingFromStatement: [], splitSuggestions: [], creditsWithMatch: [], creditsUnmatched: [] };
+  ctx.showStatementReconciliationResults('cc1', result, null);
+  assertTrue(!!ctx.window._reconciliation.collapsed.matched, 'matched section should start collapsed since there is nothing to act on there');
+});
+
+await check('the loading overlay (showAiLoadingOverlay) is centered full-screen, not a small toast', () => {
+  const src = ctx.openStatementUpload.toString();
+  assertTrue(src.includes('showAiLoadingOverlay'), 'statement upload must use the large centered overlay, not the easy-to-miss toast it used before');
+  assertTrue(!src.includes("showToast('🤖 Reading"), 'the old tiny toast call must be gone');
 });
 
 await check('no top-level function is declared more than once anywhere in the file (regression: silent shadowing caused both a data-loss bug and a broken legacy super-contribution modal)', () => {
