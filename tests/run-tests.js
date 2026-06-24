@@ -1235,6 +1235,76 @@ await check('normalizeMerchant() strips punctuation/case so similar merchant str
     'two charges differing only in a trailing reference number must still share the same grouping prefix');
 });
 
+// ─────────────────────────────────────────────────────────────────────────
+console.log('\n── Statement reconciliation, phase 3: pool gathering and upload wiring ──');
+
+await check('runStatementReconciliation() only gathers expenses for the SPECIFIED credit card account', () => {
+  ctx.state = buildMockState();
+  ctx.state.accounts.push({ id: 'cc1', name: 'Card 1', type: 'credit' }, { id: 'cc2', name: 'Card 2', type: 'credit' });
+  const { cycleStart } = ctx.getCycleRange(0);
+  const todayInCycle = ctx.dateToStr(cycleStart);
+  ctx.state.expenses.push(
+    { id: 'a', date: todayInCycle, amount: 50, categoryId: 'cat1', paymentAccountId: 'cc1' },
+    { id: 'b', date: todayInCycle, amount: 75, categoryId: 'cat1', paymentAccountId: 'cc2' } // different card
+  );
+  let capturedResult = null;
+  const origShow = ctx.showStatementReconciliationResults;
+  ctx.showStatementReconciliationResults = (id, result) => { capturedResult = result; };
+  ctx.runStatementReconciliation('cc1', [{ date: todayInCycle, merchant: 'Test', amount: 50, isCredit: false }]);
+  ctx.showStatementReconciliationResults = origShow;
+  assertTrue(!!capturedResult, 'should have run and produced a result');
+  assertEqual(capturedResult.matched.length, 1, 'should only match against cc1 own expense, ignoring cc2 unrelated 75 charge entirely');
+});
+
+await check('runStatementReconciliation() includes the current cycle PLUS 3 prior cycles in the history pool for credit matching', () => {
+  ctx.state = buildMockState();
+  ctx.state.accounts.push({ id: 'cc3', name: 'Card', type: 'credit' });
+  const { cycleStart: threeCyclesAgoStart } = ctx.getCycleRange(-3);
+  const oldDate = ctx.dateToStr(threeCyclesAgoStart);
+  ctx.state.expenses.push({ id: 'old1', date: oldDate, amount: 76.79, categoryId: 'cat1', paymentAccountId: 'cc3', name: 'Old purchase' });
+  let capturedResult = null;
+  const origShow = ctx.showStatementReconciliationResults;
+  ctx.showStatementReconciliationResults = (id, result) => { capturedResult = result; };
+  ctx.runStatementReconciliation('cc3', [{ date: ctx.todayStr(), merchant: 'Refund', amount: 76.79, isCredit: true }]);
+  ctx.showStatementReconciliationResults = origShow;
+  assertEqual(capturedResult.creditsWithMatch.length, 1, 'a 3-cycles-ago purchase must still be found by the history search for a matching credit');
+});
+
+await check('runStatementReconciliation() does NOT reach further back than 3 cycles', () => {
+  ctx.state = buildMockState();
+  ctx.state.accounts.push({ id: 'cc4', name: 'Card', type: 'credit' });
+  const { cycleStart: tooOldStart } = ctx.getCycleRange(-5); // 5 cycles back — outside the 3-cycle window
+  const oldDate = ctx.dateToStr(tooOldStart);
+  ctx.state.expenses.push({ id: 'old2', date: oldDate, amount: 88.88, categoryId: 'cat1', paymentAccountId: 'cc4', name: 'Very old purchase' });
+  let capturedResult = null;
+  const origShow = ctx.showStatementReconciliationResults;
+  ctx.showStatementReconciliationResults = (id, result) => { capturedResult = result; };
+  ctx.runStatementReconciliation('cc4', [{ date: ctx.todayStr(), merchant: 'Refund', amount: 88.88, isCredit: true }]);
+  ctx.showStatementReconciliationResults = origShow;
+  assertEqual(capturedResult.creditsUnmatched.length, 1, 'a purchase from 5 cycles ago is outside the agreed 3-cycle lookback window and must NOT be found');
+});
+
+await check('openStatementUpload() accepts both images and PDFs', () => {
+  const src = ctx.openStatementUpload.toString();
+  assertTrue(src.includes("'image/*,application/pdf'") || src.includes('image/*,application/pdf'), 'file picker must accept both image and PDF statement formats, as agreed');
+});
+
+await check('openStatementUpload() sends PDFs as document content blocks, images as image blocks', () => {
+  const src = ctx.openStatementUpload.toString();
+  assertTrue(src.includes("type: 'document'") && src.includes("media_type: 'application/pdf'"), 'PDF files must use the document content type, not be force-converted to images');
+  assertTrue(src.includes("type: 'image'"), 'image files must still use the image content type');
+});
+
+await check('the extraction prompt explicitly instructs using Date of Transaction, not Date Processed', () => {
+  const src = ctx.openStatementUpload.toString();
+  assertTrue(src.includes('Date of Transaction') && src.includes('Date Processed'), 'the prompt must explicitly distinguish these two columns — a real statement has both, and they can differ by several days');
+});
+
+await check('the extraction prompt explicitly instructs NOT deduplicating repeated merchant+amount lines', () => {
+  const src = ctx.openStatementUpload.toString();
+  assertTrue(/do NOT deduplicate|not deduplicate/i.test(src), 'genuinely duplicate charges (split flight bookings, repeated gift card purchases) must be preserved as separate lines, not collapsed');
+});
+
 await check('no top-level function is declared more than once anywhere in the file (regression: silent shadowing caused both a data-loss bug and a broken legacy super-contribution modal)', () => {
   const fs = require('fs');
   const html = fs.readFileSync(APP_PATH, 'utf8');

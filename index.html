@@ -2121,9 +2121,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.10.1';
+const APP_VERSION = '2.10.2';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '24 Jun 2026 7:48 PM AEDT';
+const BUILD_TIME = '24 Jun 2026 7:53 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -15993,6 +15993,154 @@ function confirmAllocations() {
   showToast('✅ Allocated $' + total.toFixed(2) + ' across ' + count + ' goal' + (count!==1?'s':''), 3000);
 }
 
+// ── Statement reconciliation: upload + AI extraction ──────────────────────────
+function openStatementUpload(ccAccountId) {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = 'image/*,application/pdf';
+  input.multiple = true;
+  input.onchange = async (e) => {
+    const files = Array.from(e.target.files).slice(0, 8); // a multi-page PDF or several screenshots
+    if (!files.length) return;
+    const maxSize = 20 * 1024 * 1024;
+    if (files.some(f => f.size > maxSize)) {
+      showToast('❌ One of those files is too large (max 20MB each)', 3500);
+      return;
+    }
+    showToast('🤖 Reading ' + files.length + ' file' + (files.length>1?'s':'') + '…', 20000);
+
+    const toBase64 = file => new Promise((res, rej) => {
+      const r = new FileReader();
+      r.onload = ev => res({ base64: ev.target.result.split(',')[1], mediaType: file.type || 'application/octet-stream', isPdf: file.type === 'application/pdf' });
+      r.onerror = rej;
+      r.readAsDataURL(file);
+    });
+
+    try {
+      const files64 = await Promise.all(files.map(toBase64));
+      const content = [];
+      files64.forEach(f => {
+        if (f.isPdf) {
+          content.push({ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: f.base64 } });
+        } else {
+          content.push({ type: 'image', source: { type: 'base64', media_type: f.mediaType, data: f.base64 } });
+        }
+      });
+      content.push({ type: 'text', text:
+        'This is a credit card statement (possibly spanning multiple pages/files). Extract every individual transaction line.\n\n' +
+        'For each transaction return:\n' +
+        '- date: the "Date of Transaction" column specifically (NOT "Date Processed" — these often differ by several days), in YYYY-MM-DD format\n' +
+        '- merchant: the transaction description text, as written\n' +
+        '- amount: the numeric amount only (no $ sign, no commas)\n' +
+        '- isCredit: true if the amount is marked with "CR" (a credit/refund), false otherwise\n\n' +
+        'Rules:\n' +
+        '- A line with "CR" after the amount is a credit/refund — set isCredit:true and amount as the positive absolute value.\n' +
+        '- Skip any line with no amount of its own that is just an explanatory note about the line above it (e.g. an "INCL OVERSEAS TXN FEE" annotation with no balance change) — do not extract these as separate transactions.\n' +
+        '- If the same merchant and amount appear more than once, extract EACH occurrence as its own separate line — do NOT deduplicate or merge them, even if they look identical. These are very often genuinely separate charges (e.g. a flight booking split per passenger, or two identical gift card purchases).\n' +
+        '- Ignore interest rate tables, balance summaries, cheque deposit slips, or any non-transaction content.\n\n' +
+        'Return ONLY a valid JSON array, no markdown formatting, no explanation. Format:\n' +
+        '[{"date":"2026-05-19","merchant":"WOOLWORTHS/FALCON ST","amount":208.80,"isCredit":false}]'
+      });
+
+      const response = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'anthropic-version': '2023-06-01',
+          'anthropic-dangerous-direct-browser-access': 'true'
+        },
+        body: JSON.stringify({
+          model: 'claude-sonnet-4-20250514',
+          max_tokens: 8000,
+          messages: [{ role: 'user', content }]
+        })
+      });
+
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        const msg = errData.error?.message || 'HTTP ' + response.status;
+        showToast('❌ API error: ' + msg, 6000);
+        return;
+      }
+
+      const data = await response.json();
+      const text = (data.content||[]).find(b=>b.type==='text')?.text || '';
+      if (!text) { showToast('❌ No response from AI. Try again.', 4000); return; }
+
+      let txns = [];
+      try {
+        const clean = text.trim().replace(/^```json?\s*/,'').replace(/\s*```\s*$/,'').trim();
+        txns = JSON.parse(clean);
+      } catch(err) {
+        const match = text.match(/\[[\s\S]*\]/);
+        if (match) { try { txns = JSON.parse(match[0]); } catch(e2) { txns = []; } }
+      }
+
+      const filtered = Array.isArray(txns) ? txns.filter(t => t.date && typeof t.amount === 'number') : [];
+      if (filtered.length === 0) {
+        showToast('⚠️ No transactions found. Try a clearer photo or a different page.', 5000);
+        return;
+      }
+
+      runStatementReconciliation(ccAccountId, filtered);
+    } catch(err) {
+      console.error('Statement import error:', err);
+      showToast('❌ Import error: ' + (err.message || 'Unknown error'), 4000);
+    }
+  };
+  input.click();
+}
+
+// Gathers the relevant Spendly expense pools and runs the matching algorithm.
+// cycleExpenses = this CC account's charges in the cycle being reconciled (default: current cycle).
+// historyExpenses = a wider pool (current + 3 prior cycles) used only for credit/refund matching.
+function runStatementReconciliation(ccAccountId, statementTxns, cycleOffset) {
+  if (cycleOffset === undefined) cycleOffset = 0;
+  const { cycleStart, cycleEnd } = getCycleRange(cycleOffset);
+  const { cycleStart: historyStart } = getCycleRange(cycleOffset - 3);
+
+  const cycleExp = (state.expenses||[]).filter(e => {
+    if (e.paymentAccountId !== ccAccountId) return false;
+    const d = new Date(e.date + 'T00:00:00');
+    return d >= cycleStart && d <= cycleEnd;
+  });
+  const historyExp = (state.expenses||[]).filter(e => {
+    if (e.paymentAccountId !== ccAccountId) return false;
+    const d = new Date(e.date + 'T00:00:00');
+    return d >= historyStart && d <= cycleEnd;
+  });
+
+  const result = reconcileStatement(statementTxns, cycleExp, historyExp, { dateToleranceDays: 3 });
+  showStatementReconciliationResults(ccAccountId, result);
+}
+
+// Basic summary view for now — full interactive per-item actions (add/defer/
+// delete/skip buttons) are the next build phase. This confirms the whole
+// upload -> extraction -> matching pipeline end-to-end first.
+function showStatementReconciliationResults(ccAccountId, result) {
+  const existing = document.getElementById('reconcileResultsSheet');
+  if (existing) existing.remove();
+  const sheet = document.createElement('div');
+  sheet.id = 'reconcileResultsSheet';
+  sheet.className = 'modal-overlay open';
+  sheet.style.zIndex = '99997';
+  const row = (label, count, color) => '<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-top:1px solid var(--surface2)"><span style="font-size:13px;color:var(--text)">' + label + '</span><span style="font-size:14px;font-weight:700;color:' + color + '">' + count + '</span></div>';
+  sheet.innerHTML =
+    '<div class="modal-sheet" style="max-width:420px">' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px"><div style="font-size:17px;font-weight:700">Statement reconciliation</div><button onclick="document.getElementById(\'reconcileResultsSheet\').remove()" style="background:none;border:none;font-size:20px;color:var(--muted);cursor:pointer">×</button></div>' +
+      '<div style="font-size:12px;color:var(--muted);margin-bottom:6px">Here\'s what we found — full review actions are coming next.</div>' +
+      row('✓ Matched', result.matched.length, '#34C759') +
+      row('🔗 Split/grouped transactions', result.splitSuggestions.length, 'var(--accent)') +
+      row('➕ On statement, missing from Spendly', result.missingFromSpendly.length, 'var(--red)') +
+      row('📅 Logged, not yet billed (defer candidates)', result.missingFromStatement.length, 'var(--orange)') +
+      row('↩ Credits matched to a past expense', result.creditsWithMatch.length, '#34C759') +
+      row('❓ Credits with no plausible match', result.creditsUnmatched.length, 'var(--muted)') +
+      '<button onclick="document.getElementById(\'reconcileResultsSheet\').remove()" style="width:100%;margin-top:16px;background:var(--accent);color:#fff;border:none;border-radius:10px;padding:12px;font-size:14px;font-weight:700;font-family:var(--font);cursor:pointer">Close</button>' +
+    '</div>';
+  document.body.appendChild(sheet);
+  window._lastReconciliationResult = result; // kept for the next build phase to act on
+}
+
 function openCCRefund(accountId) {
   // Populate CC account dropdown
   const sel = document.getElementById('ccRefundAccount');
@@ -17518,6 +17666,7 @@ function renderAccounts() {
     if (acct.type === 'credit') {
       html += '<div style="display:flex;gap:8px;margin-bottom:14px">' +
         '<button onclick="openCCRefund(\'' + acct.id + '\')" style="background:rgba(52,199,89,0.1);color:#34C759;border:2px solid rgba(52,199,89,0.2);border-radius:10px;padding:12px 14px;font-size:13px;font-weight:700;font-family:var(--font);cursor:pointer;white-space:nowrap">↩ Refund</button>' +
+        '<button onclick="openStatementUpload(\'' + acct.id + '\')" style="flex:1;background:var(--accent-dim);color:var(--accent);border:none;border-radius:10px;padding:12px 14px;font-size:13px;font-weight:700;font-family:var(--font);cursor:pointer">📄 Reconcile statement</button>' +
       '</div>';
     } else {
       html += '<div style="display:flex;gap:8px;margin-bottom:14px">' +
