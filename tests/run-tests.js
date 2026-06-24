@@ -1647,6 +1647,11 @@ await check('reconcilePossibleMatchConfirm() and reconcilePossibleMatchReject() 
   assertTrue(ctx.window._reconciliation.resolved['possible-0']);
 });
 
+await check('openStatementUpload() shows honest, discrete stage labels rather than a fake percentage (a single API call has no real sub-progress signal)', () => {
+  const src = ctx.openStatementUpload.toString();
+  assertTrue(src.includes('Step 1 of 3') && src.includes('Step 2 of 3') && src.includes('Step 3 of 3'), 'should show real, discrete stages (reading files, AI analysis, matching) since each one genuinely starts/ends at a knowable point — unlike a fabricated percentage for the single AI call, which has no real incremental signal');
+});
+
 await check('no top-level function is declared more than once anywhere in the file (regression: silent shadowing caused both a data-loss bug and a broken legacy super-contribution modal)', () => {
   const fs = require('fs');
   const html = fs.readFileSync(APP_PATH, 'utf8');

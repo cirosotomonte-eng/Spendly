@@ -2134,9 +2134,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.13.0';
+const APP_VERSION = '2.13.1';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '24 Jun 2026 10:08 PM AEDT';
+const BUILD_TIME = '24 Jun 2026 10:18 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -14528,7 +14528,7 @@ function openPortfolioImport() {
   input.onchange = async (e) => {
     const files = Array.from(e.target.files).slice(0, 5); // max 5 images
     if (!files.length) return;
-    showAiLoadingOverlay('Reading ' + files.length + ' screenshot' + (files.length>1?'s':'') + '…');
+    showAiLoadingOverlay('Step 1 of 2 — Reading ' + files.length + ' screenshot' + (files.length>1?'s':'') + '…');
 
     const toBase64 = file => new Promise((res, rej) => {
       const r = new FileReader();
@@ -14539,6 +14539,7 @@ function openPortfolioImport() {
 
     try {
       const images = await Promise.all(files.map(toBase64));
+      updateAiLoadingText('Step 2 of 2 — Analyzing with AI…');
 
       // Build content: images first, then instruction
       const content = [];
@@ -16092,7 +16093,7 @@ function openStatementUpload(ccAccountId) {
       showToast('❌ One of those files is too large (max 20MB each)', 3500);
       return;
     }
-    showAiLoadingOverlay('Reading ' + files.length + ' file' + (files.length>1?'s':'') + '…');
+    showAiLoadingOverlay('Step 1 of 3 — Reading ' + files.length + ' file' + (files.length>1?'s':'') + '…');
 
     const toBase64 = file => new Promise((res, rej) => {
       const r = new FileReader();
@@ -16103,6 +16104,7 @@ function openStatementUpload(ccAccountId) {
 
     try {
       const files64 = await Promise.all(files.map(toBase64));
+      updateAiLoadingText('Step 2 of 3 — Analyzing with AI (10-30s for multiple pages)…');
       const content = [];
       files64.forEach(f => {
         if (f.isPdf) {
@@ -16161,7 +16163,7 @@ function openStatementUpload(ccAccountId) {
         return;
       }
 
-      updateAiLoadingText('Matching against your logged expenses…');
+      updateAiLoadingText('Step 3 of 3 — Matching against your logged expenses…');
       runStatementReconciliation(ccAccountId, filtered);
       hideAiLoadingOverlay();
     } catch(err) {
