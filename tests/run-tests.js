@@ -1319,6 +1319,54 @@ await check('callClaudeViaProxy() sends the shared secret header, never the real
   assertTrue(!src.includes('x-api-key'), 'the client must never send or know the real Anthropic API key — that lives server-side in the Worker only');
 });
 
+// ─────────────────────────────────────────────────────────────────────────
+console.log('\n── Statement reconciliation: which cycle does the statement actually cover? ──');
+console.log('   (must infer from the statement own dates, not assume today cycle)');
+
+await check('inferCycleOffsetFromStatement() correctly identifies the CURRENT cycle when most dates fall there', () => {
+  ctx.state = buildMockState();
+  const { cycleStart } = ctx.getCycleRange(0);
+  const d = ctx.dateToStr(cycleStart);
+  const txns = [{ date: d, amount: 10 }, { date: d, amount: 20 }, { date: d, amount: 30 }];
+  assertEqual(ctx.inferCycleOffsetFromStatement(txns), 0);
+});
+
+await check('inferCycleOffsetFromStatement() correctly identifies a PAST cycle - the exact scenario raised: uploading last cycle statement', () => {
+  ctx.state = buildMockState();
+  const { cycleStart } = ctx.getCycleRange(-1); // the cycle before the current one
+  const d = ctx.dateToStr(cycleStart);
+  const txns = [{ date: d, amount: 10 }, { date: d, amount: 20 }, { date: d, amount: 30 }, { date: d, amount: 40 }];
+  assertEqual(ctx.inferCycleOffsetFromStatement(txns), -1, 'a statement whose transactions all fall in last cycle must be reconciled against LAST cycle, not today current one');
+});
+
+await check('inferCycleOffsetFromStatement() picks the cycle with the MOST transactions when a statement straddles two (e.g. a few stragglers near the boundary)', () => {
+  ctx.state = buildMockState();
+  const { cycleStart: prevStart } = ctx.getCycleRange(-2);
+  const { cycleStart: currStart } = ctx.getCycleRange(-1);
+  const txns = [
+    { date: ctx.dateToStr(prevStart), amount: 5 }, // 1 straggler in the earlier cycle
+    { date: ctx.dateToStr(currStart), amount: 10 },
+    { date: ctx.dateToStr(currStart), amount: 20 },
+    { date: ctx.dateToStr(currStart), amount: 30 }, // 3 in the cycle that should win
+  ];
+  assertEqual(ctx.inferCycleOffsetFromStatement(txns), -1, 'should follow the majority of transactions, not be thrown off by a single early/late straggler');
+});
+
+await check('inferCycleOffsetFromStatement() defaults to the current cycle for an empty statement, rather than throwing', () => {
+  assertNoThrow(() => ctx.inferCycleOffsetFromStatement([]));
+  assertEqual(ctx.inferCycleOffsetFromStatement([]), 0);
+});
+
+await check('runStatementReconciliation() uses the inferred cycle by default, not a hardcoded "today"', () => {
+  const src = ctx.runStatementReconciliation.toString();
+  assertTrue(src.includes('inferCycleOffsetFromStatement'), 'the default cycle must come from inspecting the statement own dates - assuming today cycle was the actual reported gap');
+});
+
+await check('the results summary surfaces which cycle was inferred, so a wrong guess is never silent', () => {
+  const src = ctx.showStatementReconciliationResults.toString();
+  assertTrue(src.includes('Reconciling against cycle'), 'the inferred cycle must be visibly shown to the user, not applied invisibly — a wrong guess needs to be obvious immediately');
+});
+
 await check('no top-level function is declared more than once anywhere in the file (regression: silent shadowing caused both a data-loss bug and a broken legacy super-contribution modal)', () => {
   const fs = require('fs');
   const html = fs.readFileSync(APP_PATH, 'utf8');
