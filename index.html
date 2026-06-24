@@ -2134,9 +2134,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.12.2';
+const APP_VERSION = '2.13.0';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '24 Jun 2026 9:49 PM AEDT';
+const BUILD_TIME = '24 Jun 2026 10:08 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -16287,6 +16287,18 @@ function reconcileAcknowledgeSplit(index) {
   renderReconciliationReview();
 }
 
+function reconcilePossibleMatchConfirm(index) {
+  reconcileMarkResolved('possible-' + index);
+  renderReconciliationReview();
+  showToast('✅ Confirmed as the same transaction', 2000);
+}
+
+function reconcilePossibleMatchReject(index) {
+  reconcileMarkResolved('possible-' + index);
+  renderReconciliationReview();
+  showToast('Treated as separate — worth double-checking both manually', 3000);
+}
+
 function reconcileDeleteRefundedExpense(index) {
   const rc = window._reconciliation;
   if (!rc) return;
@@ -16444,6 +16456,28 @@ function renderReconciliationReview() {
     html += '</div>';
   }
 
+  // Possible matches — same amount, but date and/or name didn\'t line up
+  // closely enough for an automatic match. Needs a human glance, not a
+  // confident auto-resolve.
+  html += sectionHeader('possible', '🔍', 'Possible matches (different date/name)', (result.possibleMatches||[]).length, 'var(--accent)');
+  if (!collapsed.possible) {
+    html += '<div style="background:var(--surface);border-radius:0 0 var(--r) var(--r);overflow:hidden;margin-bottom:10px">';
+    (result.possibleMatches||[]).forEach((m, i) => {
+      const key = 'possible-' + i;
+      const isResolved = resolved[key];
+      html += '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 16px;border-top:1px solid var(--surface2)">' +
+        '<div style="min-width:0">' +
+          '<div style="font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + (m.expense.name||'Expense') + ' <span style="color:var(--muted);font-weight:400">↔</span> ' + (m.statementTxn.merchant||'') + '</div>' +
+          '<div style="font-size:11px;color:var(--muted)">' + fmt(m.statementTxn.amount) + ' · ' + fmtDateAU(m.expense.date) + ' vs ' + fmtDateAU(m.statementTxn.date) + ' (' + m.daysApart + ' day' + (m.daysApart!==1?'s':'') + ' apart)</div>' +
+        '</div>' +
+        (isResolved ? resolvedBadge('Reviewed') :
+          '<div style="display:flex;gap:6px">' + actionButton('✓ Same', 'reconcilePossibleMatchConfirm(' + i + ')', '#34C759') + actionButton('✗ Different', 'reconcilePossibleMatchReject(' + i + ')', 'var(--surface3)') + '</div>') +
+      '</div>';
+    });
+    if ((result.possibleMatches||[]).length === 0) html += '<div style="padding:14px 16px;font-size:12px;color:var(--muted)">No ambiguous same-amount pairings found.</div>';
+    html += '</div>';
+  }
+
   // Credits matched to a past expense
   html += sectionHeader('creditmatch', '↩', 'Credits matched to a past expense', result.creditsWithMatch.length, '#34C759');
   if (!collapsed.creditmatch) {
@@ -16499,6 +16533,15 @@ function renderReconciliationReview() {
 
   html += '</div>';
 
+  const t = result.totals;
+  const totalsCloseEnough = t && Math.abs(t.totalsDifference) < 1; // within $1 — rounding/timing noise, not a real discrepancy
+  const totalsBar = t ? (
+    '<div style="padding:10px 16px;background:' + (totalsCloseEnough ? 'rgba(52,199,89,0.08)' : 'rgba(255,149,0,0.08)') + ';border-bottom:1px solid var(--surface2);flex-shrink:0">' +
+      '<div style="font-size:12px;font-weight:700;color:' + (totalsCloseEnough ? '#34C759' : 'var(--orange)') + '">' + (totalsCloseEnough ? '✓ Totals line up' : '⚠️ Totals differ by ' + fmt(Math.abs(t.totalsDifference))) + '</div>' +
+      '<div style="font-size:11px;color:var(--muted);margin-top:1px">Statement: ' + fmt(t.statementChargesTotal) + ' · Logged in Spendly: ' + fmt(t.spendlyLoggedTotal) + (t.statementCreditsTotal > 0 ? ' · Credits: ' + fmt(t.statementCreditsTotal) : '') + '</div>' +
+    '</div>'
+  ) : '';
+
   existing.innerHTML =
     '<div style="display:flex;align-items:center;justify-content:space-between;padding:16px;border-bottom:1px solid var(--surface2);flex-shrink:0">' +
       '<div>' +
@@ -16507,6 +16550,7 @@ function renderReconciliationReview() {
       '</div>' +
       '<button onclick="minimizeReconciliationReview()" style="background:var(--surface2);border:none;border-radius:50%;width:32px;height:32px;font-size:16px;color:var(--text);cursor:pointer">×</button>' +
     '</div>' +
+    totalsBar +
     html +
     '<div style="position:fixed;bottom:0;left:0;right:0;padding:14px 16px;background:var(--bg);border-top:1px solid var(--surface2)">' +
       '<button onclick="finishReconciliationReview()" style="width:100%;background:var(--accent);color:#fff;border:none;border-radius:10px;padding:13px;font-size:14px;font-weight:700;font-family:var(--font);cursor:pointer">Done reviewing</button>' +
@@ -17010,7 +17054,32 @@ function reconcileStatement(statementTxns, cycleExpenses, historyExpenses, optio
     if (candidate) { splitSuggestions.push({ statementTxns: group, expense: candidate, sum }); consumedInSplit.add(candidate.id); }
     else { group.forEach(t => stillUnmatchedCharges.push(t)); }
   });
-  const finalUnmatchedExpenses = unmatchedExpenses.filter(e => !consumedInSplit.has(e.id));
+  const afterSplitUnmatchedExpenses = unmatchedExpenses.filter(e => !consumedInSplit.has(e.id));
+
+  // ── Pass 3: fuzzy fallback — same amount, ANY date gap, different/no name match ──
+  // For whatever's still unmatched after the tight pass and the split-group
+  // pass: a same-amount pairing is still a meaningful signal even with a large
+  // date gap or a totally different description (e.g. a subscription charged
+  // several days off from when it was logged, or an expense logged under a
+  // descriptive name like "Gastroscopy" while the statement shows the actual
+  // merchant, "ST VINCENTS"). These are NOT auto-confirmed like Pass 1 —
+  // they need the user's confirmation, since merchant and/or date both being
+  // off is weaker evidence than an exact match.
+  const possibleMatches = [];
+  const stillUnmatchedAfterFuzzy = [];
+  const consumedInFuzzy = new Set();
+  stillUnmatchedCharges.forEach(t => {
+    let best = null, bestDiff = Infinity;
+    afterSplitUnmatchedExpenses.forEach(e => {
+      if (consumedInFuzzy.has(e.id)) return;
+      if (!sameAmount(e.amount, t.amount)) return;
+      const diff = daysBetween(e.date, t.date);
+      if (diff < bestDiff) { best = e; bestDiff = diff; }
+    });
+    if (best) { consumedInFuzzy.add(best.id); possibleMatches.push({ statementTxn: t, expense: best, daysApart: bestDiff }); }
+    else { stillUnmatchedAfterFuzzy.push(t); }
+  });
+  const finalUnmatchedExpenses = afterSplitUnmatchedExpenses.filter(e => !consumedInFuzzy.has(e.id));
 
   // ── Credits: search the wider history pool for a plausible original charge ──
   const creditResults = credits.map(c => {
@@ -17023,11 +17092,23 @@ function reconcileStatement(statementTxns, cycleExpenses, historyExpenses, optio
     return { credit: c, matchedExpense: best };
   });
 
+  // ── Totals cross-check ───────────────────────────────────────────────────
+  // Independent of line-by-line matching: if the statement's overall total and
+  // what Spendly has logged for this account/cycle are close, that's a strong
+  // signal the two sets genuinely represent the same spending overall, even
+  // where individual lines didn't cleanly match.
+  const statementChargesTotal = Math.round(charges.reduce((s, t) => s + t.amount, 0) * 100) / 100;
+  const statementCreditsTotal = Math.round(credits.reduce((s, t) => s + t.amount, 0) * 100) / 100;
+  const spendlyLoggedTotal = Math.round(cycleExpenses.reduce((s, e) => s + e.amount, 0) * 100) / 100;
+  const totalsDifference = Math.round((statementChargesTotal - spendlyLoggedTotal) * 100) / 100;
+
   return {
     matched,
-    missingFromSpendly: stillUnmatchedCharges,
+    possibleMatches,
+    missingFromSpendly: stillUnmatchedAfterFuzzy,
     missingFromStatement: finalUnmatchedExpenses,
     splitSuggestions,
+    totals: { statementChargesTotal, statementCreditsTotal, spendlyLoggedTotal, totalsDifference },
     creditsWithMatch: creditResults.filter(r => r.matchedExpense),
     creditsUnmatched: creditResults.filter(r => !r.matchedExpense).map(r => r.credit),
   };
@@ -18043,7 +18124,8 @@ function renderAccounts() {
     if (acct.type === 'credit' && window._reconciliation && window._reconciliation.ccAccountId === acct.id) {
       const rc = window._reconciliation;
       const totalActionable = rc.result.missingFromSpendly.length + rc.result.missingFromStatement.length +
-        rc.result.splitSuggestions.length + rc.result.creditsWithMatch.length + rc.result.creditsUnmatched.length;
+        rc.result.splitSuggestions.length + (rc.result.possibleMatches||[]).length +
+        rc.result.creditsWithMatch.length + rc.result.creditsUnmatched.length;
       const resolvedCount = Object.keys(rc.resolved).filter(k => rc.resolved[k]).length;
       const remaining = Math.max(0, totalActionable - resolvedCount);
       html += '<div style="background:var(--accent-dim);border:1.5px solid var(--accent);border-radius:var(--r);padding:14px;margin-bottom:14px;display:flex;align-items:center;justify-content:space-between;gap:10px">' +

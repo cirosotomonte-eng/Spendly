@@ -1574,6 +1574,79 @@ await check('showAiLoadingOverlay() places the robot emoji statically inside the
   assertTrue(src.includes('animation:aiSpin') && !/animation:aiSpin[^']*🤖/.test(src), 'the spin animation must apply to the ring element, not to the emoji itself, so the emoji stays upright while the ring rotates around it');
 });
 
+// ─────────────────────────────────────────────────────────────────────────
+console.log('\n── Statement reconciliation: fuzzy fallback + totals cross-check (real reported false negatives) ──');
+
+await check('reconcileStatement() catches a same-amount charge with a 4-day date gap and a totally different name (the Prime example)', () => {
+  const statement = [{ date: '2026-05-28', merchant: 'PRIME Vide', amount: 11.99, isCredit: false }];
+  const spendly = [{ id: 'prime1', date: '2026-06-01', amount: 11.99, categoryId: 'cat1', name: 'Prime' }]; // 4 days apart — outside the 3-day tight tolerance
+  const r = ctx.reconcileStatement(statement, spendly, []);
+  assertEqual(r.matched.length, 0, 'should NOT auto-confirm a match this loose — needs human review');
+  assertEqual(r.possibleMatches.length, 1, 'should surface it as a possible match rather than flagging it as fully missing');
+  assertEqual(r.missingFromSpendly.length, 0, 'must not ALSO appear as missing once caught by the fuzzy pass');
+  assertEqual(r.missingFromStatement.length, 0);
+  assertEqual(r.possibleMatches[0].daysApart, 4);
+});
+
+await check('reconcileStatement() catches a same-date, same-amount charge with a completely different merchant name (the Gastroscopy/ST Vincents case)', () => {
+  // Same date AND same amount should actually hit Pass 1 (which never checks
+  // name at all) — this test exists to lock in that guarantee explicitly,
+  // since name should never be able to block an otherwise-exact match.
+  const statement = [{ date: '2026-05-28', merchant: 'ST VINCENTS', amount: 761.25, isCredit: false }];
+  const spendly = [{ id: 'med1', date: '2026-05-28', amount: 761.25, categoryId: 'cat1', name: 'Gastroscopy' }];
+  const r = ctx.reconcileStatement(statement, spendly, []);
+  assertEqual(r.matched.length, 1, 'exact same date AND amount must confidently auto-match regardless of how different the merchant name is — name is never part of Pass 1 matching');
+});
+
+await check('reconcileStatement() does not fuzzy-match genuinely unrelated same-amount charges with no other evidence', () => {
+  const statement = [{ date: '2026-05-01', merchant: 'Totally Different Shop', amount: 50, isCredit: false }];
+  const spendly = [{ id: 'unrelated1', date: '2026-06-15', amount: 50, categoryId: 'cat1', name: 'Coincidence' }]; // 45 days apart
+  const r = ctx.reconcileStatement(statement, spendly, []);
+  assertEqual(r.possibleMatches.length, 1, 'amount-only fuzzy matching has no upper bound on date gap by design — this is intentionally lenient, which is why it requires explicit human confirmation rather than auto-resolving');
+});
+
+await check('reconcileStatement() computes totals correctly: statement charges, credits, and what Spendly has logged', () => {
+  const statement = [
+    { date: '2026-05-01', merchant: 'A', amount: 100, isCredit: false },
+    { date: '2026-05-02', merchant: 'B', amount: 50, isCredit: false },
+    { date: '2026-05-03', merchant: 'Refund', amount: 20, isCredit: true },
+  ];
+  const spendly = [{ id: 'e1', date: '2026-05-01', amount: 100, categoryId: 'cat1' }];
+  const r = ctx.reconcileStatement(statement, spendly, []);
+  assertEqual(r.totals.statementChargesTotal, 150, 'should sum only the charges, not credits');
+  assertEqual(r.totals.statementCreditsTotal, 20);
+  assertEqual(r.totals.spendlyLoggedTotal, 100);
+  assertEqual(r.totals.totalsDifference, 50, 'difference = statement charges - spendly logged = 150 - 100');
+});
+
+await check('renderReconciliationReview() shows a green "totals line up" banner when the difference is small', () => {
+  ctx.state = buildMockState();
+  const result = { matched: [], possibleMatches: [], missingFromSpendly: [], missingFromStatement: [], splitSuggestions: [], creditsWithMatch: [], creditsUnmatched: [], totals: { statementChargesTotal: 500, statementCreditsTotal: 0, spendlyLoggedTotal: 500.50, totalsDifference: -0.50 } };
+  ctx.showStatementReconciliationResults('cc1', result, null);
+  const html = ctx.document.getElementById('reconcileReviewScreen').innerHTML;
+  assertTrue(html.includes('Totals line up'), 'a sub-$1 difference should read as totals matching, not a discrepancy needing attention');
+});
+
+await check('renderReconciliationReview() shows an orange warning banner when totals genuinely differ', () => {
+  ctx.state = buildMockState();
+  const result = { matched: [], possibleMatches: [], missingFromSpendly: [], missingFromStatement: [], splitSuggestions: [], creditsWithMatch: [], creditsUnmatched: [], totals: { statementChargesTotal: 500, statementCreditsTotal: 0, spendlyLoggedTotal: 450, totalsDifference: 50 } };
+  ctx.showStatementReconciliationResults('cc1', result, null);
+  const html = ctx.document.getElementById('reconcileReviewScreen').innerHTML;
+  assertTrue(html.includes('Totals differ'), 'a genuine $50 gap must be flagged clearly, not glossed over');
+});
+
+await check('reconcilePossibleMatchConfirm() and reconcilePossibleMatchReject() both mark the item resolved without throwing', () => {
+  ctx.state = buildMockState();
+  const result = { matched: [], possibleMatches: [{ statementTxn: { date:'2026-05-28', merchant:'PRIME Vide', amount:11.99 }, expense: { date:'2026-06-01', name:'Prime', amount:11.99 }, daysApart: 4 }], missingFromSpendly: [], missingFromStatement: [], splitSuggestions: [], creditsWithMatch: [], creditsUnmatched: [] };
+  ctx.showStatementReconciliationResults('cc1', result, null);
+  assertNoThrow(() => ctx.reconcilePossibleMatchConfirm(0));
+  assertTrue(ctx.window._reconciliation.resolved['possible-0']);
+
+  ctx.showStatementReconciliationResults('cc1', result, null);
+  assertNoThrow(() => ctx.reconcilePossibleMatchReject(0));
+  assertTrue(ctx.window._reconciliation.resolved['possible-0']);
+});
+
 await check('no top-level function is declared more than once anywhere in the file (regression: silent shadowing caused both a data-loss bug and a broken legacy super-contribution modal)', () => {
   const fs = require('fs');
   const html = fs.readFileSync(APP_PATH, 'utf8');
