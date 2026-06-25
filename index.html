@@ -2134,9 +2134,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.13.2';
+const APP_VERSION = '2.14.0';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '24 Jun 2026 10:38 PM AEDT';
+const BUILD_TIME = '25 Jun 2026 9:07 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -15817,84 +15817,10 @@ function distributeShortfall(reductionsJson) {
 // ── CC Previous Cycle Payment ─────────────────────────────────────────────────
 // Pays only previous-cycle unsettled charges, marks them as settled.
 // Called from the CC account detail view "Pay bill" button.
-function openPayCCPreviousCycle(ccAccountId) {
-  const settledIds = new Set((state.ccPayments||[]).flatMap(p => p.expenseIds||[]));
-  const { cycleStart } = getCycleRange(0);
-  const cycleStartStr = dateToStr(cycleStart);
-
-  // All unsettled CC expenses for this specific card
-  const allCCExp = (state.expenses||[]).filter(e => {
-    if (!e.paymentAccountId || settledIds.has(e.id)) return false;
-    const acct = accountById(e.paymentAccountId);
-    return acct && acct.type === 'credit' && e.paymentAccountId === ccAccountId;
-  });
-  const prevExp = allCCExp.filter(e => e.date < cycleStartStr);
-  const prevTotal = Math.round(prevExp.reduce((s,e) => s + e.amount, 0) * 100) / 100;
-
-  if (prevTotal <= 0) {
-    // No previous cycle charges — let user pay current cycle via generic modal
-    openCCPayment(ccAccountId);
-    return;
-  }
-
-  // Pick source account — prefer salary, then highest balance
-  const fromAccts = (state.accounts||[]).filter(a => a.type !== 'credit');
-  const fromAcct = fromAccts.find(a => a.type === 'transaction') || fromAccts.sort((a,b) => getAccountBalance(b.id) - getAccountBalance(a.id))[0];
-  const ccAcct = accountById(ccAccountId);
-  const fromBal = fromAcct ? getAccountBalance(fromAcct.id) : 0;
-
-  if (!confirm(
-    'Pay previous cycle to ' + (ccAcct ? ccAcct.name : 'CC') + '? ' +
-    prevExp.length + ' charge' + (prevExp.length !== 1 ? 's' : '') + ' - ' + fmtB(prevTotal) + '. ' +
-    'From: ' + (fromAcct ? fromAcct.name : '?') + ' (bal: ' + fmtB(fromBal) + ')'
-  )) return;
-
-  const now = todayStr();
-  const paymentId = uid();
-  if (!state.ccPayments) state.ccPayments = [];
-  if (!state.accountTransactions) state.accountTransactions = [];
-
-  // Mark expenses as settled
-  state.ccPayments.push({
-    id: paymentId, date: now, amount: prevTotal,
-    fromAccountId: fromAcct?.id,
-    toCCAccountIds: [ccAccountId],
-    expenseIds: prevExp.map(e => e.id),
-    note: 'CC payment to ' + (ccAcct ? ccAcct.name : 'CC'),
-  });
-
-  // Credit CC account + debit source account
-  state.accountTransactions.push({
-    id: uid(), type: 'ccPayment',
-    fromAccountId: fromAcct?.id, toAccountId: ccAccountId,
-    amount: prevTotal, date: now,
-    note: 'CC payment · ' + prevExp.length + ' charge' + (prevExp.length !== 1 ? 's' : ''),
-    ccPaymentId: paymentId,
-  });
-
-  saveState();
-  renderAccounts();
-  showToast('✅ Paid ' + fmtB(prevTotal) + ' — ' + prevExp.length + ' charge' + (prevExp.length !== 1 ? 's' : '') + ' settled', 3000);
-}
-
-function openCCPayment(ccAccountId) {
-  const ccAcct = accountById(ccAccountId);
-  if (!ccAcct) return;
-  const owed = Math.abs(getAccountBalance(ccAccountId));
-  // Pre-fill transfer modal: from first non-CC account, to CC account, amount = what's owed
-  const fromAcct = (state.accounts||[]).find(a => a.type !== 'credit');
-  _editingTransferId = null;
-  document.getElementById('transferModalTitle').textContent = 'Pay CC bill';
-  document.getElementById('transferAmount').value = owed.toFixed(2);
-  document.getElementById('transferDate').value = todayStr();
-  document.getElementById('transferNote').value = 'CC payment — ' + ccAcct.name;
-  document.getElementById('transferSaveBtn').textContent = 'Pay';
-  document.getElementById('transferDeleteBtn').style.display = 'none';
-  populateAccountSelect('transferFrom', fromAcct?.id);
-  populateAccountSelect('transferTo', ccAccountId);
-  document.getElementById('transferGoalWrap').style.display = 'none';
-  openModal('transferModal');
-}
+// (openPayCCPreviousCycle and openCCPayment removed — confirmed zero live
+// callers anywhere in the app; the only working CC payment path is
+// openPayCCFromSalary, which now correctly handles previous-cycle debt too
+// via getCCGoalContributions' ceiling-only, no-floor unsettled filter.)
 function populateExpPaymentAccounts() {
   // Called when expense modal opens — adds bank accounts to payment buttons
   const wrap = document.getElementById('expPaymentBtns');
@@ -17135,6 +17061,81 @@ function getEffectiveBillingCycleEnd(e) {
   return getEffectiveBillingCycleRange(e).cycleEnd;
 }
 
+// ── Single source of truth for "how much is owed on this CC" ───────────────
+// Used by EVERY display and action that needs this figure — the payment
+// modal, the Pending CC card's button label, and the actual settlement
+// logic. Previously the card's button label was computed independently
+// (date-range only, no goal/defer-awareness) from what the modal it opens
+// actually calculates — meaning the label and the modal could show two
+// different numbers for the same card. Consolidating to one function
+// closes that gap structurally, not just for this one case.
+//
+// Includes ALL unsettled charges up to the end of the given cycle — not
+// just charges dated within it. Unpaid CC debt from a previous cycle
+// doesn't disappear when a new cycle starts; only an actual payment
+// settles it. Deferred charges (statement reconciliation) are excluded
+// until the cycle they're actually billable in arrives.
+function getCCGoalContributions(ccAcctId, cycleOffset) {
+  if (cycleOffset === undefined) cycleOffset = _salaryCycleOffset;
+  const { cycleStart: _pcs, cycleEnd: _pce } = getCycleRange(cycleOffset);
+  const _pcsStr = dateToStr(_pcs);
+  const _pceStr = dateToStr(_pce);
+  const _sIds = new Set((state.ccPayments||[]).flatMap(p => p.expenseIds||[]));
+
+  const unsettled = (state.expenses||[]).filter(e =>
+    e.paymentAccountId === ccAcctId && !_sIds.has(e.id) &&
+    dateToStr(getEffectiveBillingCycleEnd(e)) <= _pceStr
+  );
+
+  // Manually-logged CC refunds (openCCRefund) aren't tied to any specific
+  // expense and have no "settled" flag — unlike unsettled charges, which
+  // intentionally have NO floor bound so old unpaid debt keeps carrying
+  // forward, a refund must be bounded to ONLY this specific cycle (both
+  // floor and ceiling). Otherwise a single refund would keep reducing
+  // every future cycle's total forever, since nothing ever marks it as
+  // already "used". Always reduces the SALARY portion specifically, never
+  // a goal's — an unattributed credit shouldn't be assumed to offset a
+  // goal contribution it was never linked to.
+  const refundsTotal = (state.accountTransactions||[])
+    .filter(t => t.type === 'ccRefund' && t.toAccountId === ccAcctId && !t.deleted && t.date >= _pcsStr && t.date <= _pceStr)
+    .reduce((s, t) => s + t.amount, 0);
+  // Track remaining goal balances during iteration to avoid over-drawing
+  const goalBalances = {};
+  const contributions = []; // { goalId, goalName, amount }
+  let salaryTotal = 0;
+  unsettled.forEach(e => {
+    const covered = e.goalCoveredAmount || 0;
+    if (covered <= 0) { salaryTotal += e.amount; return; }
+    const goalId = e.linkedGoalId;
+    if (!goalId) { salaryTotal += e.amount; return; }
+    if (goalBalances[goalId] === undefined) {
+      goalBalances[goalId] = totalSavedForCat(goalId);
+    }
+    const avail = goalBalances[goalId];
+    const fromGoal = Math.min(covered, avail, e.amount);
+    const fromSalary = Math.round((e.amount - fromGoal) * 100) / 100;
+    goalBalances[goalId] = Math.round((avail - fromGoal) * 100) / 100;
+    salaryTotal += fromSalary;
+    if (fromGoal > 0.005) {
+      const existing = contributions.find(c => c.goalId === goalId);
+      if (existing) existing.amount = Math.round((existing.amount + fromGoal) * 100) / 100;
+      else {
+        const g = savingsCatById(goalId);
+        contributions.push({ goalId, goalName: g ? (g.icon + ' ' + g.name) : 'Goal', amount: Math.round(fromGoal * 100) / 100 });
+      }
+    }
+  });
+  const grossBeforeRefunds = Math.round(unsettled.reduce((s,e) => s+e.amount, 0) * 100) / 100;
+  return {
+    unsettled,
+    contributions,
+    refundsTotal: Math.round(refundsTotal * 100) / 100,
+    salaryTotal: Math.round((salaryTotal - refundsTotal) * 100) / 100,
+    grossTotal: Math.round((grossBeforeRefunds - refundsTotal) * 100) / 100,
+    goalTotal: Math.round(contributions.reduce((s,c) => s+c.amount, 0) * 100) / 100,
+  };
+}
+
 function openPayCCFromSalary(salaryAccountId) {
   const ccAccts = (state.accounts||[]).filter(a => a.type === 'credit');
   if (ccAccts.length === 0) { showToast('No credit card accounts found', 2000); return; }
@@ -17144,54 +17145,9 @@ function openPayCCFromSalary(salaryAccountId) {
   const { cycleStart: _pcs, cycleEnd: _pce } = getCycleRange(_salaryCycleOffset);
   const _pcsStr = dateToStr(_pcs);
   const _pceStr = dateToStr(_pce);
-  const _sIds = new Set((state.ccPayments||[]).flatMap(p => p.expenseIds||[]));
-
-  // Compute goal contributions per unsettled expense.
-  // Include ALL unsettled charges up to the end of the viewed cycle — not just
-  // charges dated within this cycle. Unpaid CC debt from a previous cycle doesn't
-  // disappear when a new cycle starts; only an actual payment settles it.
-  function getGoalContributions(ccAcctId) {
-    const unsettled = (state.expenses||[]).filter(e =>
-      e.paymentAccountId === ccAcctId && !_sIds.has(e.id) &&
-      dateToStr(getEffectiveBillingCycleEnd(e)) <= _pceStr
-    );
-    // Track remaining goal balances during iteration to avoid over-drawing
-    const goalBalances = {};
-    const contributions = []; // { goalId, goalName, amount }
-    let salaryTotal = 0;
-    unsettled.forEach(e => {
-      const covered = e.goalCoveredAmount || 0;
-      if (covered <= 0) { salaryTotal += e.amount; return; }
-      const goalId = e.linkedGoalId;
-      if (!goalId) { salaryTotal += e.amount; return; }
-      if (goalBalances[goalId] === undefined) {
-        goalBalances[goalId] = totalSavedForCat(goalId);
-      }
-      const avail = goalBalances[goalId];
-      const fromGoal = Math.min(covered, avail, e.amount);
-      const fromSalary = Math.round((e.amount - fromGoal) * 100) / 100;
-      goalBalances[goalId] = Math.round((avail - fromGoal) * 100) / 100;
-      salaryTotal += fromSalary;
-      if (fromGoal > 0.005) {
-        const existing = contributions.find(c => c.goalId === goalId);
-        if (existing) existing.amount = Math.round((existing.amount + fromGoal) * 100) / 100;
-        else {
-          const g = savingsCatById(goalId);
-          contributions.push({ goalId, goalName: g ? (g.icon + ' ' + g.name) : 'Goal', amount: Math.round(fromGoal * 100) / 100 });
-        }
-      }
-    });
-    return {
-      unsettled,
-      contributions,
-      salaryTotal: Math.round(salaryTotal * 100) / 100,
-      grossTotal: Math.round(unsettled.reduce((s,e) => s+e.amount, 0) * 100) / 100,
-      goalTotal: Math.round(contributions.reduce((s,c) => s+c.amount, 0) * 100) / 100,
-    };
-  }
 
   const cycleOwedPerCC = ccAccts.map(a => {
-    const breakdown = getGoalContributions(a.id);
+    const breakdown = getCCGoalContributions(a.id);
     return { acct: a, owed: breakdown.grossTotal, breakdown };
   });
 
@@ -17811,7 +17767,13 @@ function renderAccounts() {
           const _totalRefunds = _allRefunds.reduce((s,r) => s + r.amount, 0);
           const _settledExp = _allCCExp.filter(e => _settledIds.has(e.id));
           const _unsettledExp = _allCCExp.filter(e => !_settledIds.has(e.id));
-          const _unsettledTotal = Math.round((_unsettledExp.reduce((s,e) => s+e.amount,0) - _totalRefunds) * 100) / 100;
+          // Authoritative figure — the SAME calculation the payment modal itself
+          // uses, so this card's button label can never show a different number
+          // than what tapping it actually opens. getCCGoalContributions() now
+          // accounts for this-cycle refunds internally (bounded the same way
+          // this card always bounded them), so no separate subtraction is
+          // needed here anymore.
+          const _unsettledTotal = getCCGoalContributions(a.id).grossTotal;
           const _totalCharges = Math.round(_allCCExp.reduce((s,e) => s+e.amount,0) * 100) / 100;
 
           const _hasPrevUnsettled = _unsettledTotal > 0 && !_isCurrentCycle;

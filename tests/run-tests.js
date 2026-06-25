@@ -1127,8 +1127,8 @@ await check('confirmPayCCFromSalary() settles EXACTLY the expenses the preview c
   assertTrue(src.includes('ccInfo.breakdown') && src.includes('.unsettled'), 'must reuse the same unsettled list the "you currently owe" figure came from — recomputing independently with different date bounds was a real pre-existing consistency bug (and would also defeat defer-awareness)');
 });
 
-await check('getGoalContributions (inside openPayCCFromSalary) filters unsettled charges using effective billing cycle end, not raw date', () => {
-  const src = ctx.openPayCCFromSalary.toString();
+await check('getCCGoalContributions() filters unsettled charges using effective billing cycle end, not raw date', () => {
+  const src = ctx.getCCGoalContributions.toString();
   assertTrue(src.includes('getEffectiveBillingCycleEnd'), 'the owed calculation must use the deferral-aware effective cycle end, not the raw expense date, to decide what counts as billable by a given cycle');
 });
 
@@ -1666,6 +1666,55 @@ await check('reconcileStatement() never suggests deleting an expense that an ear
   assertEqual(r.matched.length, 1, 'the charge must match normally');
   assertEqual(r.creditsWithMatch.length, 0, 'the credit must NOT suggest deleting the expense that Pass 1 already confirmed as a real, separate charge');
   assertEqual(r.creditsUnmatched.length, 1, 'with nothing else in history to explain it, the credit should fall into the unmatched bucket instead — never silently claim an already-matched expense');
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+console.log('\n── CC payment consolidation: button label and modal must always agree ──');
+
+await check('the Pending CC card button and the payment modal now use the SAME function — no separate calculation exists to disagree with it', () => {
+  const fs = require('fs');
+  const html = fs.readFileSync(APP_PATH, 'utf8');
+  const standaloneCount = (html.match(/function getCCGoalContributions\(/g) || []).length;
+  assertEqual(standaloneCount, 1, 'must be exactly one standalone function, not a local copy duplicated inside multiple places');
+  const usageCount = (html.match(/getCCGoalContributions\(/g) || []).length;
+  assertTrue(usageCount >= 3, 'should be called from the modal preview, the pending-CC card, AND its own definition — confirming both real surfaces route through the same calculation');
+});
+
+await check('getCCGoalContributions() correctly nets a same-cycle manual refund off the total owed', () => {
+  ctx.state = buildMockState();
+  ctx.state.accounts.push({ id: 'cc8', name: 'Card', type: 'credit' });
+  const { cycleStart } = ctx.getCycleRange(0);
+  const todayInCycle = ctx.dateToStr(cycleStart);
+  ctx.state.expenses.push({ id: 'e1', date: todayInCycle, amount: 100, categoryId: 'cat1', paymentAccountId: 'cc8' });
+  ctx.state.accountTransactions.push({ id: 'r1', type: 'ccRefund', toAccountId: 'cc8', amount: 30, date: todayInCycle, deleted: false });
+  const result = ctx.getCCGoalContributions('cc8', 0);
+  assertEqual(result.grossTotal, 70, 'a $30 refund against a $100 charge should leave $70 actually owed');
+  assertEqual(result.refundsTotal, 30);
+});
+
+await check('getCCGoalContributions() does NOT let a refund keep reducing totals in a LATER cycle — it has no "consumed" tracking, so it must be bounded to its own cycle only', () => {
+  ctx.state = buildMockState();
+  ctx.state.accounts.push({ id: 'cc9', name: 'Card', type: 'credit' });
+  const { cycleStart: prevStart } = ctx.getCycleRange(-1);
+  const { cycleStart: currStart } = ctx.getCycleRange(0);
+  ctx.state.accountTransactions.push({ id: 'r2', type: 'ccRefund', toAccountId: 'cc9', amount: 50, date: ctx.dateToStr(prevStart), deleted: false });
+  ctx.state.expenses.push({ id: 'e2', date: ctx.dateToStr(currStart), amount: 100, categoryId: 'cat1', paymentAccountId: 'cc9' });
+  const result = ctx.getCCGoalContributions('cc9', 0); // viewing the CURRENT cycle
+  assertEqual(result.grossTotal, 100, "a refund from a PRIOR cycle must not keep reducing the current cycle total forever - it has no concept of being already used, so without this bound it would silently under-collect indefinitely");
+});
+
+await check('getCCGoalContributions() never lets a refund offset a goal contribution, only the salary portion', () => {
+  ctx.state = buildMockState();
+  ctx.state.accounts.push({ id: 'cc10', name: 'Card', type: 'credit' });
+  ctx.state.savingsCategories.push({ id: 'goal1', name: 'Holiday', icon: '🏖️' });
+  ctx.state.savingsDeposits.push({ id: 'dep1', catId: 'goal1', amount: 500, date: '2026-01-01', type: 'deposit' });
+  const { cycleStart } = ctx.getCycleRange(0);
+  const todayInCycle = ctx.dateToStr(cycleStart);
+  ctx.state.expenses.push({ id: 'e3', date: todayInCycle, amount: 100, categoryId: 'cat1', paymentAccountId: 'cc10', goalCoveredAmount: 100, linkedGoalId: 'goal1' });
+  ctx.state.accountTransactions.push({ id: 'r3', type: 'ccRefund', toAccountId: 'cc10', amount: 30, date: todayInCycle, deleted: false });
+  const result = ctx.getCCGoalContributions('cc10', 0);
+  assertEqual(result.goalTotal, 100, 'the goal contribution must be completely unaffected by an unrelated refund');
+  assertEqual(result.salaryTotal, -30, 'the refund must reduce only the salary side, even going negative if the whole expense was goal-covered — never silently absorbed into the goal');
 });
 
 await check('no top-level function is declared more than once anywhere in the file (regression: silent shadowing caused both a data-loss bug and a broken legacy super-contribution modal)', () => {
