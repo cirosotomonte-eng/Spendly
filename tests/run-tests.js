@@ -1717,6 +1717,114 @@ await check('getCCGoalContributions() never lets a refund offset a goal contribu
   assertEqual(result.salaryTotal, -30, 'the refund must reduce only the salary side, even going negative if the whole expense was goal-covered — never silently absorbed into the goal');
 });
 
+// ─────────────────────────────────────────────────────────────────────────
+console.log('\n── Closing balance: authoritative total, gap always lands on salary, never a goal ──');
+
+await check('getCCGoalContributions() uses the closing balance as grossTotal when one is set for THIS exact cycle', () => {
+  ctx.state = buildMockState();
+  ctx.state.accounts.push({ id: 'cc11', name: 'Card', type: 'credit' });
+  const { cycleStart, cycleEnd } = ctx.getCycleRange(0);
+  ctx.state.accounts[ctx.state.accounts.length-1].closingBalance = 500;
+  ctx.state.accounts[ctx.state.accounts.length-1].closingBalanceCycleEnd = ctx.dateToStr(cycleEnd);
+  ctx.state.expenses.push({ id: 'e1', date: ctx.dateToStr(cycleStart), amount: 480, categoryId: 'cat1', paymentAccountId: 'cc11' });
+  const result = ctx.getCCGoalContributions('cc11', 0);
+  assertEqual(result.usingClosingBalance, true);
+  assertEqual(result.grossTotal, 500, 'must pay the bank\'s real closing balance, not Spendly\'s own itemized total');
+  assertEqual(result.itemizedGrossTotal, 480, 'the itemized total should still be tracked separately for comparison');
+  assertEqual(result.gapAmount, 20);
+});
+
+await check('getCCGoalContributions() ignores a closing balance set for a DIFFERENT cycle — never silently reuse a stale figure', () => {
+  ctx.state = buildMockState();
+  ctx.state.accounts.push({ id: 'cc12', name: 'Card', type: 'credit' });
+  const { cycleEnd: prevCycleEnd } = ctx.getCycleRange(-1); // set for LAST cycle
+  ctx.state.accounts[ctx.state.accounts.length-1].closingBalance = 999;
+  ctx.state.accounts[ctx.state.accounts.length-1].closingBalanceCycleEnd = ctx.dateToStr(prevCycleEnd);
+  const { cycleStart } = ctx.getCycleRange(0);
+  ctx.state.expenses.push({ id: 'e2', date: ctx.dateToStr(cycleStart), amount: 50, categoryId: 'cat1', paymentAccountId: 'cc12' });
+  const result = ctx.getCCGoalContributions('cc12', 0); // viewing the CURRENT cycle, not where the balance was set
+  assertEqual(result.usingClosingBalance, false, 'a closing balance entered for a different cycle must never apply to this one');
+  assertEqual(result.grossTotal, 50, 'must fall back to the itemized total when no current-cycle closing balance exists');
+});
+
+await check('getCCGoalContributions() attributes the entire gap to salary, NEVER to a linked goal', () => {
+  ctx.state = buildMockState();
+  ctx.state.accounts.push({ id: 'cc13', name: 'Card', type: 'credit' });
+  ctx.state.savingsCategories.push({ id: 'goal2', name: 'Holiday', icon: '🏖️' });
+  ctx.state.savingsDeposits.push({ id: 'dep2', catId: 'goal2', amount: 1000, date: '2026-01-01', type: 'deposit' });
+  const { cycleStart, cycleEnd } = ctx.getCycleRange(0);
+  ctx.state.accounts[ctx.state.accounts.length-1].closingBalance = 300; // $100 MORE than itemized
+  ctx.state.accounts[ctx.state.accounts.length-1].closingBalanceCycleEnd = ctx.dateToStr(cycleEnd);
+  ctx.state.expenses.push({ id: 'e3', date: ctx.dateToStr(cycleStart), amount: 200, categoryId: 'cat1', paymentAccountId: 'cc13', goalCoveredAmount: 200, linkedGoalId: 'goal2' });
+  const result = ctx.getCCGoalContributions('cc13', 0);
+  assertEqual(result.goalTotal, 200, 'the goal\'s contribution must be completely unaffected by the unexplained gap');
+  assertEqual(result.salaryTotal, 100, 'the entire $100 gap must land on the salary side — itemized salary was $0 (fully goal-covered), gap makes it $100');
+  assertEqual(result.grossTotal, 300, 'salary ($100) + goals ($200) must sum to the authoritative closing balance ($300)');
+});
+
+await check('openEditClosingBalance() and saveClosingBalance() correctly persist a manual entry', () => {
+  ctx.state = buildMockState();
+  ctx.state.currentTab = 'accounts';
+  ctx.state.accounts.push({ id: 'cc14', name: 'Card', type: 'credit' });
+  ctx._sbSession = { access_token: 'fake', user: { id: 'user1' } };
+  ctx._stateHydrated = true;
+  assertNoThrow(() => ctx.openEditClosingBalance('cc14'));
+  ctx.document.getElementById('closingBalanceInput').value = '750.50';
+  ctx.document.getElementById('closingBalanceDueDate').value = '2026-07-15';
+  ctx.document.getElementById('closingBalanceMinPayment').value = '50';
+  ctx.saveClosingBalance('cc14');
+  const acct = ctx.accountById('cc14');
+  assertEqual(acct.closingBalance, 750.5);
+  assertEqual(acct.dueDate, '2026-07-15');
+  assertEqual(acct.minimumPayment, 50);
+  assertTrue(!!acct.closingBalanceCycleEnd, 'must bind the entry to the specific cycle it was entered for');
+});
+
+await check('saveClosingBalance() rejects an invalid amount rather than saving garbage', () => {
+  ctx.state = buildMockState();
+  ctx.state.accounts.push({ id: 'cc15', name: 'Card', type: 'credit' });
+  ctx.document.getElementById('closingBalanceInput').value = 'not a number';
+  ctx.document.getElementById('closingBalanceDueDate').value = '';
+  ctx.document.getElementById('closingBalanceMinPayment').value = '';
+  ctx.saveClosingBalance('cc15');
+  const acct = ctx.accountById('cc15');
+  assertTrue(acct.closingBalance === undefined, 'an invalid entry must be rejected, not saved as NaN or similar');
+});
+
+await check('runStatementReconciliation() saves an AI-extracted closing balance onto the account automatically', () => {
+  ctx.state = buildMockState();
+  ctx.state.currentTab = 'accounts';
+  ctx.state.accounts.push({ id: 'cc16', name: 'Card', type: 'credit' });
+  const { cycleStart } = ctx.getCycleRange(0);
+  const summary = { closingBalance: 1234.56, dueDate: '2026-07-01', minimumPayment: 100 };
+  ctx.runStatementReconciliation('cc16', [{ date: ctx.dateToStr(cycleStart), merchant: 'Test', amount: 50, isCredit: false }], 0, summary);
+  const acct = ctx.accountById('cc16');
+  assertEqual(acct.closingBalance, 1234.56, 'an extracted closing balance should save automatically, same as a manual entry');
+  assertEqual(acct.dueDate, '2026-07-01');
+});
+
+await check('runStatementReconciliation() never invents a closing balance when the AI did not find one', () => {
+  ctx.state = buildMockState();
+  ctx.state.currentTab = 'accounts';
+  ctx.state.accounts.push({ id: 'cc17', name: 'Card', type: 'credit' });
+  const { cycleStart } = ctx.getCycleRange(0);
+  ctx.runStatementReconciliation('cc17', [{ date: ctx.dateToStr(cycleStart), merchant: 'Test', amount: 50, isCredit: false }], 0, null);
+  const acct = ctx.accountById('cc17');
+  assertTrue(acct.closingBalance === undefined, 'with no summary extracted, nothing should be saved — never guess or default to a fabricated value');
+});
+
+await check('openStatementUpload() parses the new {transactions, summary} object shape, with a fallback to a bare array', () => {
+  const src = ctx.openStatementUpload.toString();
+  assertTrue(src.includes('parsed.transactions') && src.includes('parsed.summary'), 'must extract both pieces from the new object response shape');
+  assertTrue(src.includes('Array.isArray(parsed)'), 'must still accept a bare array as a fallback, in case the model ignores the new instructions');
+});
+
+await check('the extraction prompt explicitly asks for closingBalance, dueDate, and minimumPayment, with an explicit instruction never to guess', () => {
+  const src = ctx.openStatementUpload.toString();
+  assertTrue(src.includes('closingBalance') && src.includes('dueDate') && src.includes('minimumPayment'), 'prompt must request all three summary fields');
+  assertTrue(/never guess or invent/i.test(src), 'must explicitly instruct the model to use null rather than fabricate a figure it cannot find');
+});
+
 await check('no top-level function is declared more than once anywhere in the file (regression: silent shadowing caused both a data-loss bug and a broken legacy super-contribution modal)', () => {
   const fs = require('fs');
   const html = fs.readFileSync(APP_PATH, 'utf8');

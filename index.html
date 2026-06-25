@@ -2134,9 +2134,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.14.0';
+const APP_VERSION = '2.15.0';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '25 Jun 2026 9:07 PM AEDT';
+const BUILD_TIME = '25 Jun 2026 9:16 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -16040,19 +16040,24 @@ function openStatementUpload(ccAccountId) {
         }
       });
       content.push({ type: 'text', text:
-        'This is a credit card statement (possibly spanning multiple pages/files). Extract every individual transaction line.\n\n' +
+        'This is a credit card statement (possibly spanning multiple pages/files). Extract every individual transaction line, AND the headline summary figures.\n\n' +
         'For each transaction return:\n' +
         '- date: the "Date of Transaction" column specifically (NOT "Date Processed" — these often differ by several days), in YYYY-MM-DD format\n' +
         '- merchant: the transaction description text, as written\n' +
         '- amount: the numeric amount only (no $ sign, no commas)\n' +
         '- isCredit: true if the amount is marked with "CR" (a credit/refund), false otherwise\n\n' +
-        'Rules:\n' +
+        'Rules for transactions:\n' +
         '- A line with "CR" after the amount is a credit/refund — set isCredit:true and amount as the positive absolute value.\n' +
         '- Skip any line with no amount of its own that is just an explanatory note about the line above it (e.g. an "INCL OVERSEAS TXN FEE" annotation with no balance change) — do not extract these as separate transactions.\n' +
         '- If the same merchant and amount appear more than once, extract EACH occurrence as its own separate line — do NOT deduplicate or merge them, even if they look identical. These are very often genuinely separate charges (e.g. a flight booking split per passenger, or two identical gift card purchases).\n' +
-        '- Ignore interest rate tables, balance summaries, cheque deposit slips, or any non-transaction content.\n\n' +
-        'Return ONLY a valid JSON array, no markdown formatting, no explanation. Format:\n' +
-        '[{"date":"2026-05-19","merchant":"WOOLWORTHS/FALCON ST","amount":208.80,"isCredit":false}]'
+        '- Ignore interest rate tables, cheque deposit slips, or any non-transaction content.\n\n' +
+        'ALSO extract these summary figures, usually found near the top of the statement (a "Payment Summary" or "Account Summary" box):\n' +
+        '- closingBalance: the statement\'s Closing Balance, as a positive number\n' +
+        '- dueDate: the payment Due Date, in YYYY-MM-DD format\n' +
+        '- minimumPayment: the Minimum (Monthly) Payment, as a positive number\n' +
+        'If any of these three are not present/findable on the statement, use null for that field — never guess or invent a value.\n\n' +
+        'Return ONLY a valid JSON object, no markdown formatting, no explanation. Format:\n' +
+        '{"transactions":[{"date":"2026-05-19","merchant":"WOOLWORTHS/FALCON ST","amount":208.80,"isCredit":false}],"summary":{"closingBalance":5626.86,"dueDate":"2026-07-01","minimumPayment":113.00}}'
       });
 
       const response = await callClaudeViaProxy({
@@ -16073,16 +16078,28 @@ function openStatementUpload(ccAccountId) {
       const text = (data.content||[]).find(b=>b.type==='text')?.text || '';
       if (!text) { hideAiLoadingOverlay(); showToast('❌ No response from AI. Try again.', 4000); return; }
 
-      let txns = [];
+      let parsed = null;
       try {
         const clean = text.trim().replace(/^```json?\s*/,'').replace(/\s*```\s*$/,'').trim();
-        txns = JSON.parse(clean);
+        parsed = JSON.parse(clean);
       } catch(err) {
-        const match = text.match(/\[[\s\S]*\]/);
-        if (match) { try { txns = JSON.parse(match[0]); } catch(e2) { txns = []; } }
+        const objMatch = text.match(/\{[\s\S]*\}/);
+        if (objMatch) { try { parsed = JSON.parse(objMatch[0]); } catch(e2) { parsed = null; } }
+        if (!parsed) {
+          // Fall back to array-only shape, in case the model ignored the
+          // requested {transactions, summary} structure.
+          const arrMatch = text.match(/\[[\s\S]*\]/);
+          if (arrMatch) { try { parsed = JSON.parse(arrMatch[0]); } catch(e3) { parsed = null; } }
+        }
       }
 
-      const filtered = Array.isArray(txns) ? txns.filter(t => t.date && typeof t.amount === 'number') : [];
+      // Accept either the requested {transactions, summary} object, or a bare
+      // array (older shape / model didn't follow the new instructions) —
+      // never fail the whole upload just because the summary piece is missing.
+      const txns = Array.isArray(parsed) ? parsed : (parsed && Array.isArray(parsed.transactions) ? parsed.transactions : []);
+      const summary = (parsed && !Array.isArray(parsed) && parsed.summary) ? parsed.summary : null;
+
+      const filtered = txns.filter(t => t.date && typeof t.amount === 'number');
       if (filtered.length === 0) {
         hideAiLoadingOverlay();
         showToast('⚠️ No transactions found. Try a clearer photo or a different page.', 5000);
@@ -16090,7 +16107,7 @@ function openStatementUpload(ccAccountId) {
       }
 
       updateAiLoadingText('Step 3 of 3 — Matching against your logged expenses…');
-      runStatementReconciliation(ccAccountId, filtered);
+      runStatementReconciliation(ccAccountId, filtered, undefined, summary);
       hideAiLoadingOverlay();
     } catch(err) {
       console.error('Statement import error:', err);
@@ -16129,7 +16146,7 @@ function inferCycleOffsetFromStatement(statementTxns) {
 // if cycleOffset isn't explicitly passed, it's inferred from the statement's
 // own transaction dates rather than defaulting to today's cycle.
 // historyExpenses = a wider pool (current + 3 prior cycles) used only for credit/refund matching.
-function runStatementReconciliation(ccAccountId, statementTxns, cycleOffset) {
+function runStatementReconciliation(ccAccountId, statementTxns, cycleOffset, summary) {
   if (cycleOffset === undefined) cycleOffset = inferCycleOffsetFromStatement(statementTxns);
   const { cycleStart, cycleEnd } = getCycleRange(cycleOffset);
   const { cycleStart: historyStart } = getCycleRange(cycleOffset - 3);
@@ -16145,8 +16162,27 @@ function runStatementReconciliation(ccAccountId, statementTxns, cycleOffset) {
     return d >= historyStart && d <= cycleEnd;
   });
 
+  // If the AI extracted a closing balance from this statement, save it onto
+  // the CC account immediately, bound to THIS reconciliation's specific
+  // cycle — same mechanism as entering it manually, so the payment flow
+  // picks it up automatically. Never invent a value: only saved if a real
+  // number was actually extracted.
+  let savedSummary = null;
+  if (summary && typeof summary.closingBalance === 'number' && summary.closingBalance >= 0) {
+    const acct = accountById(ccAccountId);
+    if (acct) {
+      acct.closingBalance = Math.round(summary.closingBalance * 100) / 100;
+      acct.closingBalanceCycleEnd = dateToStr(cycleEnd);
+      acct.dueDate = summary.dueDate || null;
+      acct.minimumPayment = (typeof summary.minimumPayment === 'number' && summary.minimumPayment >= 0)
+        ? Math.round(summary.minimumPayment * 100) / 100 : null;
+      saveState();
+      savedSummary = { closingBalance: acct.closingBalance, dueDate: acct.dueDate, minimumPayment: acct.minimumPayment };
+    }
+  }
+
   const result = reconcileStatement(statementTxns, cycleExp, historyExp, { dateToleranceDays: 3 });
-  showStatementReconciliationResults(ccAccountId, result, { cycleStart, cycleEnd });
+  showStatementReconciliationResults(ccAccountId, result, { cycleStart, cycleEnd, savedSummary });
 }
 
 // Basic summary view for now — full interactive per-item actions (add/defer/
@@ -16475,6 +16511,7 @@ function renderReconciliationReview() {
       '<div>' +
         '<div style="font-size:17px;font-weight:700">Statement reconciliation</div>' +
         (cycleLabel ? '<div style="font-size:12px;color:var(--accent);font-weight:600;margin-top:2px">📅 ' + cycleLabel + '</div>' : '') +
+        (cycleInfo && cycleInfo.savedSummary ? '<div style="font-size:11px;color:#34C759;font-weight:600;margin-top:2px">📋 Closing balance ' + fmt(cycleInfo.savedSummary.closingBalance) + ' saved' + (cycleInfo.savedSummary.dueDate ? ' · due ' + fmtDateAU(cycleInfo.savedSummary.dueDate) : '') + '</div>' : '') +
       '</div>' +
       '<button onclick="minimizeReconciliationReview()" style="background:var(--surface2);border:none;border-radius:50%;width:32px;height:32px;font-size:16px;color:var(--text);cursor:pointer">×</button>' +
     '</div>' +
@@ -16486,6 +16523,58 @@ function renderReconciliationReview() {
 
   const newScrollArea = document.getElementById('reconcileScrollArea');
   if (newScrollArea) newScrollArea.scrollTop = savedScrollTop;
+}
+
+// ── Closing balance: manual entry ─────────────────────────────────────────────
+function openEditClosingBalance(ccAccountId) {
+  const acct = accountById(ccAccountId);
+  if (!acct) return;
+  const existing = document.getElementById('closingBalanceModal');
+  if (existing) existing.remove();
+  const { cycleEnd } = getCycleRange(_salaryCycleOffset || 0);
+  const cycleEndStr = dateToStr(cycleEnd);
+  const isCurrentEntry = acct.closingBalanceCycleEnd === cycleEndStr;
+
+  const overlay = document.createElement('div');
+  overlay.id = 'closingBalanceModal';
+  overlay.className = 'modal-overlay open';
+  overlay.innerHTML = `
+    <div class="modal-sheet" style="max-width:380px">
+      <div style="font-size:16px;font-weight:700;margin-bottom:4px">📋 Statement details</div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:16px">For the cycle ending ${cycleEnd.toLocaleDateString('en-AU',{day:'numeric',month:'short',year:'numeric'})} — used as the authoritative total to pay, instead of Spendly's own itemized estimate</div>
+      <label style="font-size:11px;color:var(--muted)">Closing balance ($)</label>
+      <input type="number" id="closingBalanceInput" value="${isCurrentEntry ? acct.closingBalance : ''}" style="width:100%;padding:10px 12px;border-radius:8px;border:1.5px solid var(--surface2);background:var(--surface);color:var(--text);font-size:14px;font-family:var(--font);box-sizing:border-box;margin-top:3px;margin-bottom:12px">
+      <label style="font-size:11px;color:var(--muted)">Due date</label>
+      <input type="date" id="closingBalanceDueDate" value="${isCurrentEntry ? (acct.dueDate||'') : ''}" onchange="this.blur()" style="width:100%;padding:10px 12px;border-radius:8px;border:1.5px solid var(--surface2);background:var(--surface);color:var(--text);font-size:14px;font-family:var(--font);box-sizing:border-box;margin-top:3px;margin-bottom:12px">
+      <label style="font-size:11px;color:var(--muted)">Minimum payment ($, optional)</label>
+      <input type="number" id="closingBalanceMinPayment" value="${isCurrentEntry ? (acct.minimumPayment||'') : ''}" style="width:100%;padding:10px 12px;border-radius:8px;border:1.5px solid var(--surface2);background:var(--surface);color:var(--text);font-size:14px;font-family:var(--font);box-sizing:border-box;margin-top:3px;margin-bottom:18px">
+      <div style="display:flex;gap:10px">
+        <button onclick="document.getElementById('closingBalanceModal').remove()" style="flex:1;padding:12px;border-radius:10px;border:1.5px solid var(--surface2);background:var(--surface);color:var(--text);font-size:14px;font-weight:600;font-family:var(--font);cursor:pointer">Cancel</button>
+        <button onclick="saveClosingBalance('${ccAccountId}')" style="flex:2;padding:12px;border-radius:10px;border:none;background:var(--accent);color:#fff;font-size:14px;font-weight:700;font-family:var(--font);cursor:pointer">Save</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+}
+
+function saveClosingBalance(ccAccountId) {
+  const acct = accountById(ccAccountId);
+  if (!acct) return;
+  const balanceVal = parseFloat(document.getElementById('closingBalanceInput').value);
+  const dueDateVal = document.getElementById('closingBalanceDueDate').value;
+  const minPaymentVal = parseFloat(document.getElementById('closingBalanceMinPayment').value);
+  if (isNaN(balanceVal) || balanceVal < 0) { showToast('Enter a valid closing balance', 2500); return; }
+
+  const { cycleEnd } = getCycleRange(_salaryCycleOffset || 0);
+  acct.closingBalance = Math.round(balanceVal * 100) / 100;
+  acct.closingBalanceCycleEnd = dateToStr(cycleEnd);
+  acct.dueDate = dueDateVal || null;
+  acct.minimumPayment = isNaN(minPaymentVal) ? null : Math.round(minPaymentVal * 100) / 100;
+
+  saveState();
+  document.getElementById('closingBalanceModal')?.remove();
+  renderAccounts();
+  showToast('✅ Statement details saved', 2000);
 }
 
 function openCCRefund(accountId) {
@@ -17126,12 +17215,37 @@ function getCCGoalContributions(ccAcctId, cycleOffset) {
     }
   });
   const grossBeforeRefunds = Math.round(unsettled.reduce((s,e) => s+e.amount, 0) * 100) / 100;
+  const itemizedGrossTotal = Math.round((grossBeforeRefunds - refundsTotal) * 100) / 100;
+  const itemizedSalaryTotal = Math.round((salaryTotal - refundsTotal) * 100) / 100;
+
+  // ── Closing balance as the authoritative total, when one is set for THIS
+  // specific cycle ────────────────────────────────────────────────────────
+  // The itemized sum is built bottom-up from logged expenses, so it can
+  // drift from what the bank actually says you owe (a missed credit, a
+  // duplicate entry, timing differences). When a closing balance has been
+  // entered (manually or extracted from a statement) for the exact cycle
+  // being viewed, it becomes the REAL number you actually pay — the
+  // itemized breakdown still does the salary-vs-goal split, but any gap
+  // between the two totals always lands on the salary side, never a goal's.
+  const ccAcctForBalance = accountById(ccAcctId);
+  const closingBalanceCurrent = ccAcctForBalance && ccAcctForBalance.closingBalance !== undefined &&
+    ccAcctForBalance.closingBalanceCycleEnd === _pceStr;
+  const gapAmount = closingBalanceCurrent
+    ? Math.round((ccAcctForBalance.closingBalance - itemizedGrossTotal) * 100) / 100
+    : 0;
+
   return {
     unsettled,
     contributions,
     refundsTotal: Math.round(refundsTotal * 100) / 100,
-    salaryTotal: Math.round((salaryTotal - refundsTotal) * 100) / 100,
-    grossTotal: Math.round((grossBeforeRefunds - refundsTotal) * 100) / 100,
+    itemizedGrossTotal,
+    itemizedSalaryTotal,
+    usingClosingBalance: closingBalanceCurrent,
+    closingBalance: closingBalanceCurrent ? ccAcctForBalance.closingBalance : null,
+    dueDate: ccAcctForBalance ? ccAcctForBalance.dueDate : null,
+    gapAmount,
+    salaryTotal: closingBalanceCurrent ? Math.round((itemizedSalaryTotal + gapAmount) * 100) / 100 : itemizedSalaryTotal,
+    grossTotal: closingBalanceCurrent ? ccAcctForBalance.closingBalance : itemizedGrossTotal,
     goalTotal: Math.round(contributions.reduce((s,c) => s+c.amount, 0) * 100) / 100,
   };
 }
@@ -17161,6 +17275,21 @@ function openPayCCFromSalary(salaryAccountId) {
 
   function buildBreakdownHTML(breakdown) {
     let html = '';
+    // Closing balance disclosure — only shown once a statement's closing
+    // balance has been set for THIS specific cycle. Makes clear whether
+    // you're paying the bank's authoritative number or Spendly's own
+    // itemized estimate, and discloses any gap between them rather than
+    // letting it quietly disappear into the payment.
+    if (breakdown.usingClosingBalance) {
+      const gapSmall = Math.abs(breakdown.gapAmount) < 5;
+      html += '<div style="margin-bottom:10px;padding:8px 10px;border-radius:8px;background:' + (gapSmall ? 'rgba(52,199,89,0.08)' : 'rgba(255,149,0,0.1)') + '">' +
+        '<div style="font-size:11px;font-weight:700;color:' + (gapSmall ? '#34C759' : 'var(--orange)') + '">' + (gapSmall ? '✓ Paying statement closing balance' : '⚠️ Closing balance differs from logged total by ' + fmt(Math.abs(breakdown.gapAmount))) + '</div>' +
+        '<div style="font-size:10px;color:var(--muted);margin-top:2px">Closing balance: ' + fmt(breakdown.owed) + ' · Logged in Spendly: ' + fmt(breakdown.itemizedGrossTotal) + '</div>' +
+      '</div>';
+    }
+    if (breakdown.dueDate) {
+      html += '<div style="font-size:11px;color:var(--muted);margin-bottom:10px">📅 Due ' + new Date(breakdown.dueDate+'T00:00:00').toLocaleDateString('en-AU',{day:'numeric',month:'short',year:'numeric'}) + '</div>';
+    }
     // Gross total row
     html += '<div style="display:flex;justify-content:space-between;font-size:13px;padding:5px 0"><span style="color:var(--muted)">💳 Total CC charges</span><span style="font-weight:600">'+fmt(breakdown.grossTotal)+'</span></div>';
     // Goal rows
@@ -17184,6 +17313,10 @@ function openPayCCFromSalary(salaryAccountId) {
     salaryTotal: x.breakdown.salaryTotal,
     goalTotal: x.breakdown.goalTotal,
     contributions: x.breakdown.contributions,
+    usingClosingBalance: x.breakdown.usingClosingBalance,
+    itemizedGrossTotal: x.breakdown.itemizedGrossTotal,
+    gapAmount: x.breakdown.gapAmount,
+    dueDate: x.breakdown.dueDate,
   })));
 
   overlay.innerHTML = `
@@ -18111,9 +18244,23 @@ function renderAccounts() {
 
     // Action buttons — CC gets "Pay bill" instead of Income
     if (acct.type === 'credit') {
+      // Closing balance summary — shown whenever one is set for the cycle
+      // currently being viewed, regardless of how it was entered (manually
+      // or extracted from a statement upload).
+      const _ccCurrentCycleEnd = dateToStr(getCycleRange(_salaryCycleOffset || 0).cycleEnd);
+      if (acct.closingBalance !== undefined && acct.closingBalanceCycleEnd === _ccCurrentCycleEnd) {
+        html += '<div style="background:var(--surface);border-radius:var(--r);padding:12px 14px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center">' +
+          '<div>' +
+            '<div style="font-size:11px;color:var(--muted)">Closing balance</div>' +
+            '<div style="font-size:16px;font-weight:700">' + fmt(acct.closingBalance) + '</div>' +
+          '</div>' +
+          (acct.dueDate ? '<div style="text-align:right"><div style="font-size:11px;color:var(--muted)">Due</div><div style="font-size:13px;font-weight:600">' + new Date(acct.dueDate+'T00:00:00').toLocaleDateString('en-AU',{day:'numeric',month:'short'}) + '</div></div>' : '') +
+        '</div>';
+      }
       html += '<div style="display:flex;gap:8px;margin-bottom:14px">' +
         '<button onclick="openCCRefund(\'' + acct.id + '\')" style="background:rgba(52,199,89,0.1);color:#34C759;border:2px solid rgba(52,199,89,0.2);border-radius:10px;padding:12px 14px;font-size:13px;font-weight:700;font-family:var(--font);cursor:pointer;white-space:nowrap">↩ Refund</button>' +
         '<button onclick="openStatementUpload(\'' + acct.id + '\')" style="flex:1;background:var(--accent-dim);color:var(--accent);border:none;border-radius:10px;padding:12px 14px;font-size:13px;font-weight:700;font-family:var(--font);cursor:pointer">📄 Reconcile statement</button>' +
+        '<button onclick="openEditClosingBalance(\'' + acct.id + '\')" style="background:var(--surface2);color:var(--muted);border:none;border-radius:10px;padding:12px 14px;font-size:13px;font-weight:700;font-family:var(--font);cursor:pointer;white-space:nowrap">✏️ Balance</button>' +
       '</div>';
     } else {
       html += '<div style="display:flex;gap:8px;margin-bottom:14px">' +
