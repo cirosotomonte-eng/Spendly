@@ -1647,9 +1647,11 @@ await check('reconcilePossibleMatchConfirm() and reconcilePossibleMatchReject() 
   assertTrue(ctx.window._reconciliation.resolved['possible-0']);
 });
 
-await check('openStatementUpload() shows honest, discrete stage labels rather than a fake percentage (a single API call has no real sub-progress signal)', () => {
+await check('openStatementUpload() shows honest, descriptive stage messages without numbered steps that caused confusion ("step 2 of 3" with no visible step 3)', () => {
   const src = ctx.openStatementUpload.toString();
-  assertTrue(src.includes('Step 1 of 3') && src.includes('Step 2 of 3') && src.includes('Step 3 of 3'), 'should show real, discrete stages (reading files, AI analysis, matching) since each one genuinely starts/ends at a knowable point — unlike a fabricated percentage for the single AI call, which has no real incremental signal');
+  assertTrue(!/Step \d of \d/.test(src), 'numbered steps were a real reported point of confusion and must not reappear');
+  assertTrue(src.includes('Reading') && src.includes('Analyzing data') && src.includes('Matching against'), 'should still show real, distinct stage messages — just without numbering that implies a countable sequence the user can\'t actually see');
+  assertTrue(/leave this screen|stay on this screen/i.test(src), 'should reassure the user not to navigate away during the long AI step');
 });
 
 await check('reconcileStatement() never suggests deleting an expense that an earlier pass already confirmed as a real charge (the Qantas charge-then-reversed case)', () => {
@@ -1823,6 +1825,64 @@ await check('the extraction prompt explicitly asks for closingBalance, dueDate, 
   const src = ctx.openStatementUpload.toString();
   assertTrue(src.includes('closingBalance') && src.includes('dueDate') && src.includes('minimumPayment'), 'prompt must request all three summary fields');
   assertTrue(/never guess or invent/i.test(src), 'must explicitly instruct the model to use null rather than fabricate a figure it cannot find');
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+console.log('\n── Real bugs found from live testing ──');
+
+await check("renderAccounts() does not throw for a salary account with a linked CC account that has unsettled expenses (the actual reported Salary wont open bug)", () => {
+  ctx.state = buildMockState();
+  ctx.state.currentTab = 'accounts';
+  ctx.state.accounts.push({ id: 'salaryX', name: 'My Salary', type: 'transaction', isSalaryAccount: true, openingBalance: 5000, color: '#4F8EF7', icon: '💼' });
+  ctx.state.accounts.push({ id: 'ccX', name: 'My CC', type: 'credit', color: '#ff5c5c', icon: '💳' });
+  const { cycleStart } = ctx.getCycleRange(0);
+  ctx.state.expenses.push({ id: 'eX', date: ctx.dateToStr(cycleStart), amount: 50, categoryId: 'cat1', paymentAccountId: 'ccX' });
+  ctx._viewingAccountId = 'salaryX';
+  assertNoThrow(() => ctx.renderAccounts(), 'a bare reference to an undefined variable (a.id instead of a real account id) was crashing this entire render — every salary account with ANY linked CC charges would fail to open');
+});
+
+await check('the Pending CC card correctly sums getCCGoalContributions across MULTIPLE credit cards, not a single undefined reference', () => {
+  ctx.state = buildMockState();
+  ctx.state.currentTab = 'accounts';
+  ctx.state.accounts.push({ id: 'salaryY', name: 'My Salary', type: 'transaction', isSalaryAccount: true, openingBalance: 5000, color: '#4F8EF7', icon: '💼' });
+  ctx.state.accounts.push({ id: 'ccY1', name: 'Card 1', type: 'credit', color: '#ff5c5c', icon: '💳' });
+  ctx.state.accounts.push({ id: 'ccY2', name: 'Card 2', type: 'credit', color: '#ff5c5c', icon: '💳' });
+  const { cycleStart } = ctx.getCycleRange(0);
+  const d = ctx.dateToStr(cycleStart);
+  ctx.state.expenses.push({ id: 'eY1', date: d, amount: 50, categoryId: 'cat1', paymentAccountId: 'ccY1' });
+  ctx.state.expenses.push({ id: 'eY2', date: d, amount: 30, categoryId: 'cat1', paymentAccountId: 'ccY2' });
+  ctx._viewingAccountId = 'salaryY';
+  assertNoThrow(() => ctx.renderAccounts());
+  const html = ctx.document.getElementById('content').innerHTML;
+  assertTrue(html.includes('80.00') || html.includes('$80'), 'the combined card must show the SUM across both cards ($50 + $30 = $80), not just one or crash');
+});
+
+await check('openEditClosingBalance() pre-fills directly from account data, with no cycle-matching gate that can never be true', () => {
+  const src = ctx.openEditClosingBalance.toString();
+  assertTrue(src.includes('acct.closingBalance !== undefined') && src.includes('${acct.closingBalance'),
+    'must reference the account\'s closingBalance directly with just an existence check');
+  assertTrue(src.includes('${acct.dueDate') && src.includes('${acct.minimumPayment'),
+    'must reference dueDate and minimumPayment directly from the account, not from some derived/gated value');
+  assertTrue(!src.includes('isCurrentEntry') && !src.includes('closingBalanceCycleEnd ==='),
+    'the previous cycle-matching gate (the actual reported bug — fields were blank) must be completely removed from the pre-fill logic');
+});
+
+await check('saveClosingBalance() (manual entry) binds to the most recently CLOSED cycle, not todays still-open one', () => {
+  ctx.state = buildMockState();
+  ctx.state.accounts.push({ id: 'ccZZ', name: 'Card', type: 'credit' });
+  ctx.document.getElementById('closingBalanceInput').value = '500';
+  ctx.document.getElementById('closingBalanceDueDate').value = '';
+  ctx.document.getElementById('closingBalanceMinPayment').value = '';
+  ctx.saveClosingBalance('ccZZ');
+  const acct = ctx.accountById('ccZZ');
+  const { cycleEnd: expectedClosedCycleEnd } = ctx.getCycleRange(-1);
+  assertEqual(acct.closingBalanceCycleEnd, ctx.dateToStr(expectedClosedCycleEnd), 'a real bank statement only exists for a period that has already ended - binding to todays in-progress cycle would mean it could never actually match anything later');
+});
+
+await check('the closing balance modal is centered, not the default bottom-sheet position, and has a height safety net so its buttons can never be cut off', () => {
+  const src = ctx.openEditClosingBalance.toString();
+  assertTrue(src.includes("alignItems = 'center'"), 'must override the default bottom-anchored modal positioning — reported as cut-off CTAs in the corner');
+  assertTrue(src.includes('max-height:85vh') && src.includes('overflow-y:auto'), 'must cap height and allow scrolling so Save/Cancel are always reachable regardless of viewport or keyboard height');
 });
 
 await check('no top-level function is declared more than once anywhere in the file (regression: silent shadowing caused both a data-loss bug and a broken legacy super-contribution modal)', () => {

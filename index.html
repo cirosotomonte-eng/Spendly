@@ -2134,9 +2134,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.15.0';
+const APP_VERSION = '2.15.1';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '25 Jun 2026 9:16 PM AEDT';
+const BUILD_TIME = '26 Jun 2026 9:22 AM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -14528,7 +14528,7 @@ function openPortfolioImport() {
   input.onchange = async (e) => {
     const files = Array.from(e.target.files).slice(0, 5); // max 5 images
     if (!files.length) return;
-    showAiLoadingOverlay('Step 1 of 2 — Reading ' + files.length + ' screenshot' + (files.length>1?'s':'') + '…');
+    showAiLoadingOverlay('Reading ' + files.length + ' screenshot' + (files.length>1?'s':'') + '… don\'t leave this screen');
 
     const toBase64 = file => new Promise((res, rej) => {
       const r = new FileReader();
@@ -14539,7 +14539,7 @@ function openPortfolioImport() {
 
     try {
       const images = await Promise.all(files.map(toBase64));
-      updateAiLoadingText('Step 2 of 2 — Analyzing with AI…');
+      updateAiLoadingText('Analyzing data — this might take a few seconds, please stay on this screen');
 
       // Build content: images first, then instruction
       const content = [];
@@ -16019,7 +16019,7 @@ function openStatementUpload(ccAccountId) {
       showToast('❌ One of those files is too large (max 20MB each)', 3500);
       return;
     }
-    showAiLoadingOverlay('Step 1 of 3 — Reading ' + files.length + ' file' + (files.length>1?'s':'') + '…');
+    showAiLoadingOverlay('Reading ' + files.length + ' file' + (files.length>1?'s':'') + '… don\'t leave this screen');
 
     const toBase64 = file => new Promise((res, rej) => {
       const r = new FileReader();
@@ -16030,7 +16030,7 @@ function openStatementUpload(ccAccountId) {
 
     try {
       const files64 = await Promise.all(files.map(toBase64));
-      updateAiLoadingText('Step 2 of 3 — Analyzing with AI (10-30s for multiple pages)…');
+      updateAiLoadingText('Analyzing data — this might take a few seconds, please stay on this screen');
       const content = [];
       files64.forEach(f => {
         if (f.isPdf) {
@@ -16106,7 +16106,7 @@ function openStatementUpload(ccAccountId) {
         return;
       }
 
-      updateAiLoadingText('Step 3 of 3 — Matching against your logged expenses…');
+      updateAiLoadingText('Matching against your logged expenses…');
       runStatementReconciliation(ccAccountId, filtered, undefined, summary);
       hideAiLoadingOverlay();
     } catch(err) {
@@ -16526,28 +16526,34 @@ function renderReconciliationReview() {
 }
 
 // ── Closing balance: manual entry ─────────────────────────────────────────────
+// Always shows/edits whatever was most recently saved, regardless of which
+// cycle it was for — a closing balance describes an ALREADY-CLOSED statement
+// period, so gating this on matching "today's still-open cycle" (the
+// previous bug here) meant the fields could never actually show anything,
+// since today's cycle hasn't closed yet by definition. Cycle-matching still
+// correctly applies separately, inside getCCGoalContributions, when deciding
+// whether to actually USE this figure as the authoritative payment total —
+// this modal is purely about reviewing/editing the latest known numbers.
 function openEditClosingBalance(ccAccountId) {
   const acct = accountById(ccAccountId);
   if (!acct) return;
   const existing = document.getElementById('closingBalanceModal');
   if (existing) existing.remove();
-  const { cycleEnd } = getCycleRange(_salaryCycleOffset || 0);
-  const cycleEndStr = dateToStr(cycleEnd);
-  const isCurrentEntry = acct.closingBalanceCycleEnd === cycleEndStr;
 
   const overlay = document.createElement('div');
   overlay.id = 'closingBalanceModal';
   overlay.className = 'modal-overlay open';
+  overlay.style.alignItems = 'center'; // centered, not the default bottom-sheet position
   overlay.innerHTML = `
-    <div class="modal-sheet" style="max-width:380px">
+    <div class="modal-sheet" style="max-width:380px;max-height:85vh;overflow-y:auto;box-sizing:border-box">
       <div style="font-size:16px;font-weight:700;margin-bottom:4px">📋 Statement details</div>
-      <div style="font-size:12px;color:var(--muted);margin-bottom:16px">For the cycle ending ${cycleEnd.toLocaleDateString('en-AU',{day:'numeric',month:'short',year:'numeric'})} — used as the authoritative total to pay, instead of Spendly's own itemized estimate</div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:16px">Used as the authoritative total to pay, instead of Spendly's own itemized estimate, once it matches the cycle you're paying</div>
       <label style="font-size:11px;color:var(--muted)">Closing balance ($)</label>
-      <input type="number" id="closingBalanceInput" value="${isCurrentEntry ? acct.closingBalance : ''}" style="width:100%;padding:10px 12px;border-radius:8px;border:1.5px solid var(--surface2);background:var(--surface);color:var(--text);font-size:14px;font-family:var(--font);box-sizing:border-box;margin-top:3px;margin-bottom:12px">
+      <input type="number" id="closingBalanceInput" value="${acct.closingBalance !== undefined ? acct.closingBalance : ''}" style="width:100%;padding:10px 12px;border-radius:8px;border:1.5px solid var(--surface2);background:var(--surface);color:var(--text);font-size:14px;font-family:var(--font);box-sizing:border-box;margin-top:3px;margin-bottom:12px">
       <label style="font-size:11px;color:var(--muted)">Due date</label>
-      <input type="date" id="closingBalanceDueDate" value="${isCurrentEntry ? (acct.dueDate||'') : ''}" onchange="this.blur()" style="width:100%;padding:10px 12px;border-radius:8px;border:1.5px solid var(--surface2);background:var(--surface);color:var(--text);font-size:14px;font-family:var(--font);box-sizing:border-box;margin-top:3px;margin-bottom:12px">
+      <input type="date" id="closingBalanceDueDate" value="${acct.dueDate||''}" onchange="this.blur()" style="width:100%;padding:10px 12px;border-radius:8px;border:1.5px solid var(--surface2);background:var(--surface);color:var(--text);font-size:14px;font-family:var(--font);box-sizing:border-box;margin-top:3px;margin-bottom:12px">
       <label style="font-size:11px;color:var(--muted)">Minimum payment ($, optional)</label>
-      <input type="number" id="closingBalanceMinPayment" value="${isCurrentEntry ? (acct.minimumPayment||'') : ''}" style="width:100%;padding:10px 12px;border-radius:8px;border:1.5px solid var(--surface2);background:var(--surface);color:var(--text);font-size:14px;font-family:var(--font);box-sizing:border-box;margin-top:3px;margin-bottom:18px">
+      <input type="number" id="closingBalanceMinPayment" value="${acct.minimumPayment !== undefined && acct.minimumPayment !== null ? acct.minimumPayment : ''}" style="width:100%;padding:10px 12px;border-radius:8px;border:1.5px solid var(--surface2);background:var(--surface);color:var(--text);font-size:14px;font-family:var(--font);box-sizing:border-box;margin-top:3px;margin-bottom:18px">
       <div style="display:flex;gap:10px">
         <button onclick="document.getElementById('closingBalanceModal').remove()" style="flex:1;padding:12px;border-radius:10px;border:1.5px solid var(--surface2);background:var(--surface);color:var(--text);font-size:14px;font-weight:600;font-family:var(--font);cursor:pointer">Cancel</button>
         <button onclick="saveClosingBalance('${ccAccountId}')" style="flex:2;padding:12px;border-radius:10px;border:none;background:var(--accent);color:#fff;font-size:14px;font-weight:700;font-family:var(--font);cursor:pointer">Save</button>
@@ -16557,6 +16563,11 @@ function openEditClosingBalance(ccAccountId) {
   overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
 }
 
+// Manually entering a closing balance binds it to the most recently CLOSED
+// cycle relative to today (offset -1) — not today's own, still-open cycle
+// (offset 0). A real bank statement only exists for a period that has
+// already ended, so binding to the in-progress cycle would mean the figure
+// could never actually match anything in getCCGoalContributions later.
 function saveClosingBalance(ccAccountId) {
   const acct = accountById(ccAccountId);
   if (!acct) return;
@@ -16565,7 +16576,7 @@ function saveClosingBalance(ccAccountId) {
   const minPaymentVal = parseFloat(document.getElementById('closingBalanceMinPayment').value);
   if (isNaN(balanceVal) || balanceVal < 0) { showToast('Enter a valid closing balance', 2500); return; }
 
-  const { cycleEnd } = getCycleRange(_salaryCycleOffset || 0);
+  const { cycleEnd } = getCycleRange(-1);
   acct.closingBalance = Math.round(balanceVal * 100) / 100;
   acct.closingBalanceCycleEnd = dateToStr(cycleEnd);
   acct.dueDate = dueDateVal || null;
@@ -17905,8 +17916,12 @@ function renderAccounts() {
           // than what tapping it actually opens. getCCGoalContributions() now
           // accounts for this-cycle refunds internally (bounded the same way
           // this card always bounded them), so no separate subtraction is
-          // needed here anymore.
-          const _unsettledTotal = getCCGoalContributions(a.id).grossTotal;
+          // needed here anymore. This card shows a COMBINED total across every
+          // CC account linked to this salary, so sum the authoritative figure
+          // per card rather than referencing a single one.
+          const _unsettledTotal = Math.round(
+            ccAccts.reduce((sum, ccAcct) => sum + getCCGoalContributions(ccAcct.id).grossTotal, 0) * 100
+          ) / 100;
           const _totalCharges = Math.round(_allCCExp.reduce((s,e) => s+e.amount,0) * 100) / 100;
 
           const _hasPrevUnsettled = _unsettledTotal > 0 && !_isCurrentCycle;
@@ -18244,11 +18259,14 @@ function renderAccounts() {
 
     // Action buttons — CC gets "Pay bill" instead of Income
     if (acct.type === 'credit') {
-      // Closing balance summary — shown whenever one is set for the cycle
-      // currently being viewed, regardless of how it was entered (manually
-      // or extracted from a statement upload).
-      const _ccCurrentCycleEnd = dateToStr(getCycleRange(_salaryCycleOffset || 0).cycleEnd);
-      if (acct.closingBalance !== undefined && acct.closingBalanceCycleEnd === _ccCurrentCycleEnd) {
+      // Closing balance summary — shows whatever was most recently saved,
+      // regardless of how it was entered (manually or extracted from a
+      // statement upload). The CC account page has no cycle-navigation
+      // concept of its own, so there is no meaningful "current cycle" to
+      // gate this against here — that check correctly happens separately,
+      // inside getCCGoalContributions, when deciding whether to actually use
+      // this figure as the authoritative total for a specific payment.
+      if (acct.closingBalance !== undefined) {
         html += '<div style="background:var(--surface);border-radius:var(--r);padding:12px 14px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center">' +
           '<div>' +
             '<div style="font-size:11px;color:var(--muted)">Closing balance</div>' +
