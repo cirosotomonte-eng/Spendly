@@ -2063,6 +2063,87 @@ await check('a resolved (already-added) missing item no longer shows its categor
   assertTrue(!html.includes('missingCatSelect-0'), 'once added, the picker should disappear along with the Add button — nothing left to act on');
 });
 
+// ─────────────────────────────────────────────────────────────────────────
+console.log('\n── Defer vs Delete, and visibility into deferred charges ──');
+
+await check('reconcileDeleteUnbilledExpense() removes the expense entirely, for a charge that never actually happened', () => {
+  ctx.state = buildMockState();
+  ctx.state.expenses.push({ id: 'phantomExp1', date: '2026-06-01', amount: 9.99, categoryId: 'cat1', name: 'Paused subscription' });
+  const expense = ctx.state.expenses.find(e => e.id === 'phantomExp1');
+  const result = { matched: [], missingFromSpendly: [], missingFromStatement: [expense], splitSuggestions: [], creditsWithMatch: [], creditsUnmatched: [] };
+  ctx.showStatementReconciliationResults('cc1', result, null);
+  ctx.reconcileDeleteUnbilledExpense(0);
+  assertTrue(!ctx.state.expenses.some(e => e.id === 'phantomExp1'), 'a phantom charge (e.g. a paused subscription that auto-logged anyway) must be deleted outright, not deferred — deferring would just bring it back next cycle');
+  assertEqual(ctx.window._reconciliation.resolved['defer-0'], 'deleted', 'must record which specific action was taken, not just a generic resolved flag');
+});
+
+await check('reconcileDeferExpense() still records its action distinctly from delete', () => {
+  ctx.state = buildMockState();
+  ctx.state.expenses.push({ id: 'realExp1', date: '2026-06-17', amount: 2000, categoryId: 'cat1' });
+  const expense = ctx.state.expenses.find(e => e.id === 'realExp1');
+  const result = { matched: [], missingFromSpendly: [], missingFromStatement: [expense], splitSuggestions: [], creditsWithMatch: [], creditsUnmatched: [] };
+  ctx.showStatementReconciliationResults('cc1', result, null);
+  ctx.reconcileDeferExpense(0);
+  assertEqual(ctx.window._reconciliation.resolved['defer-0'], 'deferred');
+  assertTrue(ctx.state.expenses.some(e => e.id === 'realExp1'), 'deferring must keep the expense — only its treatment for budget math changes, never delete anything');
+});
+
+await check('the "logged, not yet billed" row offers BOTH Defer and Delete, not just one', () => {
+  ctx.state = buildMockState();
+  ctx.state.expenses.push({ id: 'someExp', date: '2026-06-01', amount: 50, categoryId: 'cat1' });
+  const expense = ctx.state.expenses.find(e => e.id === 'someExp');
+  const result = { matched: [], missingFromSpendly: [], missingFromStatement: [expense], splitSuggestions: [], creditsWithMatch: [], creditsUnmatched: [] };
+  ctx.showStatementReconciliationResults('cc1', result, null);
+  const html = ctx.document.getElementById('reconcileReviewScreen').innerHTML;
+  assertTrue(html.includes('reconcileDeferExpense(0)') && html.includes('reconcileDeleteUnbilledExpense(0)'), 'both options must be available — the same statement-vs-Spendly mismatch could mean either "not billed yet" or "never actually happened"');
+});
+
+await check('cycleExpenses() result is exactly what the deferred-items badge counts — single source of truth', () => {
+  ctx.state = buildMockState();
+  const { cycleStart: prevStart } = ctx.getCycleRange(-1);
+  ctx.state.expenses.push({ id: 'defIn1', date: ctx.dateToStr(prevStart), amount: 2000, categoryId: 'cat1', deferToNextCycle: true });
+  const deferredIn = ctx.cycleExpenses(0).filter(e => e.deferToNextCycle);
+  assertEqual(deferredIn.length, 1);
+  assertEqual(deferredIn[0].id, 'defIn1');
+});
+
+await check('updateHeader() shows the deferred badge with the correct count and total when deferred charges count against the viewed cycle', () => {
+  ctx.state = buildMockState();
+  ctx.state.currentTab = 'expenses';
+  ctx.state.viewingCycleOffset = 0;
+  const { cycleStart: prevStart } = ctx.getCycleRange(-1);
+  ctx.state.expenses.push({ id: 'defIn2', date: ctx.dateToStr(prevStart), amount: 150, categoryId: 'cat1', deferToNextCycle: true });
+  ctx.state.expenses.push({ id: 'defIn3', date: ctx.dateToStr(prevStart), amount: 50, categoryId: 'cat1', deferToNextCycle: true });
+  assertNoThrow(() => ctx.updateHeader());
+  const badge = ctx.document.getElementById('deferredBadge');
+  assertEqual(badge.style.display, 'block', 'badge must be visible when deferred charges count against this cycle');
+  assertTrue(badge.textContent.includes('2 deferred charges') && badge.textContent.includes('200'), 'must show an accurate count and total, not just a generic notice');
+});
+
+await check('updateHeader() hides the deferred badge when nothing is deferred into the viewed cycle', () => {
+  ctx.state = buildMockState();
+  ctx.state.currentTab = 'expenses';
+  ctx.state.viewingCycleOffset = 0;
+  assertNoThrow(() => ctx.updateHeader());
+  const badge = ctx.document.getElementById('deferredBadge');
+  assertEqual(badge.style.display, 'none', 'must stay hidden rather than showing an empty or zero-count notice');
+});
+
+await check('showDeferredItemsModal() runs without throwing for a real deferred expense', () => {
+  ctx.state = buildMockState();
+  const { cycleStart: prevStart } = ctx.getCycleRange(-1);
+  ctx.state.expenses.push({ id: 'defIn4', date: ctx.dateToStr(prevStart), amount: 75, categoryId: 'cat1', name: 'Late dinner', deferToNextCycle: true });
+  assertNoThrow(() => ctx.showDeferredItemsModal());
+});
+
+await check('showDeferredItemsModal() builds rows from each deferred item\'s real name, date, and amount', () => {
+  const src = ctx.showDeferredItemsModal.toString();
+  assertTrue(src.includes('e.name') && src.includes('e.date') && src.includes('e.amount'), 'each row must be built from the actual expense\'s own name, real spend date, and amount — not the cycle it is being counted toward');
+  assertTrue(src.includes('deferToNextCycle'), 'must source its list from actually-deferred expenses, not an arbitrary or hardcoded set');
+});
+
+
+
 await check('no top-level function is declared more than once anywhere in the file (regression: silent shadowing caused both a data-loss bug and a broken legacy super-contribution modal)', () => {
   const fs = require('fs');
   const html = fs.readFileSync(APP_PATH, 'utf8');

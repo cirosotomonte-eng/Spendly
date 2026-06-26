@@ -847,6 +847,7 @@ async function applyUpdate() {
       <div>
         <div class="num-label" style="display:flex;align-items:center;gap:4px">Left to spend<span class="spendly-tip"><i class="spendly-tip-icon" data-tip="tip-leftspend" onclick="event.stopPropagation();showTip(this.dataset.tip)">i</i><div class="spendly-tip-box" id="tip-leftspend" style="left:0;transform:none;width:220px">Your remaining budget after subtracting what you've spent plus all upcoming recurring expenses and savings not yet committed this cycle.</div></span></div>
         <div class="big-num" id="totalRemain">—</div>
+        <div id="deferredBadge" onclick="showDeferredItemsModal()" style="font-size:11px;color:var(--accent);margin-top:2px;cursor:pointer;display:none"></div>
       </div>
       <div style="text-align:right">
         <div class="num-label" id="budgetCycleLabel">Monthly budget</div>
@@ -2134,9 +2135,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.16.1';
+const APP_VERSION = '2.17.0';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '26 Jun 2026 10:07 PM AEDT';
+const BUILD_TIME = '26 Jun 2026 11:03 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -4210,6 +4211,23 @@ function updateHeader() {
   } else {
     remainEl.textContent = '—';
     remainEl.style.color = 'var(--muted)';
+  }
+
+  // Deferred-charge visibility — without this, a cycle's "Left to spend"
+  // could change for a reason that's invisible anywhere on screen. Shows
+  // whenever a statement-reconciliation deferral is currently counting
+  // against THIS specific cycle (in either direction — pushed out of it, or
+  // pulled into it from the previous one).
+  const deferredBadgeEl = document.getElementById('deferredBadge');
+  if (deferredBadgeEl) {
+    const deferredIn = cycleExpenses().filter(e => e.deferToNextCycle);
+    if (deferredIn.length > 0) {
+      const total = Math.round(deferredIn.reduce((s,e) => s + e.amount, 0) * 100) / 100;
+      deferredBadgeEl.textContent = '📅 ' + deferredIn.length + ' deferred charge' + (deferredIn.length!==1?'s':'') + ' (' + fmt(total) + ') — why?';
+      deferredBadgeEl.style.display = 'block';
+    } else {
+      deferredBadgeEl.style.display = 'none';
+    }
   }
 
   const pct = budget > 0 ? Math.min((committed/budget)*100, 100) : 0;
@@ -13540,6 +13558,36 @@ function showRecurringDiagnostic() {
 
 // Large, centered, unmissable loading overlay — for operations that genuinely
 // take a while (AI extraction calls) where a small toast easily gets missed.
+// ── Deferred charges visibility ───────────────────────────────────────────────
+function showDeferredItemsModal() {
+  const existing = document.getElementById('deferredItemsModal');
+  if (existing) existing.remove();
+  const deferredIn = cycleExpenses().filter(e => e.deferToNextCycle);
+  const total = Math.round(deferredIn.reduce((s,e) => s + e.amount, 0) * 100) / 100;
+
+  const overlay = document.createElement('div');
+  overlay.id = 'deferredItemsModal';
+  overlay.className = 'modal-overlay open';
+  overlay.style.alignItems = 'center';
+  let rows = deferredIn.map(e => {
+    const cat = catById(e.categoryId);
+    return '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-top:1px solid var(--surface2)">' +
+      '<div style="min-width:0"><div style="font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + (e.name || (cat?cat.name:'Expense')) + '</div>' +
+      '<div style="font-size:11px;color:var(--muted)">Spent ' + new Date(e.date+'T00:00:00').toLocaleDateString('en-AU',{day:'numeric',month:'short',year:'numeric'}) + '</div></div>' +
+      '<div style="font-size:13px;font-weight:700;flex-shrink:0;margin-left:10px">' + fmt(e.amount) + '</div>' +
+    '</div>';
+  }).join('');
+  overlay.innerHTML =
+    '<div class="modal-sheet" style="max-width:380px;max-height:85vh;overflow-y:auto;box-sizing:border-box">' +
+      '<div style="font-size:16px;font-weight:700;margin-bottom:4px">📅 Deferred charges</div>' +
+      '<div style="font-size:12px;color:var(--muted);margin-bottom:14px">These count toward THIS cycle\'s budget instead of the one they were actually spent in — the bank hadn\'t billed them yet when you reconciled, so they were pushed forward. Total: ' + fmt(total) + '</div>' +
+      '<div style="background:var(--surface2);border-radius:10px;padding:4px 14px;margin-bottom:16px">' + rows + '</div>' +
+      '<button onclick="document.getElementById(\'deferredItemsModal\').remove()" style="width:100%;background:var(--accent);color:#fff;border:none;border-radius:10px;padding:12px;font-size:14px;font-weight:700;font-family:var(--font);cursor:pointer">Got it</button>' +
+    '</div>';
+  document.body.appendChild(overlay);
+  overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+}
+
 function showAiLoadingOverlay(message) {
   hideAiLoadingOverlay();
   const overlay = document.createElement('div');
@@ -16210,10 +16258,10 @@ function toggleReconcileSection(key) {
   renderReconciliationReview();
 }
 
-function reconcileMarkResolved(key) {
+function reconcileMarkResolved(key, actionLabel) {
   const rc = window._reconciliation;
   if (!rc) return;
-  rc.resolved[key] = true;
+  rc.resolved[key] = actionLabel || true;
 }
 
 function reconcileAddExpense(index) {
@@ -16244,9 +16292,25 @@ function reconcileDeferExpense(index) {
   const realExpense = (state.expenses || []).find(e => e.id === expense.id);
   if (realExpense) realExpense.deferToNextCycle = true;
   saveState();
-  reconcileMarkResolved('defer-' + index);
+  reconcileMarkResolved('defer-' + index, 'deferred');
   renderReconciliationReview();
   showToast('📅 Deferred to next cycle', 2000);
+}
+
+// For when a "logged, not yet billed" item turns out to have never actually
+// happened — e.g. a paused subscription that still auto-logged because the
+// month's occurrence wasn't explicitly skipped. Deferring would just bring
+// the same phantom charge back again next cycle; deleting removes it for good.
+function reconcileDeleteUnbilledExpense(index) {
+  const rc = window._reconciliation;
+  if (!rc) return;
+  const expense = rc.result.missingFromStatement[index];
+  if (!expense) return;
+  state.expenses = (state.expenses || []).filter(e => e.id !== expense.id);
+  saveState();
+  reconcileMarkResolved('defer-' + index, 'deleted');
+  renderReconciliationReview();
+  showToast('🗑️ Removed — looks like it never actually happened', 2500);
 }
 
 function reconcileAcknowledgeSplit(index) {
@@ -16411,7 +16475,8 @@ function renderReconciliationReview() {
           '<div style="font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + (item.name || (cat?cat.name:'Expense')) + '</div>' +
           '<div style="font-size:11px;color:var(--muted)">' + fmtDateAU(item.date) + ' · ' + fmt(item.amount) + '</div>' +
         '</div>' +
-        (isResolved ? resolvedBadge('Deferred') : actionButton('📅 Defer', 'reconcileDeferExpense(' + i + ')', 'var(--orange)')) +
+        (isResolved ? resolvedBadge(isResolved === 'deleted' ? 'Removed' : 'Deferred') :
+          '<div style="display:flex;gap:6px">' + actionButton('📅 Defer', 'reconcileDeferExpense(' + i + ')', 'var(--orange)') + actionButton('🗑️ Delete', 'reconcileDeleteUnbilledExpense(' + i + ')', 'var(--red)') + '</div>') +
       '</div>';
     });
     if (result.missingFromStatement.length === 0) html += '<div style="padding:14px 16px;font-size:12px;color:var(--muted)">Nothing pending — every logged charge already appears on the statement.</div>';
