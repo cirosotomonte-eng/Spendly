@@ -2134,9 +2134,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.15.1';
+const APP_VERSION = '2.16.0';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '26 Jun 2026 9:22 AM AEDT';
+const BUILD_TIME = '26 Jun 2026 9:55 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -16313,6 +16313,13 @@ function minimizeReconciliationReview() {
 function finishReconciliationReview() {
   document.getElementById('reconcileReviewScreen')?.remove();
   window._reconciliation = null;
+  // If this reconciliation was one step of the guided "Pay credit cards" flow,
+  // move on to that card's pay step rather than just returning to the plain
+  // account page.
+  if (window._payFlow && window._payFlow.step === 'reconcile') {
+    advancePayFlow();
+    return;
+  }
   renderAccounts();
 }
 
@@ -16821,6 +16828,242 @@ function confirmUpdateSuperBalance(acctId) {
   showToast('✅ Super balance updated to ' + fmt(val), 2500);
 }
 
+// ── Standalone surplus/shortfall panel builder ────────────────────────────────
+// Self-contained re-implementation of the same formulas used inline in
+// renderAccounts()'s salary branch — kept SEPARATE rather than extracted, to
+// avoid any risk of disturbing that already-working render path. Used by the
+// guided \"Pay credit cards\" flow's mandatory final step, where this needs to
+// be shown as standalone step content rather than inline page furniture.
+function buildSurplusShortfallPanelHtml(salaryAccountId, cycleOffset) {
+  const salBal = getAccountBalance(salaryAccountId);
+  const { cycleEnd: sce } = getCycleRange(cycleOffset);
+  const sceStr = dateToStr(sce);
+  const sIds = new Set((state.ccPayments||[]).flatMap(p => p.expenseIds||[]));
+  const ccCycleTotal = Math.round((state.expenses||[]).filter(e => {
+    if (!e.paymentAccountId || sIds.has(e.id)) return false;
+    const a = accountById(e.paymentAccountId);
+    return a && a.type === 'credit' && e.date <= sceStr;
+  }).reduce((s,e) => s + e.amount, 0) * 100) / 100;
+
+  const { cycleStart: scs } = getCycleRange(cycleOffset);
+  const scsStr = dateToStr(scs);
+  const pending = (state.pendingPayments||[])
+    .filter(p => p.salaryAccountId === salaryAccountId && p.status === 'pending' && p.dueDate >= scsStr && p.dueDate <= sceStr);
+
+  const mortgageKW = ['mortgage', 'home savings'];
+  const eligiblePending = pending.filter(p => {
+    const goal = savingsCatById(p.goalId);
+    const rec = (state.recurringSavings||[]).find(r => r.id === p.recurringId);
+    const name = ((goal ? goal.name : '') + ' ' + (rec ? rec.name : '')).toLowerCase();
+    return !mortgageKW.some(k => name.includes(k));
+  });
+  const mortgagePending = pending.filter(p => !eligiblePending.includes(p));
+  const eligibleTotal = Math.round(eligiblePending.reduce((s,p) => s + p.amount, 0) * 100) / 100;
+  const mortgageTotal = Math.round(mortgagePending.reduce((s,p) => s + p.amount, 0) * 100) / 100;
+  const surplus = Math.round((salBal - ccCycleTotal - eligibleTotal - mortgageTotal) * 100) / 100;
+
+  const summaryRows =
+    '<div style="display:flex;flex-direction:column;gap:6px;margin-bottom:12px">' +
+      '<div style="display:flex;justify-content:space-between;font-size:12px"><span style="color:var(--muted)">💰 Salary balance</span><span style="font-weight:600">' + fmt(salBal) + '</span></div>' +
+      '<div style="display:flex;justify-content:space-between;font-size:12px"><span style="color:var(--muted)">💳 CC this cycle</span><span style="font-weight:600;color:var(--red)">-' + fmt(ccCycleTotal) + '</span></div>' +
+      '<div style="display:flex;justify-content:space-between;font-size:12px"><span style="color:var(--muted)">🏠 Mortgage (fixed)</span><span style="font-weight:600">-' + fmt(mortgageTotal) + '</span></div>' +
+      '<div style="display:flex;justify-content:space-between;font-size:12px"><span style="color:var(--muted)">💼 Other savings</span><span style="font-weight:600">-' + fmt(eligibleTotal) + '</span></div>';
+
+  if (surplus > 0.01 && eligiblePending.length > 0) {
+    const additions = eligiblePending.filter(p => p.amount > 0).map(p => {
+      const share = eligibleTotal > 0 ? p.amount / eligibleTotal : 1 / eligiblePending.length;
+      return { p, addition: Math.round(share * surplus * 100) / 100, newAmount: Math.round((p.amount + share * surplus) * 100) / 100 };
+    });
+    const sumAdd = Math.round(additions.reduce((s,a) => s + a.addition, 0) * 100) / 100;
+    const addDiff = Math.round((surplus - sumAdd) * 100) / 100;
+    if (additions.length > 0 && Math.abs(addDiff) > 0) {
+      additions[0].addition = Math.round((additions[0].addition + addDiff) * 100) / 100;
+      additions[0].newAmount = Math.round((additions[0].p.amount + additions[0].addition) * 100) / 100;
+    }
+    const addIds = JSON.stringify(additions.map(a => ({ id: a.p.id, newAmount: a.newAmount })));
+    return summaryRows +
+        '<div style="border-top:1px solid rgba(52,199,89,0.2);margin-top:4px;padding-top:8px;display:flex;justify-content:space-between;font-size:13px">' +
+          '<span style="font-weight:700;color:#34C759">✅ Surplus</span><span style="font-weight:800;color:#34C759">+' + fmt(surplus) + '</span>' +
+        '</div>' +
+      '</div>' +
+      '<div style="background:var(--surface);border-radius:8px;padding:10px 12px;margin-bottom:12px">' +
+        '<div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:8px">Proposed additions</div>' +
+        additions.map(a => {
+          const goal = savingsCatById(a.p.goalId);
+          const name = goal ? goal.icon + ' ' + goal.name : a.p.note || 'Saving';
+          return '<div style="display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-top:1px solid var(--surface2)"><span style="font-size:12px;color:var(--text)">' + name + '</span><span style="font-size:12px"><span style="color:var(--muted)">' + fmt(a.p.amount) + '</span> → <span style="font-weight:700;color:#34C759">' + fmt(a.newAmount) + '</span></span></div>';
+        }).join('') +
+      '</div>' +
+      '<button data-additions="' + addIds.replace(/"/g, '&quot;') + '" onclick="distributeSurplus(this.dataset.additions);advancePayFlow()" style="width:100%;background:#34C759;color:#fff;border:none;border-radius:10px;padding:13px;font-size:14px;font-weight:700;font-family:var(--font);cursor:pointer">Distribute surplus to goals</button>';
+  }
+
+  if (surplus < -0.01 && eligiblePending.length > 0) {
+    const absShortfall = Math.abs(surplus);
+    const reductions = eligiblePending.map(p => {
+      const share = eligibleTotal > 0 ? p.amount / eligibleTotal : 0;
+      const reduction = Math.min(p.amount, Math.round(share * absShortfall * 100) / 100);
+      return { p, reduction, newAmount: Math.max(0, Math.round((p.amount - reduction) * 100) / 100) };
+    });
+    const sumR = Math.round(reductions.reduce((s,r) => s + r.reduction, 0) * 100) / 100;
+    const diff = Math.round((absShortfall - sumR) * 100) / 100;
+    if (reductions.length > 0 && Math.abs(diff) > 0) {
+      reductions[0].reduction = Math.round((reductions[0].reduction + diff) * 100) / 100;
+      reductions[0].newAmount = Math.max(0, Math.round((reductions[0].p.amount - reductions[0].reduction) * 100) / 100);
+    }
+    const reductionIds = JSON.stringify(reductions.map(r => ({ id: r.p.id, newAmount: r.newAmount })));
+    return summaryRows +
+        '<div style="border-top:1px solid rgba(255,92,92,0.2);margin-top:4px;padding-top:8px;display:flex;justify-content:space-between;font-size:13px">' +
+          '<span style="font-weight:700;color:var(--red)">⚠ Shortfall</span><span style="font-weight:800;color:var(--red)">-' + fmt(absShortfall) + '</span>' +
+        '</div>' +
+      '</div>' +
+      '<div style="background:var(--surface);border-radius:8px;padding:10px 12px;margin-bottom:12px">' +
+        '<div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:8px">Proposed reductions</div>' +
+        reductions.filter(r => r.reduction > 0.005).map(r => {
+          const goal = savingsCatById(r.p.goalId);
+          const name = goal ? goal.icon + ' ' + goal.name : r.p.note || 'Saving';
+          return '<div style="display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-top:1px solid var(--surface2)"><span style="font-size:12px;color:var(--text)">' + name + '</span><span style="font-size:12px"><span style="color:var(--muted);text-decoration:line-through">' + fmt(r.p.amount) + '</span> → <span style="font-weight:700;color:var(--text)">' + fmt(r.newAmount) + '</span></span></div>';
+        }).join('') +
+      '</div>' +
+      '<button data-reductions="' + reductionIds.replace(/"/g, '&quot;') + '" onclick="distributeShortfall(this.dataset.reductions);advancePayFlow()" style="width:100%;background:var(--red);color:#fff;border:none;border-radius:10px;padding:13px;font-size:14px;font-weight:700;font-family:var(--font);cursor:pointer">Distribute shortfall across savings</button>';
+  }
+
+  return summaryRows +
+      '<div style="border-top:1px solid var(--surface2);margin-top:4px;padding-top:8px;display:flex;justify-content:space-between;font-size:13px">' +
+        '<span style="font-weight:700;color:var(--text)">Right on budget</span><span style="font-weight:800;color:var(--text)">' + fmt(surplus) + '</span>' +
+      '</div>' +
+    '</div>' +
+    '<button onclick="advancePayFlow()" style="width:100%;background:var(--accent);color:#fff;border:none;border-radius:10px;padding:13px;font-size:14px;font-weight:700;font-family:var(--font);cursor:pointer">Continue</button>';
+}
+
+// ── Guided \"Pay credit cards\" flow ────────────────────────────────────────────
+// Walks through: reconcile each card needing payment -> confirm & pay each
+// card -> one shared, mandatory surplus/shortfall step once every card is
+// settled. Reuses the EXISTING reconciliation screen and Pay CC modal as-is
+// (via hooks that advance this flow once they complete) rather than
+// reimplementing them — lower risk, and any future fix to either flows
+// straight through here too.
+
+// ── Guided "Pay credit cards" flow ────────────────────────────────────────────
+// Walks through: reconcile each card needing payment -> confirm & pay each
+// card -> one shared, mandatory surplus/shortfall step once every card is
+// settled. Reuses the EXISTING reconciliation screen and Pay CC modal as-is
+// (via hooks that advance this flow once they complete) rather than
+// reimplementing them - lower risk, and any future fix to either flow
+// carries straight through here too.
+
+function openPayCreditCardsFlow(salaryAccountId) {
+  const ccQueue = (state.accounts||[])
+    .filter(a => a.type === 'credit')
+    .filter(a => getCCGoalContributions(a.id, _salaryCycleOffset).grossTotal > 0.01)
+    .map(a => a.id);
+  window._payFlow = {
+    salaryAccountId,
+    ccQueue,
+    cardIndex: 0,
+    step: ccQueue.length > 0 ? 'reconcile' : 'distribute',
+  };
+  renderPayCreditCardsFlow();
+}
+
+function advancePayFlow() {
+  const flow = window._payFlow;
+  if (!flow) return;
+  if (flow.step === 'reconcile') {
+    flow.step = 'pay';
+  } else if (flow.step === 'pay') {
+    flow.cardIndex += 1;
+    flow.step = flow.cardIndex < flow.ccQueue.length ? 'reconcile' : 'distribute';
+  } else if (flow.step === 'distribute') {
+    flow.step = 'done';
+  }
+  renderPayCreditCardsFlow();
+}
+
+function skipReconcileStepInPayFlow() {
+  advancePayFlow();
+}
+
+function minimizePayFlow() {
+  document.getElementById('payFlowScreen')?.remove();
+  renderAccounts();
+}
+
+function finishPayFlow() {
+  document.getElementById('payFlowScreen')?.remove();
+  window._payFlow = null;
+  renderAccounts();
+}
+
+function renderPayCreditCardsFlow() {
+  const flow = window._payFlow;
+  if (!flow) return;
+
+  let el = document.getElementById('payFlowScreen');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'payFlowScreen';
+    el.style.cssText = 'position:fixed;inset:0;z-index:9000;background:var(--bg);display:flex;flex-direction:column;overflow-y:auto;padding:20px';
+    document.body.appendChild(el);
+  }
+
+  const totalCards = flow.ccQueue.length;
+  const onCardStep = flow.step === 'reconcile' || flow.step === 'pay';
+  const progressLabel = onCardStep
+    ? 'Card ' + (flow.cardIndex + 1) + ' of ' + totalCards
+    : flow.step === 'distribute' ? 'Distribute surplus' : 'Done';
+
+  function dot(dotState) {
+    const color = dotState === 'done' ? '#34C759' : dotState === 'active' ? 'var(--accent)' : 'var(--surface3)';
+    return '<div style="width:8px;height:8px;border-radius:50%;background:' + color + '"></div>';
+  }
+  let dots = '';
+  flow.ccQueue.forEach((id, i) => {
+    const cardState = i < flow.cardIndex ? 'done' : (i === flow.cardIndex && onCardStep) ? 'active' : 'pending';
+    dots += dot(cardState);
+  });
+  dots += dot(flow.step === 'distribute' ? 'active' : flow.step === 'done' ? 'done' : 'pending');
+
+  let body = '';
+  if (flow.step === 'reconcile') {
+    const acct = accountById(flow.ccQueue[flow.cardIndex]);
+    const owed = getCCGoalContributions(acct.id, _salaryCycleOffset).grossTotal;
+    body =
+      '<div style="font-size:13px;color:var(--accent);font-weight:700;margin-bottom:6px">' + progressLabel + ' — Reconcile</div>' +
+      '<div style="font-size:20px;font-weight:700;margin-bottom:4px">' + (acct.icon||'💳') + ' ' + acct.name + '</div>' +
+      '<div style="font-size:13px;color:var(--muted);margin-bottom:20px">Currently tracked as ' + fmt(owed) + ' owed. Reconciling against the real statement catches anything missed or already refunded before you pay.</div>' +
+      '<button onclick="openStatementUpload(\'' + acct.id + '\')" style="width:100%;background:var(--accent);color:#fff;border:none;border-radius:10px;padding:14px;font-size:14px;font-weight:700;font-family:var(--font);cursor:pointer;margin-bottom:10px">📄 Reconcile statement</button>' +
+      '<button onclick="skipReconcileStepInPayFlow()" style="width:100%;background:none;border:none;color:var(--muted);padding:10px;font-size:13px;font-family:var(--font);cursor:pointer">Skip — already reconciled</button>';
+  } else if (flow.step === 'pay') {
+    const acct = accountById(flow.ccQueue[flow.cardIndex]);
+    const owed = getCCGoalContributions(acct.id, _salaryCycleOffset).grossTotal;
+    body =
+      '<div style="font-size:13px;color:var(--accent);font-weight:700;margin-bottom:6px">' + progressLabel + ' — Pay</div>' +
+      '<div style="font-size:20px;font-weight:700;margin-bottom:4px">' + (acct.icon||'💳') + ' ' + acct.name + '</div>' +
+      '<div style="font-size:32px;font-weight:800;color:var(--red);margin-bottom:20px">' + fmt(owed) + '</div>' +
+      '<button onclick="openPayCCFromSalary(\'' + flow.salaryAccountId + '\',\'' + acct.id + '\')" style="width:100%;background:var(--red);color:#fff;border:none;border-radius:10px;padding:14px;font-size:14px;font-weight:700;font-family:var(--font);cursor:pointer">💳 Review &amp; pay</button>';
+  } else if (flow.step === 'distribute') {
+    body =
+      '<div style="font-size:13px;color:var(--accent);font-weight:700;margin-bottom:6px">' + progressLabel + '</div>' +
+      '<div style="font-size:20px;font-weight:700;margin-bottom:16px">Where should the rest go?</div>' +
+      buildSurplusShortfallPanelHtml(flow.salaryAccountId, _salaryCycleOffset);
+  } else {
+    body =
+      '<div style="text-align:center;padding:40px 0">' +
+        '<div style="font-size:48px;margin-bottom:12px">✅</div>' +
+        '<div style="font-size:18px;font-weight:700;margin-bottom:6px">Cycle complete</div>' +
+        '<div style="font-size:13px;color:var(--muted)">Every card reconciled, paid, and your balance sorted for this cycle.</div>' +
+      '</div>' +
+      '<button onclick="finishPayFlow()" style="width:100%;background:var(--accent);color:#fff;border:none;border-radius:10px;padding:14px;font-size:14px;font-weight:700;font-family:var(--font);cursor:pointer;margin-top:16px">Done</button>';
+  }
+
+  el.innerHTML =
+    '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">' +
+      '<div style="display:flex;gap:5px">' + dots + '</div>' +
+      '<button onclick="minimizePayFlow()" style="background:var(--surface2);border:none;border-radius:50%;width:32px;height:32px;font-size:16px;color:var(--text);cursor:pointer">×</button>' +
+    '</div>' +
+    '<div style="background:var(--surface);border-radius:var(--r);padding:20px;flex:1">' + body + '</div>';
+}
+
 function navigateSalaryCycle(delta) {
   // Don't go into future
   if (_salaryCycleOffset + delta > 0) return;
@@ -17261,8 +17504,11 @@ function getCCGoalContributions(ccAcctId, cycleOffset) {
   };
 }
 
-function openPayCCFromSalary(salaryAccountId) {
-  const ccAccts = (state.accounts||[]).filter(a => a.type === 'credit');
+// scopedCcId (optional): restrict to just one specific card, e.g. when this
+// is one step of the guided "Pay credit cards" flow working through cards
+// one at a time. Omit for the normal, all-cards picker.
+function openPayCCFromSalary(salaryAccountId, scopedCcId) {
+  const ccAccts = (state.accounts||[]).filter(a => a.type === 'credit' && (!scopedCcId || a.id === scopedCcId));
   if (ccAccts.length === 0) { showToast('No credit card accounts found', 2000); return; }
   const salAcct = accountById(salaryAccountId);
   const salBal = getAccountBalance(salaryAccountId);
@@ -17427,8 +17673,15 @@ function confirmPayCCFromSalary(salaryAccountId, ccData) {
   if (salaryAmount > 0) toastParts.push(fmt(salaryAmount) + ' from salary');
   if (goalContribs.length > 0) toastParts.push(fmt(ccInfo.goalTotal) + ' from goals');
   saveState();
-  renderAccounts();
   showToast(toastParts.join(' · '), 3000);
+  // If this payment was one step of the guided "Pay credit cards" flow, move
+  // on to the next card (or the shared distribute step) rather than just
+  // returning to the plain account page.
+  if (window._payFlow && window._payFlow.step === 'pay') {
+    advancePayFlow();
+  } else {
+    renderAccounts();
+  }
 }
 
 // ── Delete / reverse a CC payment transaction ─────────────────────────────
@@ -17847,7 +18100,7 @@ function renderAccounts() {
           '</div>';
 
       if (ccAccts.length > 0) {
-        pendingSavingsHtml += '<button data-aid="' + _viewingAccountId + '" onclick="openPayCCFromSalary(this.dataset.aid)" style="font-size:11px;font-weight:600;color:var(--accent);background:var(--accent-dim);border:none;border-radius:8px;padding:6px 12px;font-family:var(--font);cursor:pointer">💳 Pay CC</button>';
+        pendingSavingsHtml += '<button data-aid="' + _viewingAccountId + '" onclick="openPayCreditCardsFlow(this.dataset.aid)" style="font-size:11px;font-weight:600;color:var(--accent);background:var(--accent-dim);border:none;border-radius:8px;padding:6px 12px;font-family:var(--font);cursor:pointer">💳 Pay credit cards</button>';
       }
       pendingSavingsHtml += '</div>';
 
@@ -17939,7 +18192,7 @@ function renderAccounts() {
             const _unsettledIds = _unsettledExp.map(e => e.id);
             pendingCCHtml +=
               '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding-top:10px;border-top:1px solid var(--surface2)">' +
-                '<button data-aid="' + _viewingAccountId + '" onclick="openPayCCFromSalary(this.dataset.aid)" style="flex:1;background:var(--red);color:#fff;border:none;border-radius:10px;padding:8px 12px;font-size:13px;font-weight:700;font-family:var(--font);cursor:pointer">💳 Pay ' + fmtB(_unsettledTotal) + '</button>' +
+                '<button data-aid="' + _viewingAccountId + '" onclick="openPayCreditCardsFlow(this.dataset.aid)" style="flex:1;background:var(--red);color:#fff;border:none;border-radius:10px;padding:8px 12px;font-size:13px;font-weight:700;font-family:var(--font);cursor:pointer">💳 Pay ' + fmtB(_unsettledTotal) + '</button>' +
                 '<button data-ids="' + _unsettledIds.join(',') + '" onclick="markCCCycleSettled(this.dataset.ids)" style="flex:1;background:var(--surface2);color:var(--muted);border:none;border-radius:10px;padding:8px 12px;font-size:13px;font-weight:600;font-family:var(--font);cursor:pointer">✓ Mark settled</button>' +
               '</div>';
           } else {
@@ -18254,6 +18507,21 @@ function renderAccounts() {
           '<div style="font-size:12px;color:var(--muted);margin-top:1px">' + remaining + ' item' + (remaining!==1?'s':'') + ' left to action</div>' +
         '</div>' +
         '<button onclick="renderReconciliationReview()" style="flex-shrink:0;background:var(--accent);color:#fff;border:none;border-radius:8px;padding:9px 14px;font-size:12px;font-weight:700;font-family:var(--font);cursor:pointer;white-space:nowrap">Continue</button>' +
+      '</div>';
+    }
+
+    // Resumable "Pay credit cards" guided flow — same minimize pattern as the
+    // reconciliation card above, scoped to whichever salary account started it.
+    if (acct.isSalaryAccount && window._payFlow && window._payFlow.salaryAccountId === acct.id) {
+      const flow = window._payFlow;
+      const stepLabel = flow.step === 'distribute' ? 'Distribute surplus' : flow.step === 'done' ? 'Wrapping up' :
+        'Card ' + (flow.cardIndex + 1) + ' of ' + flow.ccQueue.length + ' — ' + (flow.step === 'reconcile' ? 'reconcile' : 'pay');
+      html += '<div style="background:var(--accent-dim);border:1.5px solid var(--accent);border-radius:var(--r);padding:14px;margin-bottom:14px;display:flex;align-items:center;justify-content:space-between;gap:10px">' +
+        '<div style="min-width:0">' +
+          '<div style="font-size:13px;font-weight:700;color:var(--accent)">💳 Paying credit cards — in progress</div>' +
+          '<div style="font-size:12px;color:var(--muted);margin-top:1px">' + stepLabel + '</div>' +
+        '</div>' +
+        '<button onclick="renderPayCreditCardsFlow()" style="flex-shrink:0;background:var(--accent);color:#fff;border:none;border-radius:8px;padding:9px 14px;font-size:12px;font-weight:700;font-family:var(--font);cursor:pointer;white-space:nowrap">Continue</button>' +
       '</div>';
     }
 

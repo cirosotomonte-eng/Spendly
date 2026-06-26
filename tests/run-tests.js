@@ -1885,6 +1885,136 @@ await check('the closing balance modal is centered, not the default bottom-sheet
   assertTrue(src.includes('max-height:85vh') && src.includes('overflow-y:auto'), 'must cap height and allow scrolling so Save/Cancel are always reachable regardless of viewport or keyboard height');
 });
 
+// ─────────────────────────────────────────────────────────────────────────
+console.log('\n── Guided "Pay credit cards" flow ──');
+
+await check('openPayCreditCardsFlow() builds the queue from only cards that actually owe something', () => {
+  ctx.state = buildMockState();
+  ctx.state.accounts.push({ id: 'pfSalary1', name: 'Salary', type: 'transaction', isSalaryAccount: true, openingBalance: 5000 });
+  ctx.state.accounts.push({ id: 'pfCC1', name: 'Owes money', type: 'credit' });
+  ctx.state.accounts.push({ id: 'pfCC2', name: 'Already paid', type: 'credit' });
+  const { cycleStart } = ctx.getCycleRange(0);
+  ctx.state.expenses.push({ id: 'pfE1', date: ctx.dateToStr(cycleStart), amount: 50, categoryId: 'cat1', paymentAccountId: 'pfCC1' });
+  ctx.openPayCreditCardsFlow('pfSalary1');
+  assertEqual(ctx.window._payFlow.ccQueue.length, 1, 'a card with nothing owed must not appear in the queue');
+  assertEqual(ctx.window._payFlow.ccQueue[0], 'pfCC1');
+  assertEqual(ctx.window._payFlow.step, 'reconcile', 'should start on the first card\'s reconcile step');
+});
+
+await check('openPayCreditCardsFlow() skips straight to distribute when nothing is owed on any card', () => {
+  ctx.state = buildMockState();
+  ctx.state.accounts.push({ id: 'pfSalary2', name: 'Salary', type: 'transaction', isSalaryAccount: true, openingBalance: 5000 });
+  ctx.state.accounts.push({ id: 'pfCC3', name: 'Card', type: 'credit' });
+  ctx.openPayCreditCardsFlow('pfSalary2');
+  assertEqual(ctx.window._payFlow.step, 'distribute', 'with an empty queue, the mandatory distribute step should still run rather than the whole flow doing nothing');
+});
+
+await check('advancePayFlow() correctly loops through MULTIPLE cards before reaching the shared distribute step', () => {
+  ctx.state = buildMockState();
+  ctx.state.accounts.push({ id: 'ccA', name: 'Card A', type: 'credit' }, { id: 'ccB', name: 'Card B', type: 'credit' });
+  ctx.window._payFlow = { salaryAccountId: 's1', ccQueue: ['ccA', 'ccB'], cardIndex: 0, step: 'reconcile' };
+  ctx.advancePayFlow();
+  assertEqual(ctx.window._payFlow.step, 'pay', 'card 1: reconcile -> pay');
+  ctx.advancePayFlow();
+  assertEqual(ctx.window._payFlow.cardIndex, 1, 'must move to the second card');
+  assertEqual(ctx.window._payFlow.step, 'reconcile', 'card 2: starts back at reconcile');
+  ctx.advancePayFlow();
+  assertEqual(ctx.window._payFlow.step, 'pay', 'card 2: reconcile -> pay');
+  ctx.advancePayFlow();
+  assertEqual(ctx.window._payFlow.step, 'distribute', 'after the LAST card\'s pay step, must move to the shared distribute step, not loop again');
+  ctx.advancePayFlow();
+  assertEqual(ctx.window._payFlow.step, 'done', 'distribute -> done, the mandatory final step, completes the flow');
+});
+
+await check('finishReconciliationReview() advances the wizard instead of just closing, when run as part of the guided flow', () => {
+  ctx.state = buildMockState();
+  ctx.state.accounts.push({ id: 'ccA', name: 'Card A', type: 'credit' });
+  ctx.window._payFlow = { salaryAccountId: 's1', ccQueue: ['ccA'], cardIndex: 0, step: 'reconcile' };
+  ctx.window._reconciliation = { ccAccountId: 'ccA', result: { matched:[], possibleMatches:[], missingFromSpendly:[], missingFromStatement:[], splitSuggestions:[], creditsWithMatch:[], creditsUnmatched:[] }, resolved: {}, collapsed: {} };
+  ctx.finishReconciliationReview();
+  assertEqual(ctx.window._payFlow.step, 'pay', 'finishing reconciliation mid-flow must advance to this card\'s pay step');
+});
+
+await check('finishReconciliationReview() behaves exactly as before when NOT run as part of the guided flow (backward compatible)', () => {
+  ctx.state = buildMockState();
+  ctx.state.currentTab = 'accounts';
+  ctx.window._payFlow = null;
+  ctx.window._reconciliation = { ccAccountId: 'ccA', result: { matched:[], possibleMatches:[], missingFromSpendly:[], missingFromStatement:[], splitSuggestions:[], creditsWithMatch:[], creditsUnmatched:[] }, resolved: {}, collapsed: {} };
+  assertNoThrow(() => ctx.finishReconciliationReview());
+  assertTrue(!ctx.window._reconciliation, 'should clear reconciliation state exactly as it always did when used standalone, outside any guided flow');
+});
+
+await check('confirmPayCCFromSalary() advances the wizard after a successful payment, when run as part of the guided flow', () => {
+  ctx.state = buildMockState();
+  ctx.state.currentTab = 'accounts';
+  ctx.state.accounts.push({ id: 'pfSalary3', name: 'Salary', type: 'transaction', isSalaryAccount: true, openingBalance: 5000 });
+  ctx.state.accounts.push({ id: 'pfCC4', name: 'Card', type: 'credit' });
+  const { cycleStart } = ctx.getCycleRange(0);
+  const realExpense = { id: 'pfE2', date: ctx.dateToStr(cycleStart), amount: 75, categoryId: 'cat1', paymentAccountId: 'pfCC4' };
+  ctx.state.expenses.push(realExpense);
+  ctx.document.getElementById('ccPaySelect').value = '0';
+  ctx.window._payFlow = { salaryAccountId: 'pfSalary3', ccQueue: ['pfCC4'], cardIndex: 0, step: 'pay' };
+  ctx.confirmPayCCFromSalary('pfSalary3', [{ id: 'pfCC4', owed: 75, salaryTotal: 75, goalTotal: 0, contributions: [], breakdown: { unsettled: [realExpense] } }]);
+  assertEqual(ctx.window._payFlow.step, 'distribute', 'paying the only card in the queue must advance straight to the shared distribute step');
+  const settledIds = new Set((ctx.state.ccPayments||[]).flatMap(p => p.expenseIds||[]));
+  assertTrue(settledIds.has('pfE2'), 'the actual expense must still get correctly marked settled — the wizard hook must not interfere with the real payment logic');
+});
+
+await check('confirmPayCCFromSalary() behaves exactly as before when NOT run as part of the guided flow (backward compatible)', () => {
+  ctx.state = buildMockState();
+  ctx.state.currentTab = 'accounts';
+  ctx.state.accounts.push({ id: 'pfSalary4', name: 'Salary', type: 'transaction', isSalaryAccount: true, openingBalance: 5000 });
+  ctx.state.accounts.push({ id: 'pfCC5', name: 'Card', type: 'credit' });
+  const { cycleStart } = ctx.getCycleRange(0);
+  const realExpense = { id: 'pfE3', date: ctx.dateToStr(cycleStart), amount: 40, categoryId: 'cat1', paymentAccountId: 'pfCC5' };
+  ctx.state.expenses.push(realExpense);
+  ctx.document.getElementById('ccPaySelect').value = '0';
+  ctx.window._payFlow = null;
+  assertNoThrow(() => ctx.confirmPayCCFromSalary('pfSalary4', [{ id: 'pfCC5', owed: 40, salaryTotal: 40, goalTotal: 0, contributions: [], breakdown: { unsettled: [realExpense] } }]));
+  assertTrue(!ctx.window._payFlow, 'using Pay CC directly, outside any guided flow, must not spontaneously create or affect wizard state');
+});
+
+await check('minimizePayFlow() keeps progress; finishPayFlow() is the only thing that clears it', () => {
+  ctx.state = buildMockState();
+  ctx.state.currentTab = 'accounts';
+  ctx.window._payFlow = { salaryAccountId: 's1', ccQueue: ['ccA'], cardIndex: 0, step: 'reconcile' };
+  ctx.minimizePayFlow();
+  assertTrue(!!ctx.window._payFlow, 'minimizing (X) must never discard progress — same principle as the reconciliation screen');
+  ctx.finishPayFlow();
+  assertTrue(!ctx.window._payFlow, 'finishing (Done) is the only action that actually clears the flow');
+});
+
+await check('openPayCCFromSalary() with a scopedCcId filters ccAccts down to just that one card', () => {
+  const src = ctx.openPayCCFromSalary.toString();
+  assertTrue(src.includes('!scopedCcId || a.id === scopedCcId'), 'must filter the account list to the scoped card when one is provided, and behave exactly as before (all cards) when omitted');
+});
+
+await check('renderAccounts() shows the resumable "Paying credit cards" card on the matching salary account, never a different one', () => {
+  ctx.state = buildMockState();
+  ctx.state.currentTab = 'accounts';
+  ctx.state.accounts.push({ id: 'pfSalaryA', name: 'Salary A', type: 'transaction', isSalaryAccount: true, openingBalance: 5000 });
+  ctx.state.accounts.push({ id: 'pfSalaryB', name: 'Salary B', type: 'transaction', isSalaryAccount: true, openingBalance: 3000 });
+  ctx.window._payFlow = { salaryAccountId: 'pfSalaryA', ccQueue: ['ccX'], cardIndex: 0, step: 'reconcile' };
+  ctx._viewingAccountId = 'pfSalaryB';
+  ctx.renderAccounts();
+  let html = ctx.document.getElementById('content').innerHTML;
+  assertTrue(!html.includes('Paying credit cards'), 'viewing a DIFFERENT salary account must not show another account\'s in-progress flow');
+  ctx._viewingAccountId = 'pfSalaryA';
+  ctx.renderAccounts();
+  html = ctx.document.getElementById('content').innerHTML;
+  assertTrue(html.includes('Paying credit cards'), 'viewing the MATCHING salary account must show the resumable card');
+});
+
+await check('renderPayCreditCardsFlow() does not throw for any of the four step types', () => {
+  ctx.state = buildMockState();
+  ctx.state.accounts.push({ id: 'pfSalary6', name: 'Salary', type: 'transaction', isSalaryAccount: true, openingBalance: 5000 });
+  ctx.state.accounts.push({ id: 'pfCC8', name: 'Card', type: 'credit' });
+  ['reconcile', 'pay', 'distribute', 'done'].forEach(step => {
+    ctx.window._payFlow = { salaryAccountId: 'pfSalary6', ccQueue: ['pfCC8'], cardIndex: 0, step };
+    assertNoThrow(() => ctx.renderPayCreditCardsFlow(), 'step "' + step + '" must render without throwing');
+  });
+});
+
 await check('no top-level function is declared more than once anywhere in the file (regression: silent shadowing caused both a data-loss bug and a broken legacy super-contribution modal)', () => {
   const fs = require('fs');
   const html = fs.readFileSync(APP_PATH, 'utf8');
