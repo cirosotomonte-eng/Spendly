@@ -2134,9 +2134,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.16.0';
+const APP_VERSION = '2.16.1';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '26 Jun 2026 9:55 PM AEDT';
+const BUILD_TIME = '26 Jun 2026 10:07 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -16221,16 +16221,19 @@ function reconcileAddExpense(index) {
   if (!rc) return;
   const item = rc.result.missingFromSpendly[index];
   if (!item) return;
+  const select = document.getElementById('missingCatSelect-' + index);
+  const chosenCatId = select ? select.value : null;
   const firstCat = (state.categories || [])[0];
   state.expenses.push({
     id: uid(), date: item.date, amount: item.amount,
-    categoryId: firstCat ? firstCat.id : null,
+    categoryId: chosenCatId || (firstCat ? firstCat.id : null),
     name: item.merchant || '', paymentAccountId: rc.ccAccountId,
   });
   saveState();
   reconcileMarkResolved('missing-' + index);
   renderReconciliationReview();
-  showToast('✅ Added — edit it from Expenses to set the right category', 3000);
+  const catName = chosenCatId ? (catById(chosenCatId)?.name || '') : '';
+  showToast('✅ Added' + (catName ? ' to ' + catName : ''), 2500);
 }
 
 function reconcileDeferExpense(index) {
@@ -16375,12 +16378,20 @@ function renderReconciliationReview() {
     result.missingFromSpendly.forEach((item, i) => {
       const key = 'missing-' + i;
       const isResolved = resolved[key];
-      html += '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 16px;border-top:1px solid var(--surface2)">' +
-        '<div style="min-width:0">' +
-          '<div style="font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + (item.merchant||'Unknown') + '</div>' +
-          '<div style="font-size:11px;color:var(--muted)">' + fmtDateAU(item.date) + ' · ' + fmt(item.amount) + '</div>' +
+      const catOptions = (state.categories||[]).map(c => '<option value="' + c.id + '">' + (c.icon||'') + ' ' + c.name + '</option>').join('');
+      html += '<div style="padding:12px 16px;border-top:1px solid var(--surface2)">' +
+        '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;' + (isResolved ? '' : 'margin-bottom:8px') + '">' +
+          '<div style="min-width:0">' +
+            '<div style="font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + (item.merchant||'Unknown') + '</div>' +
+            '<div style="font-size:11px;color:var(--muted)">' + fmtDateAU(item.date) + ' · ' + fmt(item.amount) + '</div>' +
+          '</div>' +
+          (isResolved ? resolvedBadge('Added') : '') +
         '</div>' +
-        (isResolved ? resolvedBadge('Added') : actionButton('+ Add', 'reconcileAddExpense(' + i + ')')) +
+        (isResolved ? '' :
+          '<div style="display:flex;gap:8px">' +
+            '<select id="missingCatSelect-' + i + '" style="flex:1;min-width:0;padding:8px 10px;border-radius:8px;border:1.5px solid var(--surface2);background:var(--surface2);color:var(--text);font-size:12px;font-family:var(--font)">' + catOptions + '</select>' +
+            actionButton('+ Add', 'reconcileAddExpense(' + i + ')') +
+          '</div>') +
       '</div>';
     });
     if (result.missingFromSpendly.length === 0) html += '<div style="padding:14px 16px;font-size:12px;color:var(--muted)">Nothing missing — every statement charge was already logged.</div>';

@@ -2015,6 +2015,54 @@ await check('renderPayCreditCardsFlow() does not throw for any of the four step 
   });
 });
 
+await check('reconcileAddExpense() uses the category the user actually selected, not always the first one', () => {
+  ctx.state = buildMockState();
+  ctx.state.categories = [
+    { id: 'catFirst', name: 'First Category', icon: '📦' },
+    { id: 'catChosen', name: 'Chosen Category', icon: '🎯' },
+  ];
+  const result = { matched: [], missingFromSpendly: [{ date: '2026-06-01', merchant: 'Test Shop', amount: 30 }], missingFromStatement: [], splitSuggestions: [], creditsWithMatch: [], creditsUnmatched: [] };
+  ctx.showStatementReconciliationResults('cc1', result, null);
+  ctx.document.getElementById('missingCatSelect-0').value = 'catChosen';
+  ctx.reconcileAddExpense(0);
+  const added = ctx.state.expenses[ctx.state.expenses.length - 1];
+  assertEqual(added.categoryId, 'catChosen', 'must use whatever category was actually selected in the dropdown, not silently default to the first category in the list');
+});
+
+await check('reconcileAddExpense() falls back to the first category only when nothing was explicitly selected', () => {
+  ctx.state = buildMockState();
+  ctx.state.categories = [{ id: 'catOnly', name: 'Only Category', icon: '📦' }];
+  const result = { matched: [], missingFromSpendly: [{ date: '2026-06-01', merchant: 'Test Shop', amount: 30 }], missingFromStatement: [], splitSuggestions: [], creditsWithMatch: [], creditsUnmatched: [] };
+  ctx.showStatementReconciliationResults('cc1', result, null);
+  // No selection made — dropdown defaults to empty in this environment
+  ctx.document.getElementById('missingCatSelect-0').value = '';
+  ctx.reconcileAddExpense(0);
+  const added = ctx.state.expenses[ctx.state.expenses.length - 1];
+  assertEqual(added.categoryId, 'catOnly', 'with no explicit selection, falling back to the first category is still a sensible default');
+});
+
+await check('the missing-from-Spendly row renders a category dropdown listing every real category, not a hardcoded list', () => {
+  ctx.state = buildMockState();
+  ctx.state.categories = [
+    { id: 'catA', name: 'Groceries', icon: '🛒' },
+    { id: 'catB', name: 'Transport', icon: '🚗' },
+  ];
+  const result = { matched: [], missingFromSpendly: [{ date: '2026-06-01', merchant: 'Test', amount: 10 }], missingFromStatement: [], splitSuggestions: [], creditsWithMatch: [], creditsUnmatched: [] };
+  ctx.showStatementReconciliationResults('cc1', result, null);
+  const html = ctx.document.getElementById('reconcileReviewScreen').innerHTML;
+  assertTrue(html.includes('Groceries') && html.includes('Transport'), 'the dropdown must list the actual categories from state, not a fixed/hardcoded set');
+  assertTrue(html.includes('missingCatSelect-0'), 'each item needs its own uniquely-identified dropdown');
+});
+
+await check('a resolved (already-added) missing item no longer shows its category dropdown or Add button', () => {
+  ctx.state = buildMockState();
+  const result = { matched: [], missingFromSpendly: [{ date: '2026-06-01', merchant: 'Test', amount: 10 }], missingFromStatement: [], splitSuggestions: [], creditsWithMatch: [], creditsUnmatched: [] };
+  ctx.showStatementReconciliationResults('cc1', result, null);
+  ctx.reconcileAddExpense(0);
+  const html = ctx.document.getElementById('reconcileReviewScreen').innerHTML;
+  assertTrue(!html.includes('missingCatSelect-0'), 'once added, the picker should disappear along with the Add button — nothing left to act on');
+});
+
 await check('no top-level function is declared more than once anywhere in the file (regression: silent shadowing caused both a data-loss bug and a broken legacy super-contribution modal)', () => {
   const fs = require('fs');
   const html = fs.readFileSync(APP_PATH, 'utf8');
