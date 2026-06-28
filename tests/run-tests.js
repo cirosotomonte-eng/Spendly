@@ -2486,6 +2486,66 @@ await check('buildSurplusShortfallPanelHtml() correctly sums across MULTIPLE cre
   assertTrue(html.includes('150.00'), 'must show the combined total across both cards ($100 + $50 = $150), consistent with the Pending CC card on the Salary page');
 });
 
+// ─────────────────────────────────────────────────────────────────────────
+console.log('\n── CRITICAL: closing balance must clear after being paid, or it shows owed forever ──');
+console.log('   (the actual reported "Pay CTA still enabled, still shows $5.6k" bug)');
+
+await check('confirmPayCCFromSalary() clears the closing balance after a payment that used it, so the account does not show the same amount owed forever', () => {
+  ctx.state = buildMockState();
+  ctx.state.accounts = ctx.state.accounts.filter(a => a.type !== 'credit');
+  ctx.state.accounts.push({ id: 'clearSalary1', name: 'Salary', type: 'transaction', isSalaryAccount: true, openingBalance: 11220.95 });
+  ctx.state.accounts.push({ id: 'clearCC1', name: 'ANZ CC', type: 'credit' });
+  const { cycleEnd, cycleStart } = ctx.getCycleRange(0);
+  const acct = ctx.accountById('clearCC1');
+  acct.closingBalance = 5626.86;
+  acct.closingBalanceCycleEnd = ctx.dateToStr(cycleEnd);
+  const d = ctx.dateToStr(cycleStart);
+  ctx.state.expenses.push({ id: 'clearExp1', date: d, amount: 5626.86, categoryId: 'cat1', paymentAccountId: 'clearCC1' });
+
+  const before = ctx.getCCGoalContributions('clearCC1', 0);
+  assertEqual(before.grossTotal, 5626.86, 'sanity check before paying');
+
+  ctx.openPayCCFromSalary('clearSalary1');
+  ctx.document.getElementById('ccPaySelect').value = '0';
+  ctx.confirmPayCCFromSalary('clearSalary1');
+
+  assertTrue(acct.closingBalance === undefined, 'the static closing balance must be cleared once a payment using it is confirmed — it represented a one-time statement snapshot, not an ongoing balance');
+  assertTrue(acct.closingBalanceCycleEnd === undefined);
+  const after = ctx.getCCGoalContributions('clearCC1', 0);
+  assertEqual(after.grossTotal, 0, 'this is the actual reported symptom: without clearing, this would keep returning the SAME 5626.86 forever, looking exactly like the payment had no effect, even though the underlying expense was correctly settled');
+});
+
+await check('confirmPayCCFromSalary() does NOT clear the closing balance when it was not actually used (pure itemized payment)', () => {
+  ctx.state = buildMockState();
+  ctx.state.accounts = ctx.state.accounts.filter(a => a.type !== 'credit');
+  ctx.state.accounts.push({ id: 'clearSalary2', name: 'Salary', type: 'transaction', isSalaryAccount: true, openingBalance: 5000 });
+  ctx.state.accounts.push({ id: 'clearCC2', name: 'Card', type: 'credit' });
+  const { cycleStart } = ctx.getCycleRange(0);
+  ctx.state.expenses.push({ id: 'clearExp2', date: ctx.dateToStr(cycleStart), amount: 50, categoryId: 'cat1', paymentAccountId: 'clearCC2' });
+  const acct = ctx.accountById('clearCC2');
+  // No closing balance set at all for this card
+  ctx.openPayCCFromSalary('clearSalary2');
+  ctx.document.getElementById('ccPaySelect').value = '0';
+  ctx.confirmPayCCFromSalary('clearSalary2');
+  assertTrue(acct.closingBalance === undefined, 'should remain unset (never had one) — confirms this fix only acts when a closing balance was genuinely involved');
+});
+
+await check('a partially-settled card with a closing balance from an OLDER, different cycle is unaffected by clearing a CURRENT cycle\'s payment', () => {
+  ctx.state = buildMockState();
+  ctx.state.accounts = ctx.state.accounts.filter(a => a.type !== 'credit');
+  ctx.state.accounts.push({ id: 'clearSalary3', name: 'Salary', type: 'transaction', isSalaryAccount: true, openingBalance: 5000 });
+  ctx.state.accounts.push({ id: 'clearCC3', name: 'Card', type: 'credit' });
+  const { cycleEnd, cycleStart } = ctx.getCycleRange(0);
+  const acct = ctx.accountById('clearCC3');
+  acct.closingBalance = 100;
+  acct.closingBalanceCycleEnd = ctx.dateToStr(cycleEnd);
+  ctx.state.expenses.push({ id: 'clearExp3', date: ctx.dateToStr(cycleStart), amount: 100, categoryId: 'cat1', paymentAccountId: 'clearCC3' });
+  ctx.openPayCCFromSalary('clearSalary3');
+  ctx.document.getElementById('ccPaySelect').value = '0';
+  ctx.confirmPayCCFromSalary('clearSalary3');
+  assertTrue(acct.closingBalance === undefined, 'after paying it off, the closing balance for this now-settled cycle must be cleared so a fresh one can be set next time without confusion');
+});
+
 await check('no top-level function is declared more than once anywhere in the file (regression: silent shadowing caused both a data-loss bug and a broken legacy super-contribution modal)', () => {
   const fs = require('fs');
   const html = fs.readFileSync(APP_PATH, 'utf8');

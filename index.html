@@ -2135,9 +2135,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.19.3';
+const APP_VERSION = '2.19.4';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '29 Jun 2026 7:38 AM AEDT';
+const BUILD_TIME = '29 Jun 2026 8:45 AM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -17890,6 +17890,21 @@ function confirmPayCCFromSalary(salaryAccountId) {
   const ccAcct = accountById(ccInfo.id);
   if (!ccAcct) return;
   modal?.remove();
+
+  // A closing balance is a STATIC snapshot of what the bank said you owed as
+  // of one specific statement — it never decreases on its own. Once a
+  // payment is actually confirmed using it as the authoritative total, it
+  // must be cleared here; otherwise getCCGoalContributions() would keep
+  // returning that exact same fixed number forever (even though the
+  // underlying expenses are now correctly marked settled), making it look
+  // like the payment had no effect at all. Clearing it means the NEXT check
+  // correctly falls back to itemized tracking, which will show $0 since
+  // everything from this statement is now settled — until a new closing
+  // balance gets set for the next real statement.
+  if (ccInfo.usingClosingBalance) {
+    ccAcct.closingBalance = undefined;
+    ccAcct.closingBalanceCycleEnd = undefined;
+  }
 
   const { cycleStart: _pcs, cycleEnd: _pce } = getCycleRange(_salaryCycleOffset);
   const _pcsStr = dateToStr(_pcs);
