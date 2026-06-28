@@ -2607,6 +2607,44 @@ await check('no top-level function is declared more than once anywhere in the fi
   assertTrue(dupes.length === 0, 'duplicate function declarations found: ' + dupes.map(([n,c]) => `${n} (x${c})`).join(', '));
 });
 
+// ─────────────────────────────────────────────────────────────────────────
+console.log('\n── Credit Card Balance card: amount shown once, not duplicated ──');
+
+await check('when the Pay CTA is shown, the unsettled amount appears only in the button, not also as a separate header figure', () => {
+  ctx.state = buildMockState();
+  ctx.state.accounts = ctx.state.accounts.filter(a => a.type !== 'credit');
+  ctx.state.currentTab = 'accounts';
+  ctx.state.accounts.push({ id: 'noDupSalary2', name: 'Salary', type: 'transaction', isSalaryAccount: true, openingBalance: 5000 });
+  ctx.state.accounts.push({ id: 'noDupCC2', name: 'Card', type: 'credit' });
+  const { cycleStart } = ctx.getCycleRange(0);
+  ctx.state.expenses.push({ id: 'noDupExp2', date: ctx.dateToStr(cycleStart), amount: 250.75, categoryId: 'cat1', paymentAccountId: 'noDupCC2' });
+  ctx._viewingAccountId = 'noDupSalary2';
+  ctx.renderAccounts();
+  const html = ctx.document.getElementById('content').innerHTML;
+  const occurrences = (html.match(/250\.75/g) || []).length;
+  assertEqual(occurrences, 1, 'the amount must appear exactly once — inside the Pay button — not duplicated as a separate header figure above it');
+  assertTrue(html.includes('💳 Pay'), 'the Pay CTA itself must still be present and carry the amount');
+});
+
+await check('when fully settled (no Pay CTA shown), the header figure still shows — there is no duplication risk in that state', () => {
+  ctx.state = buildMockState();
+  ctx.state.accounts = ctx.state.accounts.filter(a => a.type !== 'credit');
+  ctx.state.currentTab = 'accounts';
+  ctx.state.accounts.push({ id: 'settledSalary', name: 'Salary', type: 'transaction', isSalaryAccount: true, openingBalance: 5000 });
+  ctx.state.accounts.push({ id: 'settledCC', name: 'Card', type: 'credit' });
+  const { cycleStart } = ctx.getCycleRange(0);
+  const exp = { id: 'settledExp1', date: ctx.dateToStr(cycleStart), amount: 88.20, categoryId: 'cat1', paymentAccountId: 'settledCC' };
+  ctx.state.expenses.push(exp);
+  ctx.state.ccPayments.push({ id: 'pay1', date: ctx.todayStr(), amount: 88.20, fromAccountId: 'settledSalary', toCCAccountIds: ['settledCC'], expenseIds: ['settledExp1'] });
+  ctx._viewingAccountId = 'settledSalary';
+  ctx.renderAccounts();
+  const html = ctx.document.getElementById('content').innerHTML;
+  assertTrue(html.includes('✓ All settled'), 'should show the settled state, no Pay button');
+  assertTrue(!html.includes('💳 Pay $') && !/💳 Pay \$?\d/.test(html), 'no dollar-amount Pay CTA should appear once fully settled (the unrelated "💳 Pay credit cards" button from Pending Savings payments has no amount, so it is not what this checks)');
+});
+
+
+
 
 
 
