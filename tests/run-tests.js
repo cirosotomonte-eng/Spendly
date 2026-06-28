@@ -2546,6 +2546,56 @@ await check('a partially-settled card with a closing balance from an OLDER, diff
   assertTrue(acct.closingBalance === undefined, 'after paying it off, the closing balance for this now-settled cycle must be cleared so a fresh one can be set next time without confusion');
 });
 
+// ─────────────────────────────────────────────────────────────────────────
+console.log('\n── Salary page section rename and reorder ──');
+
+await check('the Pending CC card is renamed to "Current/Previous Cycle Credit Card Balance"', () => {
+  ctx.state = buildMockState();
+  ctx.state.currentTab = 'accounts';
+  ctx.state.accounts.push({ id: 'renameSalary', name: 'Salary', type: 'transaction', isSalaryAccount: true, openingBalance: 5000 });
+  ctx.state.accounts.push({ id: 'renameCC', name: 'Card', type: 'credit' });
+  const { cycleStart } = ctx.getCycleRange(0);
+  ctx.state.expenses.push({ id: 'renameExp1', date: ctx.dateToStr(cycleStart), amount: 50, categoryId: 'cat1', paymentAccountId: 'renameCC' });
+  ctx._viewingAccountId = 'renameSalary';
+  ctx.renderAccounts();
+  const html = ctx.document.getElementById('content').innerHTML;
+  assertTrue(html.includes('Current Cycle Credit Card Balance'), 'must use the new label for the current cycle case');
+});
+
+await check('the "Pending Savings payments" section now renders AFTER the Credit Card Balance card, directly underneath it as requested', () => {
+  ctx.state = buildMockState();
+  ctx.state.accounts = ctx.state.accounts.filter(a => a.type !== 'credit');
+  ctx.state.currentTab = 'accounts';
+  ctx.state.accounts.push({ id: 'orderSalary', name: 'Salary', type: 'transaction', isSalaryAccount: true, openingBalance: 5000 });
+  ctx.state.accounts.push({ id: 'orderCC', name: 'Card', type: 'credit' });
+  const { cycleStart } = ctx.getCycleRange(0);
+  ctx.state.expenses.push({ id: 'orderExp1', date: ctx.dateToStr(cycleStart), amount: 100, categoryId: 'cat1', paymentAccountId: 'orderCC' });
+  ctx._viewingAccountId = 'orderSalary';
+  ctx.renderAccounts();
+  const html = ctx.document.getElementById('content').innerHTML;
+  const ccIdx = html.indexOf('Current Cycle Credit Card Balance');
+  const savIdx = html.indexOf('Pending Savings payments');
+  assertTrue(ccIdx !== -1 && savIdx !== -1, 'both sections must actually render');
+  assertTrue(ccIdx < savIdx, 'Pending Savings payments must appear AFTER the Credit Card Balance card, not before it as it did previously');
+});
+
+await check('the cycle navigator (‹ Current cycle ›) still renders BEFORE the Credit Card Balance card — only Pending Savings payments moved, not the navigator itself', () => {
+  ctx.state = buildMockState();
+  ctx.state.accounts = ctx.state.accounts.filter(a => a.type !== 'credit');
+  ctx.state.currentTab = 'accounts';
+  ctx.state.accounts.push({ id: 'navOrderSalary', name: 'Salary', type: 'transaction', isSalaryAccount: true, openingBalance: 5000 });
+  ctx.state.accounts.push({ id: 'navOrderCC', name: 'Card', type: 'credit' });
+  const { cycleStart } = ctx.getCycleRange(0);
+  ctx.state.expenses.push({ id: 'navOrderExp1', date: ctx.dateToStr(cycleStart), amount: 100, categoryId: 'cat1', paymentAccountId: 'navOrderCC' });
+  ctx._viewingAccountId = 'navOrderSalary';
+  ctx.renderAccounts();
+  const html = ctx.document.getElementById('content').innerHTML;
+  const navIdx = html.indexOf('navigateSalaryCycle(-1)');
+  const ccIdx = html.indexOf('Current Cycle Credit Card Balance');
+  assertTrue(navIdx !== -1 && ccIdx !== -1);
+  assertTrue(navIdx < ccIdx, 'the cycle navigator itself must remain in its original position, ahead of the Credit Card Balance card');
+});
+
 await check('no top-level function is declared more than once anywhere in the file (regression: silent shadowing caused both a data-loss bug and a broken legacy super-contribution modal)', () => {
   const fs = require('fs');
   const html = fs.readFileSync(APP_PATH, 'utf8');

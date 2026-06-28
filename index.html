@@ -2135,9 +2135,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.19.4';
+const APP_VERSION = '2.20.0';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '29 Jun 2026 8:45 AM AEDT';
+const BUILD_TIME = '29 Jun 2026 9:09 AM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -18309,6 +18309,7 @@ function renderAccounts() {
     // ── Pending savings payments (salary accounts) ──────────────────────────
     // ── Cycle-scoped salary pending + CC + reconciliation ──────────────────
     let pendingSavingsHtml = '';
+    let cycleNavHtml = '';
     let pendingCCHtml = '';
     let reconciliationHtml = '';
 
@@ -18346,7 +18347,7 @@ function renderAccounts() {
         return Object.values(groups).some(g => g.length > 1);
       })();
 
-      pendingSavingsHtml = '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;padding:8px 12px;background:var(--surface);border-radius:10px">' +
+      cycleNavHtml = '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;padding:8px 12px;background:var(--surface);border-radius:10px">' +
         '<button onclick="navigateSalaryCycle(-1)" style="background:none;border:none;cursor:pointer;padding:4px 10px;font-size:18px;color:var(--accent);font-family:var(--font)">‹</button>' +
         '<div style="text-align:center">' +
           '<div style="font-size:12px;font-weight:700;color:var(--text)">' + (_isCurrentCycle ? '📅 Current cycle' : '📋 Previous cycle') + '</div>' +
@@ -18386,7 +18387,7 @@ function renderAccounts() {
       pendingSavingsHtml += '<div style="background:var(--surface);border-radius:var(--r);padding:14px;margin-bottom:14px">' +
         '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">' +
           '<div>' +
-            '<div style="font-size:13px;font-weight:700;color:var(--text)">⏳ Pending payments</div>' +
+            '<div style="font-size:13px;font-weight:700;color:var(--text)">⏳ Pending Savings payments</div>' +
             '<div style="font-size:11px;color:var(--muted);margin-top:2px">' + pending.length + ' item' + (pending.length!==1?'s':'') + ' · ' + fmtB(pendingTotal) + '</div>' +
           '</div>';
 
@@ -18473,7 +18474,7 @@ function renderAccounts() {
           pendingCCHtml = '<div style="background:var(--surface);border-radius:var(--r);padding:14px;margin-bottom:14px;' + (_hasPrevUnsettled ? 'border:1.5px solid rgba(255,92,92,0.3)' : '') + '">' +
             '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">' +
               '<div>' +
-                '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:' + (_hasPrevUnsettled ? 'var(--red)' : 'var(--muted)') + '">' + (_isCurrentCycle ? 'Current cycle' : 'Previous cycle') + '</div>' +
+                '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:' + (_hasPrevUnsettled ? 'var(--red)' : 'var(--muted)') + '">' + (_isCurrentCycle ? 'Current Cycle Credit Card Balance' : 'Previous Cycle Credit Card Balance') + '</div>' +
                 '<div style="font-size:11px;color:var(--muted);margin-top:2px">' + _allCCExp.length + ' charge' + (_allCCExp.length!==1?'s':'') + (_allRefunds.length>0?' · ' + _allRefunds.length + ' refund'+(_allRefunds.length!==1?'s':''):'') + ' · before ' + _sce.toLocaleDateString('en-AU',{day:'numeric',month:'short'}) + '</div>' +
               '</div>' +
               '<div style="font-size:15px;font-weight:800;color:' + (_unsettledTotal > 0 ? 'var(--red)' : '#34C759') + '">-' + fmtB(_unsettledTotal > 0 ? _unsettledTotal : _totalCharges) + '</div>' +
@@ -18874,8 +18875,9 @@ function renderAccounts() {
     }
 
     html += recIncomeHtml;
-    html += pendingSavingsHtml;
+    html += cycleNavHtml;
     html += pendingCCHtml;
+    html += pendingSavingsHtml;
     html += reconciliationHtml;
 
     // CC charges used to be hard-limited to "today's current cycle" only —
