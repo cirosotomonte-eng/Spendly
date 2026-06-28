@@ -2135,9 +2135,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.19.2';
+const APP_VERSION = '2.19.3';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '28 Jun 2026 8:34 PM AEDT';
+const BUILD_TIME = '29 Jun 2026 7:38 AM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -17031,12 +17031,16 @@ function buildSurplusShortfallPanelHtml(salaryAccountId, cycleOffset) {
   const salBal = getAccountBalance(salaryAccountId);
   const { cycleEnd: sce } = getCycleRange(cycleOffset);
   const sceStr = dateToStr(sce);
-  const sIds = new Set((state.ccPayments||[]).flatMap(p => p.expenseIds||[]));
-  const ccCycleTotal = Math.round((state.expenses||[]).filter(e => {
-    if (!e.paymentAccountId || sIds.has(e.id)) return false;
-    const a = accountById(e.paymentAccountId);
-    return a && a.type === 'credit' && e.date <= sceStr;
-  }).reduce((s,e) => s + e.amount, 0) * 100) / 100;
+  // Must use the SAME authoritative calculation as the Pay CC modal itself —
+  // previously this had its own separate, simpler date-range sum that never
+  // respected a closing balance once one was set. That meant the shortfall
+  // shown here could be entirely phantom: real case found was a $884.77
+  // shortfall that was actually a real SURPLUS once the correct (lower)
+  // closing balance replaced the inflated itemized total.
+  const ccCycleTotal = Math.round(
+    (state.accounts||[]).filter(a => a.type === 'credit')
+      .reduce((sum, a) => sum + getCCGoalContributions(a.id, cycleOffset).grossTotal, 0) * 100
+  ) / 100;
 
   const { cycleStart: scs } = getCycleRange(cycleOffset);
   const scsStr = dateToStr(scs);
@@ -17821,7 +17825,14 @@ function openPayCCFromSalary(salaryAccountId, scopedCcId) {
     return html;
   }
 
-  const breakdownDataJson = JSON.stringify(cycleOwedPerCC.map(x=>({
+  // Stored as a real in-memory JS reference rather than embedded into an HTML
+  // attribute as escaped, stringified JSON — that pattern was fragile in a
+  // way that kept causing real, hard-to-reproduce bugs: ANY unusual character
+  // anywhere in a goal name, merchant string, or note (across however many
+  // expenses/contributions are involved) could silently break the onclick
+  // attribute's HTML/JS parsing, with no visible error on a mobile browser.
+  // This removes that entire category of risk outright.
+  window._ccPayModalData = cycleOwedPerCC.map(x=>({
     id: x.acct.id,
     owed: x.owed,
     salaryTotal: x.breakdown.salaryTotal,
@@ -17833,7 +17844,7 @@ function openPayCCFromSalary(salaryAccountId, scopedCcId) {
     goalTotalExceedsClosingBalance: x.breakdown.goalTotalExceedsClosingBalance,
     dueDate: x.breakdown.dueDate,
     unsettledIds: (x.breakdown.unsettled || []).map(e => e.id),
-  })));
+  }));
 
   overlay.innerHTML = `
     <div style="background:var(--bg);border-radius:20px 20px 0 0;padding:24px 20px 36px;width:100%;max-width:480px;box-sizing:border-box;max-height:85vh;overflow-y:auto">
@@ -17860,7 +17871,7 @@ function openPayCCFromSalary(salaryAccountId, scopedCcId) {
       <div style="display:flex;gap:10px">
         <button onclick="document.getElementById('ccPayModal').remove()"
           style="flex:1;padding:13px;border-radius:12px;border:1.5px solid var(--surface2);background:var(--surface);color:var(--text);font-size:14px;font-weight:600;font-family:var(--font);cursor:pointer">Cancel</button>
-        <button ${bd.goalTotalExceedsClosingBalance ? 'disabled' : ''} onclick="${bd.goalTotalExceedsClosingBalance ? '' : "confirmPayCCFromSalary('" + salaryAccountId + "', " + breakdownDataJson.replace(/'/g,"\'") + ")"}"
+        <button ${bd.goalTotalExceedsClosingBalance ? 'disabled' : ''} onclick="confirmPayCCFromSalary('${salaryAccountId}')"
           style="flex:2;padding:13px;border-radius:12px;border:none;background:${bd.goalTotalExceedsClosingBalance ? 'var(--surface3)' : 'var(--accent)'};color:${bd.goalTotalExceedsClosingBalance ? 'var(--muted)' : '#fff'};font-size:14px;font-weight:700;font-family:var(--font);cursor:${bd.goalTotalExceedsClosingBalance ? 'not-allowed' : 'pointer'}">${bd.goalTotalExceedsClosingBalance ? 'Fix goal data first' : 'Confirm & Pay'}</button>
       </div>
     </div>`;
@@ -17869,11 +17880,13 @@ function openPayCCFromSalary(salaryAccountId, scopedCcId) {
   overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
 }
 
-function confirmPayCCFromSalary(salaryAccountId, ccData) {
+function confirmPayCCFromSalary(salaryAccountId) {
+  const ccData = window._ccPayModalData || [];
   const modal = document.getElementById('ccPayModal');
   const selectEl = document.getElementById('ccPaySelect');
   const ccIdx = selectEl ? parseInt(selectEl.value) : 0;
   const ccInfo = ccData[ccIdx];
+  if (!ccInfo) return;
   const ccAcct = accountById(ccInfo.id);
   if (!ccAcct) return;
   modal?.remove();

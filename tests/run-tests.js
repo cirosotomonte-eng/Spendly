@@ -1978,7 +1978,8 @@ await check('confirmPayCCFromSalary() advances the wizard after a successful pay
   ctx.state.expenses.push(realExpense);
   ctx.document.getElementById('ccPaySelect').value = '0';
   ctx.window._payFlow = { salaryAccountId: 'pfSalary3', ccQueue: ['pfCC4'], cardIndex: 0, step: 'pay' };
-  ctx.confirmPayCCFromSalary('pfSalary3', [{ id: 'pfCC4', owed: 75, salaryTotal: 75, goalTotal: 0, contributions: [], unsettledIds: [realExpense.id] }]);
+  ctx.window._ccPayModalData = [{ id: 'pfCC4', owed: 75, salaryTotal: 75, goalTotal: 0, contributions: [], unsettledIds: [realExpense.id] }];
+  ctx.confirmPayCCFromSalary('pfSalary3');
   assertEqual(ctx.window._payFlow.step, 'distribute', 'paying the only card in the queue must advance straight to the shared distribute step');
   const settledIds = new Set((ctx.state.ccPayments||[]).flatMap(p => p.expenseIds||[]));
   assertTrue(settledIds.has('pfE2'), 'the actual expense must still get correctly marked settled — the wizard hook must not interfere with the real payment logic');
@@ -1994,7 +1995,8 @@ await check('confirmPayCCFromSalary() behaves exactly as before when NOT run as 
   ctx.state.expenses.push(realExpense);
   ctx.document.getElementById('ccPaySelect').value = '0';
   ctx.window._payFlow = null;
-  assertNoThrow(() => ctx.confirmPayCCFromSalary('pfSalary4', [{ id: 'pfCC5', owed: 40, salaryTotal: 40, goalTotal: 0, contributions: [], unsettledIds: [realExpense.id] }]));
+  ctx.window._ccPayModalData = [{ id: 'pfCC5', owed: 40, salaryTotal: 40, goalTotal: 0, contributions: [], unsettledIds: [realExpense.id] }];
+  assertNoThrow(() => ctx.confirmPayCCFromSalary('pfSalary4'));
   assertTrue(!ctx.window._payFlow, 'using Pay CC directly, outside any guided flow, must not spontaneously create or affect wizard state');
 });
 
@@ -2347,7 +2349,8 @@ await check('confirmPayCCFromSalary() with the corrected data shape actually mar
   const realExpense = { id: 'critFixExp', date: ctx.dateToStr(cycleStart), amount: 200, categoryId: 'cat1', paymentAccountId: 'critFixCC' };
   ctx.state.expenses.push(realExpense);
   ctx.document.getElementById('ccPaySelect').value = '0';
-  ctx.confirmPayCCFromSalary('critFixSalary', [{ id: 'critFixCC', owed: 200, salaryTotal: 200, goalTotal: 0, contributions: [], unsettledIds: ['critFixExp'] }]);
+  ctx.window._ccPayModalData = [{ id: 'critFixCC', owed: 200, salaryTotal: 200, goalTotal: 0, contributions: [], unsettledIds: ['critFixExp'] }];
+  ctx.confirmPayCCFromSalary('critFixSalary');
   const settledIds = new Set((ctx.state.ccPayments||[]).flatMap(p => p.expenseIds||[]));
   assertTrue(settledIds.has('critFixExp'), 'after confirming payment, the real expense must actually be recorded as settled');
   // Confirm a SECOND call to getCCGoalContributions now shows it as settled (no longer owed)
@@ -2407,9 +2410,80 @@ await check('openPayCCFromSalary() disables Confirm & Pay and shows a distinct w
   assertTrue(src.includes('exceed this bill'), 'must show a clear, specific explanation of what is wrong and why, not a generic error');
 });
 
-await check('breakdownDataJson includes goalTotalExceedsClosingBalance, so confirmPayCCFromSalary could also defensively check it', () => {
+await check('the data passed to confirmPayCCFromSalary includes goalTotalExceedsClosingBalance', () => {
   const src = ctx.openPayCCFromSalary.toString();
   assertTrue(src.includes('goalTotalExceedsClosingBalance: x.breakdown.goalTotalExceedsClosingBalance'), 'the flag must be threaded through to the data actually used at confirm time, not just available in the preview render');
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+console.log('\n── Robustness fix: Pay CC data via a real JS variable, not embedded HTML/JSON ──');
+
+await check('openPayCCFromSalary() no longer embeds JSON directly into the onclick attribute — stores it in window._ccPayModalData instead', () => {
+  const src = ctx.openPayCCFromSalary.toString();
+  assertTrue(src.includes('window._ccPayModalData'), 'must store the payment data as a real in-memory reference');
+  assertTrue(!src.includes('breakdownDataJson'), 'the old stringify-and-escape-into-HTML pattern must be fully gone — any unusual character anywhere in 67+ real expenses/goal names could silently break that pattern in ways clean test data would never surface');
+  assertTrue(!src.includes(".replace(/'/g"), 'no manual quote-escaping into an HTML attribute should remain at all');
+});
+
+await check('confirmPayCCFromSalary() reads from window._ccPayModalData rather than a function parameter', () => {
+  const src = ctx.confirmPayCCFromSalary.toString();
+  assertTrue(src.includes('window._ccPayModalData'), 'must read the real reference set by openPayCCFromSalary');
+});
+
+await check('the full payment flow works correctly through the new window-variable pattern, with goal names containing emoji and spaces (matching real data)', () => {
+  ctx.state = buildMockState();
+  ctx.state.accounts = ctx.state.accounts.filter(a => a.type !== 'credit');
+  ctx.state.currentTab = 'accounts';
+  ctx.state.accounts.push({ id: 'robustSalary', name: 'Salary', type: 'transaction', isSalaryAccount: true, openingBalance: 11220.95 });
+  ctx.state.accounts.push({ id: 'robustCC', name: 'ANZ CC', type: 'credit' });
+  ctx.state.savingsCategories.push({ id: 'robustGoal1', name: 'South America', icon: '✈️' });
+  ctx.state.savingsDeposits.push({ id: 'rd1', catId: 'robustGoal1', amount: 2000, date: '2026-01-01', type: 'deposit' });
+  const { cycleEnd, cycleStart } = ctx.getCycleRange(0);
+  const acct = ctx.accountById('robustCC');
+  acct.closingBalance = 5626.86;
+  acct.closingBalanceCycleEnd = ctx.dateToStr(cycleEnd);
+  const d = ctx.dateToStr(cycleStart);
+  ctx.state.expenses.push({ id: 'rExp1', date: d, amount: 911.50, categoryId: 'cat1', paymentAccountId: 'robustCC', linkedGoalId: 'robustGoal1', goalCoveredAmount: 911.50 });
+  ctx.state.expenses.push({ id: 'rExp2', date: d, amount: 4715.36, categoryId: 'cat1', paymentAccountId: 'robustCC' });
+  assertNoThrow(() => ctx.openPayCCFromSalary('robustSalary'));
+  assertTrue(Array.isArray(ctx.window._ccPayModalData) && ctx.window._ccPayModalData.length === 1, 'should populate the real data array correctly');
+  ctx.document.getElementById('ccPaySelect').value = '0';
+  assertNoThrow(() => ctx.confirmPayCCFromSalary('robustSalary'));
+  const settledIds = new Set((ctx.state.ccPayments||[]).flatMap(p => p.expenseIds||[]));
+  assertTrue(settledIds.has('rExp1') && settledIds.has('rExp2'), 'both expenses must be correctly settled end-to-end through the new pattern');
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+console.log('\n── Surplus/shortfall panel must use the SAME CC total as the Pay CC modal ──');
+
+await check('buildSurplusShortfallPanelHtml() uses the closing-balance-aware CC total, not its own separate itemized-only calculation (a real phantom-shortfall bug)', () => {
+  ctx.state = buildMockState();
+  ctx.state.accounts = ctx.state.accounts.filter(a => a.type !== 'credit');
+  ctx.state.accounts.push({ id: 'panelSalary', name: 'Salary', type: 'transaction', isSalaryAccount: true, openingBalance: 11220.95 });
+  ctx.state.accounts.push({ id: 'panelCC', name: 'ANZ CC', type: 'credit' });
+  const { cycleEnd, cycleStart } = ctx.getCycleRange(0);
+  const acct = ctx.accountById('panelCC');
+  acct.closingBalance = 5626.86;
+  acct.closingBalanceCycleEnd = ctx.dateToStr(cycleEnd);
+  const d = ctx.dateToStr(cycleStart);
+  ctx.state.expenses.push({ id: 'panelExp1', date: d, amount: 8980.72, categoryId: 'cat1', paymentAccountId: 'panelCC' });
+  const html = ctx.buildSurplusShortfallPanelHtml('panelSalary', 0);
+  assertTrue(html.includes('5,626.86'), 'must show the real closing balance ($5,626.86), matching exactly what the Pay CC modal itself shows for the same card and cycle');
+  assertTrue(!html.includes('8,980.72'), 'must NOT show the raw itemized total — that was the actual reported bug: a $884.77 phantom shortfall that was really a $5,594.09 surplus once the correct, lower closing balance was used instead');
+});
+
+await check('buildSurplusShortfallPanelHtml() correctly sums across MULTIPLE credit cards using the same authoritative calculation', () => {
+  ctx.state = buildMockState();
+  ctx.state.accounts = ctx.state.accounts.filter(a => a.type !== 'credit');
+  ctx.state.accounts.push({ id: 'panelSalary2', name: 'Salary', type: 'transaction', isSalaryAccount: true, openingBalance: 5000 });
+  ctx.state.accounts.push({ id: 'panelCCa', name: 'Card A', type: 'credit' });
+  ctx.state.accounts.push({ id: 'panelCCb', name: 'Card B', type: 'credit' });
+  const { cycleStart } = ctx.getCycleRange(0);
+  const d = ctx.dateToStr(cycleStart);
+  ctx.state.expenses.push({ id: 'pExpA', date: d, amount: 100, categoryId: 'cat1', paymentAccountId: 'panelCCa' });
+  ctx.state.expenses.push({ id: 'pExpB', date: d, amount: 50, categoryId: 'cat1', paymentAccountId: 'panelCCb' });
+  const html = ctx.buildSurplusShortfallPanelHtml('panelSalary2', 0);
+  assertTrue(html.includes('150.00'), 'must show the combined total across both cards ($100 + $50 = $150), consistent with the Pending CC card on the Salary page');
 });
 
 await check('no top-level function is declared more than once anywhere in the file (regression: silent shadowing caused both a data-loss bug and a broken legacy super-contribution modal)', () => {
