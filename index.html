@@ -2135,9 +2135,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.19.0';
+const APP_VERSION = '2.19.1';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '28 Jun 2026 6:50 PM AEDT';
+const BUILD_TIME = '28 Jun 2026 8:22 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -17769,7 +17769,7 @@ function openPayCCFromSalary(salaryAccountId, scopedCcId) {
       const gapSmall = Math.abs(breakdown.gapAmount) < 5;
       html += '<div style="margin-bottom:10px;padding:8px 10px;border-radius:8px;background:' + (gapSmall ? 'rgba(52,199,89,0.08)' : 'rgba(255,149,0,0.1)') + '">' +
         '<div style="font-size:11px;font-weight:700;color:' + (gapSmall ? '#34C759' : 'var(--orange)') + '">' + (gapSmall ? '✓ Paying statement closing balance' : '⚠️ Closing balance differs from logged total by ' + fmt(Math.abs(breakdown.gapAmount))) + '</div>' +
-        '<div style="font-size:10px;color:var(--muted);margin-top:2px">Closing balance: ' + fmt(breakdown.owed) + ' · Logged in Spendly: ' + fmt(breakdown.itemizedGrossTotal) + '</div>' +
+        '<div style="font-size:10px;color:var(--muted);margin-top:2px">Closing balance: ' + fmt(breakdown.closingBalance) + ' · Logged in Spendly: ' + fmt(breakdown.itemizedGrossTotal) + '</div>' +
       '</div>';
     }
     if (breakdown.dueDate) {
@@ -17802,6 +17802,7 @@ function openPayCCFromSalary(salaryAccountId, scopedCcId) {
     itemizedGrossTotal: x.breakdown.itemizedGrossTotal,
     gapAmount: x.breakdown.gapAmount,
     dueDate: x.breakdown.dueDate,
+    unsettledIds: (x.breakdown.unsettled || []).map(e => e.id),
   })));
 
   overlay.innerHTML = `
@@ -17865,9 +17866,13 @@ function confirmPayCCFromSalary(salaryAccountId, ccData) {
   // a DIFFERENT (narrower, date-floor-bounded) filter, which could pull money
   // for older unpaid debt while never actually recording those older charges
   // as settled, leaving them perpetually "unsettled" despite being paid for.
-  // Reusing ccInfo.breakdown.unsettled also means this automatically respects
-  // deferToNextCycle correctly, same as the preview.
-  const settledExpIds = (ccInfo.breakdown && ccInfo.breakdown.unsettled || []).map(e => e.id);
+  // CRITICAL FIX: breakdownDataJson never actually included this list at all
+  // (ccInfo.breakdown didn't exist on the serialized object) — meaning
+  // settledExpIds silently evaluated to [] on every single payment. Money
+  // moved from salary correctly, but no expense was EVER actually marked
+  // settled, so the same amount would simply reappear as owed again next
+  // time, looking exactly like the button "didn't work".
+  const settledExpIds = ccInfo.unsettledIds || [];
 
   const paymentId = uid();
   state.ccPayments.push({

@@ -1978,7 +1978,7 @@ await check('confirmPayCCFromSalary() advances the wizard after a successful pay
   ctx.state.expenses.push(realExpense);
   ctx.document.getElementById('ccPaySelect').value = '0';
   ctx.window._payFlow = { salaryAccountId: 'pfSalary3', ccQueue: ['pfCC4'], cardIndex: 0, step: 'pay' };
-  ctx.confirmPayCCFromSalary('pfSalary3', [{ id: 'pfCC4', owed: 75, salaryTotal: 75, goalTotal: 0, contributions: [], breakdown: { unsettled: [realExpense] } }]);
+  ctx.confirmPayCCFromSalary('pfSalary3', [{ id: 'pfCC4', owed: 75, salaryTotal: 75, goalTotal: 0, contributions: [], unsettledIds: [realExpense.id] }]);
   assertEqual(ctx.window._payFlow.step, 'distribute', 'paying the only card in the queue must advance straight to the shared distribute step');
   const settledIds = new Set((ctx.state.ccPayments||[]).flatMap(p => p.expenseIds||[]));
   assertTrue(settledIds.has('pfE2'), 'the actual expense must still get correctly marked settled — the wizard hook must not interfere with the real payment logic');
@@ -1994,7 +1994,7 @@ await check('confirmPayCCFromSalary() behaves exactly as before when NOT run as 
   ctx.state.expenses.push(realExpense);
   ctx.document.getElementById('ccPaySelect').value = '0';
   ctx.window._payFlow = null;
-  assertNoThrow(() => ctx.confirmPayCCFromSalary('pfSalary4', [{ id: 'pfCC5', owed: 40, salaryTotal: 40, goalTotal: 0, contributions: [], breakdown: { unsettled: [realExpense] } }]));
+  assertNoThrow(() => ctx.confirmPayCCFromSalary('pfSalary4', [{ id: 'pfCC5', owed: 40, salaryTotal: 40, goalTotal: 0, contributions: [], unsettledIds: [realExpense.id] }]));
   assertTrue(!ctx.window._payFlow, 'using Pay CC directly, outside any guided flow, must not spontaneously create or affect wizard state');
 });
 
@@ -2322,6 +2322,37 @@ await check('buildSavingsCatTransactionRows() leaves deposits/withdrawals comple
   const cat = ctx.catById('catZ');
   const rows = ctx.buildSavingsCatTransactionRows(cat, ctx.state.expenses);
   assertTrue(rows.includes('Manual top-up'), 'a regular deposit in the current cycle (expanded by default) must still display correctly');
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+console.log('\n── Critical fix: Confirm & Pay must actually settle expenses, not silently no-op ──');
+
+await check('openPayCCFromSalary() embeds unsettledIds in the data passed to Confirm & Pay — this field was missing entirely, the actual root cause of a real reported bug', () => {
+  const src = ctx.openPayCCFromSalary.toString();
+  assertTrue(src.includes('unsettledIds:'), 'the JSON payload passed to confirmPayCCFromSalary must include which expenses to settle — without this field, settledExpIds silently evaluated to an empty array on every payment: money moved from salary correctly, but no charge was ever actually marked paid, so the same amount would reappear as owed again, looking exactly like the button did nothing');
+});
+
+await check('confirmPayCCFromSalary() reads settledExpIds from ccInfo.unsettledIds directly, not a nested breakdown field that was never actually serialized', () => {
+  const src = ctx.confirmPayCCFromSalary.toString();
+  assertTrue(src.includes('ccInfo.unsettledIds'), 'must read the flat field that actually exists in the serialized data');
+  assertTrue(!src.includes('ccInfo.breakdown.unsettled') && !src.includes('ccInfo.breakdown &&'), 'must not actually USE ccInfo.breakdown anywhere in executable code — that property was never included in breakdownDataJson, making any reference to it silently undefined');
+});
+
+await check('confirmPayCCFromSalary() with the corrected data shape actually marks the real expense settled — full round trip', () => {
+  ctx.state = buildMockState();
+  ctx.state.currentTab = 'accounts';
+  ctx.state.accounts.push({ id: 'critFixSalary', name: 'Salary', type: 'transaction', isSalaryAccount: true, openingBalance: 5000 });
+  ctx.state.accounts.push({ id: 'critFixCC', name: 'Card', type: 'credit' });
+  const { cycleStart } = ctx.getCycleRange(0);
+  const realExpense = { id: 'critFixExp', date: ctx.dateToStr(cycleStart), amount: 200, categoryId: 'cat1', paymentAccountId: 'critFixCC' };
+  ctx.state.expenses.push(realExpense);
+  ctx.document.getElementById('ccPaySelect').value = '0';
+  ctx.confirmPayCCFromSalary('critFixSalary', [{ id: 'critFixCC', owed: 200, salaryTotal: 200, goalTotal: 0, contributions: [], unsettledIds: ['critFixExp'] }]);
+  const settledIds = new Set((ctx.state.ccPayments||[]).flatMap(p => p.expenseIds||[]));
+  assertTrue(settledIds.has('critFixExp'), 'after confirming payment, the real expense must actually be recorded as settled');
+  // Confirm a SECOND call to getCCGoalContributions now shows it as settled (no longer owed)
+  const after = ctx.getCCGoalContributions('critFixCC', 0);
+  assertEqual(after.grossTotal, 0, 'once settled, the same charge must NOT reappear as still owed — this is exactly the symptom that made the button look broken');
 });
 
 await check('no top-level function is declared more than once anywhere in the file (regression: silent shadowing caused both a data-loss bug and a broken legacy super-contribution modal)', () => {
