@@ -2259,6 +2259,71 @@ await check('runStatementReconciliation() does not affect credits from a DIFFERE
   assertEqual(captured.creditsUnmatched.length, 1, 'a resolution logged against one card must never suppress a credit on a completely different card');
 });
 
+// ─────────────────────────────────────────────────────────────────────────
+console.log('\n── Goal transaction history: full cycle-grouped history, not current-cycle-only ──');
+
+await check('buildSavingsCatTransactionRows() groups a past-cycle goal-covered expense into its own collapsed cycle, not silently dropped', () => {
+  ctx.state = buildMockState();
+  ctx.state.savingsCategories.push({ id: 'travelGoal1', name: 'Travel', icon: '🏖️' });
+  ctx.state.categories.push({ id: 'travelCat1', name: 'Travel', icon: '✈️', linkedSavingsGoalId: 'travelGoal1' });
+  const { cycleStart: oldStart } = ctx.getCycleRange(-3);
+  const oldDate = ctx.dateToStr(oldStart);
+  ctx.state.expenses.push({ id: 'qantasA', date: oldDate, amount: 69.97, categoryId: 'travelCat1', name: 'Qantas flight', linkedGoalId: 'travelGoal1', goalCoveredAmount: 69.97 });
+  const cat = ctx.catById('travelCat1');
+  const rows = ctx.buildSavingsCatTransactionRows(cat, ctx.state.expenses);
+  assertTrue(!rows.includes('Qantas flight'), 'a past cycle is collapsed by default — the real bug being fixed was this expense being completely invisible/unreachable, not that it should be open by default');
+  assertTrue(rows.includes('toggleGoalHistoryCycle'), 'the cycle group itself must still exist with a way to expand it, unlike the old current-cycle-only behavior where past cycles had no representation at all');
+});
+
+await check('toggleGoalHistoryCycle expanding the right cycle reveals a 3-cycles-old goal-covered expense (the actual reported gap: "I can only see 4 transactions")', () => {
+  ctx.state = buildMockState();
+  ctx.state.savingsCategories.push({ id: 'travelGoal2', name: 'Travel', icon: '🏖️' });
+  ctx.state.categories.push({ id: 'travelCat2', name: 'Travel', icon: '✈️', linkedSavingsGoalId: 'travelGoal2' });
+  const { cycleStart: oldStart } = ctx.getCycleRange(-3);
+  const oldDate = ctx.dateToStr(oldStart);
+  ctx.state.expenses.push({ id: 'qantasB', date: oldDate, amount: 69.97, categoryId: 'travelCat2', name: 'Old Qantas charge', linkedGoalId: 'travelGoal2', goalCoveredAmount: 69.97 });
+  const key = 'travelCat2|' + ctx.dateToStr(oldStart);
+  ctx.window._expandedGoalHistoryCycles = new Set([key]);
+  ctx.window._goalHistorySeen = new Set(['travelCat2']);
+  const cat = ctx.catById('travelCat2');
+  const rows = ctx.buildSavingsCatTransactionRows(cat, ctx.state.expenses);
+  assertTrue(rows.includes('Old Qantas charge'), 'expanding the correct cycle must reveal a charge from 3 cycles back — previously impossible to ever see, regardless of how it was navigated to');
+});
+
+await check('deleteGoalLinkedExpense() removes the real expense, correcting exactly the kind of real-account-vs-Spendly drift this was built for', () => {
+  ctx.state = buildMockState();
+  ctx.state.expenses.push({ id: 'refundedExp1', date: '2026-05-28', amount: 69.97, categoryId: 'cat1', name: 'Cancelled flight', linkedGoalId: 'goal1', goalCoveredAmount: 69.97 });
+  ctx.deleteGoalLinkedExpense('refundedExp1');
+  assertTrue(!ctx.state.expenses.some(e => e.id === 'refundedExp1'), 'deleting a refunded/cancelled goal-covered expense must remove it entirely — this is what actually corrects the goal balance, not a display-only dismissal');
+});
+
+await check('each goal\'s expand/collapse state is tracked independently — expanding one goal\'s past cycle must not affect a different goal', () => {
+  ctx.state = buildMockState();
+  ctx.state.savingsCategories.push({ id: 'goalX', name: 'Goal X', icon: '🎯' }, { id: 'goalY', name: 'Goal Y', icon: '🎯' });
+  ctx.state.categories.push({ id: 'catX', name: 'X', linkedSavingsGoalId: 'goalX' }, { id: 'catY', name: 'Y', linkedSavingsGoalId: 'goalY' });
+  const { cycleStart: oldStart } = ctx.getCycleRange(-2);
+  const oldDate = ctx.dateToStr(oldStart);
+  ctx.state.expenses.push({ id: 'expX', date: oldDate, amount: 20, categoryId: 'catX', name: 'X expense', linkedGoalId: 'goalX', goalCoveredAmount: 20 });
+  ctx.state.expenses.push({ id: 'expY', date: oldDate, amount: 30, categoryId: 'catY', name: 'Y expense', linkedGoalId: 'goalY', goalCoveredAmount: 30 });
+  ctx.window._expandedGoalHistoryCycles = new Set(['catX|' + ctx.dateToStr(oldStart)]); // only X's cycle expanded
+  ctx.window._goalHistorySeen = new Set(['catX', 'catY']);
+  const rowsX = ctx.buildSavingsCatTransactionRows(ctx.catById('catX'), ctx.state.expenses);
+  const rowsY = ctx.buildSavingsCatTransactionRows(ctx.catById('catY'), ctx.state.expenses);
+  assertTrue(rowsX.includes('X expense'), 'goal X\'s expanded cycle should show its own expense');
+  assertTrue(!rowsY.includes('Y expense'), 'goal Y must remain independently collapsed — expanding X must never leak into Y\'s state');
+});
+
+await check('buildSavingsCatTransactionRows() leaves deposits/withdrawals completely unaffected by the rewrite — same data, same row format', () => {
+  ctx.state = buildMockState();
+  ctx.state.savingsCategories.push({ id: 'goalZ', name: 'Goal Z', icon: '🎯' });
+  ctx.state.categories.push({ id: 'catZ', name: 'Z', linkedSavingsGoalId: 'goalZ' });
+  const { cycleStart } = ctx.getCycleRange(0);
+  ctx.state.savingsDeposits.push({ id: 'depZ', catId: 'goalZ', amount: 100, date: ctx.dateToStr(cycleStart), type: 'deposit', note: 'Manual top-up' });
+  const cat = ctx.catById('catZ');
+  const rows = ctx.buildSavingsCatTransactionRows(cat, ctx.state.expenses);
+  assertTrue(rows.includes('Manual top-up'), 'a regular deposit in the current cycle (expanded by default) must still display correctly');
+});
+
 await check('no top-level function is declared more than once anywhere in the file (regression: silent shadowing caused both a data-loss bug and a broken legacy super-contribution modal)', () => {
   const fs = require('fs');
   const html = fs.readFileSync(APP_PATH, 'utf8');
