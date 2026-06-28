@@ -843,10 +843,34 @@ await check('the current cycle is expanded by default on first render (no prior 
   assertTrue(ctx._expandedHistoryCycles.has(currentKey), 'the current cycle must be expanded by default the very first time this view renders');
 });
 
-await check('CC accounts are unaffected by the cycle-grouping change — still a flat current-cycle-only list', () => {
-  const src = ctx.renderAccounts.toString();
-  assertTrue(src.includes("acct.type === 'credit'") && src.includes('Current cycle charges'),
-    'CC accounts must keep their existing flat current-cycle-only display, not be grouped into collapsible cycle sections');
+await check('CC accounts now show full cycle-grouped history (intentional change), not a current-cycle-only flat list', () => {
+  ctx.state = buildMockState();
+  ctx.state.currentTab = 'accounts';
+  ctx.state.accounts.push({ id: 'ccHist1', name: 'Card', type: 'credit' });
+  const { cycleStart: prevStart } = ctx.getCycleRange(-1);
+  ctx.state.expenses.push({ id: 'oldCharge1', date: ctx.dateToStr(prevStart), amount: 30, categoryId: 'cat1', paymentAccountId: 'ccHist1', name: 'Old charge' });
+  ctx._viewingAccountId = 'ccHist1';
+  ctx.window._expandedHistoryCycles = null; // reset so only the current cycle auto-expands
+  assertNoThrow(() => ctx.renderAccounts());
+  const html = ctx.document.getElementById('content').innerHTML;
+  assertTrue(html.includes('Charges by cycle'), 'CC accounts must use the same cycle-grouped section as every other account type — the reported gap was real charges in past cycles being completely invisible on this page');
+  assertTrue(!html.includes('Old charge'), 'a past, collapsed cycle\'s charges should not be expanded by default — but the cycle group itself (with its toggle) must still exist, fixed separately below');
+});
+
+await check('toggleHistoryCycle() reveals a CC charge from a past cycle once expanded — confirms the data was always there, just previously unreachable', () => {
+  ctx.state = buildMockState();
+  ctx.state.currentTab = 'accounts';
+  ctx.state.accounts.push({ id: 'ccHist2', name: 'Card', type: 'credit' });
+  const { cycleStart: prevStart } = ctx.getCycleRange(-1);
+  const oldDate = ctx.dateToStr(prevStart);
+  ctx.state.expenses.push({ id: 'oldCharge2', date: oldDate, amount: 45, categoryId: 'cat1', paymentAccountId: 'ccHist2', name: 'Past cycle charge' });
+  ctx._viewingAccountId = 'ccHist2';
+  ctx.window._expandedHistoryCycles = new Set();
+  const { cycleStart: prevCycleStart } = ctx.getCycleRange(-1);
+  ctx.toggleHistoryCycle(ctx.dateToStr(prevCycleStart));
+  ctx.renderAccounts();
+  const html = ctx.document.getElementById('content').innerHTML;
+  assertTrue(html.includes('Past cycle charge'), 'expanding the correct past cycle must reveal the charge that was previously impossible to see at all');
 });
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -2143,6 +2167,97 @@ await check('showDeferredItemsModal() builds rows from each deferred item\'s rea
 });
 
 
+
+// ─────────────────────────────────────────────────────────────────────────
+console.log('\n── Refund pairing (cancelled bookings) and idempotent re-runs ──');
+
+await check('reconcileStatement() pairs a same-statement charge+credit that are BOTH unmatched, instead of treating them as two unrelated actions (the cancelled-flight scenario)', () => {
+  const statement = [
+    { date: '2026-05-28', merchant: 'QANTAS AIRWAYS LTD', amount: 69.97, isCredit: false },
+    { date: '2026-06-06', merchant: 'QANTAS AIRWAYS LTD REFUND', amount: 69.97, isCredit: true },
+  ];
+  // The booking was deleted from Spendly entirely when cancelled (the user's
+  // actual workflow) — so neither side has any counterpart in Spendly at all.
+  const r = ctx.reconcileStatement(statement, [], []);
+  assertEqual(r.refundedPairs.length, 1, 'a same-amount charge and credit, both unmatched, found together on one statement must be recognized as a cancelled/refunded pair');
+  assertEqual(r.missingFromSpendly.length, 0, 'the charge must NOT also be separately suggested as something to add — that would wrongly reintroduce a cancelled booking, including against any savings goal it might get linked to');
+  assertEqual(r.creditsUnmatched.length, 0, 'the credit must NOT also be separately suggested as unexplained income — it is already explained by the paired charge');
+});
+
+await check('reconcileStatement() correctly pairs MULTIPLE same-amount charge+credit pairs (the actual real-world case: 2 cancelled flights, both $69.97)', () => {
+  const statement = [
+    { date: '2026-05-28', merchant: 'QANTAS', amount: 69.97, isCredit: false },
+    { date: '2026-05-28', merchant: 'QANTAS', amount: 69.97, isCredit: false },
+    { date: '2026-06-06', merchant: 'QANTAS REFUND', amount: 69.97, isCredit: true },
+    { date: '2026-06-09', merchant: 'QANTAS REFUND', amount: 69.97, isCredit: true },
+  ];
+  const r = ctx.reconcileStatement(statement, [], []);
+  assertEqual(r.refundedPairs.length, 2, 'two genuinely separate cancelled bookings must produce two separate pairs, not collapse into one or leave one stranded');
+  assertEqual(r.missingFromSpendly.length, 0);
+  assertEqual(r.creditsUnmatched.length, 0);
+});
+
+await check('reconcileStatement() does not pair a credit with a charge dated AFTER it — a refund cannot predate what it refunds', () => {
+  const statement = [
+    { date: '2026-06-10', merchant: 'Shop', amount: 50, isCredit: false },
+    { date: '2026-06-01', merchant: 'Unrelated credit', amount: 50, isCredit: true }, // before the charge
+  ];
+  const r = ctx.reconcileStatement(statement, [], []);
+  assertEqual(r.refundedPairs.length, 0, 'a credit dated before the charge cannot be its refund, even with a matching amount');
+  assertEqual(r.missingFromSpendly.length, 1);
+  assertEqual(r.creditsUnmatched.length, 1);
+});
+
+await check('reconcileStatement() still prefers a real history match over pairing, when an actual matching expense genuinely exists', () => {
+  const statement = [{ date: '2026-05-15', merchant: 'Refund', amount: 76.79, isCredit: true }];
+  const history = [{ id: 'realExp', date: '2026-03-14', amount: 76.79, categoryId: 'cat1', name: 'Real original purchase' }];
+  const r = ctx.reconcileStatement(statement, [], history);
+  assertEqual(r.creditsWithMatch.length, 1, 'when a real, traceable original expense exists in history, that remains the right explanation — same-statement pairing only applies when nothing else explains the credit');
+});
+
+await check('reconcileDismissRefundPair() logs the resolution and marks the pair resolved without throwing', () => {
+  ctx.state = buildMockState();
+  const result = { matched: [], possibleMatches: [], missingFromSpendly: [], missingFromStatement: [], splitSuggestions: [], refundedPairs: [{ charge: { date:'2026-05-28', merchant:'Qantas', amount:69.97 }, credit: { date:'2026-06-06', merchant:'Qantas refund', amount:69.97 } }], creditsWithMatch: [], creditsUnmatched: [] };
+  ctx.showStatementReconciliationResults('cc1', result, null);
+  assertNoThrow(() => ctx.reconcileDismissRefundPair(0));
+  assertEqual(ctx.window._reconciliation.resolved['refundpair-0'], true);
+  assertEqual(ctx.state.resolvedStatementCredits.length, 1);
+  assertEqual(ctx.state.resolvedStatementCredits[0].resolution, 'refunded-pair');
+});
+
+await check('runStatementReconciliation() does not re-flag a credit already resolved as income on a previous run of the SAME statement', () => {
+  ctx.state = buildMockState();
+  ctx.state.currentTab = 'accounts';
+  ctx.state.accounts.push({ id: 'ccIdem1', name: 'Card', type: 'credit' });
+  const { cycleStart } = ctx.getCycleRange(0);
+  const d = ctx.dateToStr(cycleStart);
+  ctx.state.resolvedStatementCredits = [{ id: 'r1', ccAccountId: 'ccIdem1', date: d, amount: 30, merchant: 'Old refund', resolution: 'income', resolvedAt: new Date().toISOString() }];
+  const statement = [{ date: d, merchant: 'Old refund', amount: 30, isCredit: true }];
+  let captured = null;
+  const origShow = ctx.showStatementReconciliationResults;
+  ctx.showStatementReconciliationResults = (id, result, info) => { captured = result; };
+  ctx.runStatementReconciliation('ccIdem1', statement);
+  ctx.showStatementReconciliationResults = origShow;
+  assertEqual(captured.creditsUnmatched.length, 0, 'a credit already resolved in a previous run must not be re-flagged as unmatched');
+  assertEqual(captured.skippedAlreadyResolved, 1, 'should report that something was skipped, for transparency, rather than silently vanishing with no trace at all');
+});
+
+await check('runStatementReconciliation() does not affect credits from a DIFFERENT credit card\'s resolution log', () => {
+  ctx.state = buildMockState();
+  ctx.state.currentTab = 'accounts';
+  ctx.state.accounts.push({ id: 'ccIdem2', name: 'Card A', type: 'credit' });
+  ctx.state.accounts.push({ id: 'ccIdem3', name: 'Card B', type: 'credit' });
+  const { cycleStart } = ctx.getCycleRange(0);
+  const d = ctx.dateToStr(cycleStart);
+  ctx.state.resolvedStatementCredits = [{ id: 'r2', ccAccountId: 'ccIdem2', date: d, amount: 30, merchant: 'X', resolution: 'income', resolvedAt: new Date().toISOString() }];
+  const statement = [{ date: d, merchant: 'X', amount: 30, isCredit: true }];
+  let captured = null;
+  const origShow = ctx.showStatementReconciliationResults;
+  ctx.showStatementReconciliationResults = (id, result) => { captured = result; };
+  ctx.runStatementReconciliation('ccIdem3', statement); // different card
+  ctx.showStatementReconciliationResults = origShow;
+  assertEqual(captured.creditsUnmatched.length, 1, 'a resolution logged against one card must never suppress a credit on a completely different card');
+});
 
 await check('no top-level function is declared more than once anywhere in the file (regression: silent shadowing caused both a data-loss bug and a broken legacy super-contribution modal)', () => {
   const fs = require('fs');

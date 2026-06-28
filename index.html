@@ -2135,9 +2135,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.17.0';
+const APP_VERSION = '2.18.0';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '26 Jun 2026 11:03 PM AEDT';
+const BUILD_TIME = '28 Jun 2026 6:24 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -16229,7 +16229,19 @@ function runStatementReconciliation(ccAccountId, statementTxns, cycleOffset, sum
     }
   }
 
-  const result = reconcileStatement(statementTxns, cycleExp, historyExp, { dateToleranceDays: 3 });
+  // Skip any credit already resolved by a previous run of THIS statement —
+  // without this, re-uploading the same statement (e.g. to double-check
+  // something) would re-flag every already-handled credit all over again,
+  // risking duplicate income entries if the same one gets actioned twice.
+  const alreadyResolved = (state.resolvedStatementCredits||[]).filter(r => r.ccAccountId === ccAccountId);
+  const filteredStatementTxns = statementTxns.filter(t => {
+    if (!t.isCredit) return true;
+    return !alreadyResolved.some(r => Math.abs(r.amount - t.amount) < 0.01 && r.date === t.date);
+  });
+  const skippedCount = statementTxns.length - filteredStatementTxns.length;
+
+  const result = reconcileStatement(filteredStatementTxns, cycleExp, historyExp, { dateToleranceDays: 3 });
+  result.skippedAlreadyResolved = skippedCount;
   showStatementReconciliationResults(ccAccountId, result, { cycleStart, cycleEnd, savedSummary });
 }
 
@@ -16330,12 +16342,29 @@ function reconcilePossibleMatchReject(index) {
   showToast('Treated as separate — worth double-checking both manually', 3000);
 }
 
+// ── Idempotent re-run tracking for credits ────────────────────────────────────
+// Once resolved, a credit's outcome (income/delete/dismiss/refund-pair)
+// doesn't change anything the NEXT reconciliation's matching algorithm would
+// notice — re-uploading the same statement would re-flag the exact same
+// credit all over again, risking e.g. a duplicate income entry. This log
+// records what's already been decided (loosely keyed by account+date+amount,
+// since credits have no stable id of their own), so a re-run can skip
+// anything already resolved instead of re-prompting for it.
+function logResolvedStatementCredit(ccAccountId, credit, resolution) {
+  if (!state.resolvedStatementCredits) state.resolvedStatementCredits = [];
+  state.resolvedStatementCredits.push({
+    id: uid(), ccAccountId, date: credit.date, amount: credit.amount,
+    merchant: credit.merchant || '', resolution, resolvedAt: new Date().toISOString(),
+  });
+}
+
 function reconcileDeleteRefundedExpense(index) {
   const rc = window._reconciliation;
   if (!rc) return;
   const match = rc.result.creditsWithMatch[index];
   if (!match || !match.matchedExpense) return;
   state.expenses = (state.expenses || []).filter(e => e.id !== match.matchedExpense.id);
+  logResolvedStatementCredit(rc.ccAccountId, match.credit, 'deleted-original');
   saveState();
   reconcileMarkResolved('creditmatch-' + index);
   renderReconciliationReview();
@@ -16343,6 +16372,9 @@ function reconcileDeleteRefundedExpense(index) {
 }
 
 function reconcileKeepBothCredit(index) {
+  const rc = window._reconciliation;
+  const match = rc ? rc.result.creditsWithMatch[index] : null;
+  if (rc && match) { logResolvedStatementCredit(rc.ccAccountId, match.credit, 'kept-both'); saveState(); }
   reconcileMarkResolved('creditmatch-' + index);
   renderReconciliationReview();
 }
@@ -16357,13 +16389,29 @@ function reconcileCreditAsIncome(index) {
     id: uid(), type: 'income', accountId: rc.ccAccountId,
     amount: credit.amount, date: credit.date, note: credit.merchant || 'Credit',
   });
+  logResolvedStatementCredit(rc.ccAccountId, credit, 'income');
   saveState();
   reconcileMarkResolved('creditunmatched-' + index);
   renderReconciliationReview();
   showToast('💰 Logged as income', 2000);
 }
 
+// For a charge+credit pair found together on the SAME statement (e.g. a
+// booking that was made then cancelled) — nothing to add, nothing to delete,
+// they cancel out. Purely informational acknowledgment.
+function reconcileDismissRefundPair(index) {
+  const rc = window._reconciliation;
+  if (!rc) return;
+  const pair = rc.result.refundedPairs[index];
+  if (pair) { logResolvedStatementCredit(rc.ccAccountId, pair.credit, 'refunded-pair'); saveState(); }
+  reconcileMarkResolved('refundpair-' + index);
+  renderReconciliationReview();
+}
+
 function reconcileDismissCredit(index) {
+  const rc = window._reconciliation;
+  const credit = rc ? rc.result.creditsUnmatched[index] : null;
+  if (rc && credit) { logResolvedStatementCredit(rc.ccAccountId, credit, 'dismissed'); saveState(); }
   reconcileMarkResolved('creditunmatched-' + index);
   renderReconciliationReview();
 }
@@ -16525,6 +16573,25 @@ function renderReconciliationReview() {
     html += '</div>';
   }
 
+  // Refunded within this same statement — charge and credit cancel out
+  html += sectionHeader('refundpair', '🔄', 'Refunded (net zero this statement)', (result.refundedPairs||[]).length, '#34C759');
+  if (!collapsed.refundpair) {
+    html += '<div style="background:var(--surface);border-radius:0 0 var(--r) var(--r);overflow:hidden;margin-bottom:10px">';
+    (result.refundedPairs||[]).forEach((pair, i) => {
+      const key = 'refundpair-' + i;
+      const isResolved = resolved[key];
+      html += '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 16px;border-top:1px solid var(--surface2)">' +
+        '<div style="min-width:0">' +
+          '<div style="font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + (pair.charge.merchant||'Charge') + '</div>' +
+          '<div style="font-size:11px;color:var(--muted)">Charged ' + fmtDateAU(pair.charge.date) + ' · Refunded ' + fmtDateAU(pair.credit.date) + ' · ' + fmt(pair.charge.amount) + '</div>' +
+        '</div>' +
+        (isResolved ? resolvedBadge('Got it') : actionButton('✓ Got it', 'reconcileDismissRefundPair(' + i + ')')) +
+      '</div>';
+    });
+    if ((result.refundedPairs||[]).length === 0) html += '<div style="padding:14px 16px;font-size:12px;color:var(--muted)">No matching charge-then-refunded pairs found on this statement.</div>';
+    html += '</div>';
+  }
+
   // Credits matched to a past expense
   html += sectionHeader('creditmatch', '↩', 'Credits matched to a past expense', result.creditsWithMatch.length, '#34C759');
   if (!collapsed.creditmatch) {
@@ -16595,6 +16662,7 @@ function renderReconciliationReview() {
         '<div style="font-size:17px;font-weight:700">Statement reconciliation</div>' +
         (cycleLabel ? '<div style="font-size:12px;color:var(--accent);font-weight:600;margin-top:2px">📅 ' + cycleLabel + '</div>' : '') +
         (cycleInfo && cycleInfo.savedSummary ? '<div style="font-size:11px;color:#34C759;font-weight:600;margin-top:2px">📋 Closing balance ' + fmt(cycleInfo.savedSummary.closingBalance) + ' saved' + (cycleInfo.savedSummary.dueDate ? ' · due ' + fmtDateAU(cycleInfo.savedSummary.dueDate) : '') + '</div>' : '') +
+        (result.skippedAlreadyResolved > 0 ? '<div style="font-size:11px;color:var(--muted);margin-top:2px">' + result.skippedAlreadyResolved + ' credit' + (result.skippedAlreadyResolved!==1?'s':'') + ' already resolved from a previous reconciliation — not shown again</div>' : '') +
       '</div>' +
       '<button onclick="minimizeReconciliationReview()" style="background:var(--surface2);border:none;border-radius:50%;width:32px;height:32px;font-size:16px;color:var(--text);cursor:pointer">×</button>' +
     '</div>' +
@@ -17428,6 +17496,40 @@ function reconcileStatement(statementTxns, cycleExpenses, historyExpenses, optio
   });
   const finalUnmatchedExpenses = afterSplitUnmatchedExpenses.filter(e => !consumedInFuzzy.has(e.id));
 
+  // ── Pass 4: within-statement refund pairing ─────────────────────────────────
+  // Real scenario this exists for: a charge that's NOT in Spendly at all (e.g.
+  // a flight you booked then cancelled, and your own practice is to delete the
+  // booking from Spendly entirely rather than keep a charge+refund pair) shows
+  // up alongside its own credit on the SAME statement, also unmatched. Without
+  // this pass, the charge gets suggested as "+ Add" and the credit separately
+  // as "Log as income" — two independent, disconnected actions that net to a
+  // real modeling problem: adding the charge against a savings goal pulls money
+  // out of that goal, while the credit-as-income only ever reduces the card
+  // balance, never restoring the goal it was (wrongly) drawn from.
+  // A same-amount charge and credit, BOTH already unmatched, found together on
+  // ONE statement is strong, directly-verifiable evidence they cancel out —
+  // stronger than a credit searching distant history for something to delete.
+  // Pulled out into their own informational section rather than two separate
+  // action items. The credit must not predate the charge it refunds.
+  const refundedPairs = [];
+  const pairedChargeIndexes = new Set();
+  const creditsNeedingHistoryMatch = [];
+  credits.forEach(c => {
+    let foundIdx = -1;
+    for (let i = 0; i < stillUnmatchedAfterFuzzy.length; i++) {
+      if (pairedChargeIndexes.has(i)) continue;
+      const t = stillUnmatchedAfterFuzzy[i];
+      if (sameAmount(t.amount, c.amount) && c.date >= t.date) { foundIdx = i; break; }
+    }
+    if (foundIdx !== -1) {
+      pairedChargeIndexes.add(foundIdx);
+      refundedPairs.push({ charge: stillUnmatchedAfterFuzzy[foundIdx], credit: c });
+    } else {
+      creditsNeedingHistoryMatch.push(c);
+    }
+  });
+  const stillUnmatchedAfterPairing = stillUnmatchedAfterFuzzy.filter((t, i) => !pairedChargeIndexes.has(i));
+
   // ── Credits: search the wider history pool for a plausible original charge ──
   // Must exclude anything already consumed by an earlier pass — otherwise a
   // credit could suggest deleting an expense that's ALREADY confirmed real by
@@ -17436,7 +17538,7 @@ function reconcileStatement(statementTxns, cycleExpenses, historyExpenses, optio
   // line items — the charge being matched doesn't mean it should also be
   // treated as refunded-and-deleted).
   const allConsumedIds = new Set([...consumedExpenseIds, ...consumedInSplit, ...consumedInFuzzy]);
-  const creditResults = credits.map(c => {
+  const creditResults = creditsNeedingHistoryMatch.map(c => {
     let best = null, bestDiff = Infinity;
     (historyExpenses || []).forEach(e => {
       if (allConsumedIds.has(e.id)) return;
@@ -17460,9 +17562,10 @@ function reconcileStatement(statementTxns, cycleExpenses, historyExpenses, optio
   return {
     matched,
     possibleMatches,
-    missingFromSpendly: stillUnmatchedAfterFuzzy,
+    missingFromSpendly: stillUnmatchedAfterPairing,
     missingFromStatement: finalUnmatchedExpenses,
     splitSuggestions,
+    refundedPairs,
     totals: { statementChargesTotal, statementCreditsTotal, spendlyLoggedTotal, totalsDifference },
     creditsWithMatch: creditResults.filter(r => r.matchedExpense),
     creditsUnmatched: creditResults.filter(r => !r.matchedExpense).map(r => r.credit),
@@ -18574,6 +18677,7 @@ function renderAccounts() {
       const rc = window._reconciliation;
       const totalActionable = rc.result.missingFromSpendly.length + rc.result.missingFromStatement.length +
         rc.result.splitSuggestions.length + (rc.result.possibleMatches||[]).length +
+        (rc.result.refundedPairs||[]).length +
         rc.result.creditsWithMatch.length + rc.result.creditsUnmatched.length;
       const resolvedCount = Object.keys(rc.resolved).filter(k => rc.resolved[k]).length;
       const remaining = Math.max(0, totalActionable - resolvedCount);
@@ -18662,13 +18766,13 @@ function renderAccounts() {
     html += pendingCCHtml;
     html += reconciliationHtml;
 
-    // For CC accounts, filter history to current cycle only (unchanged — CC
-    // statements are naturally cycle-bound already)
-    const displayTxns = (acct.type === 'credit') ? (() => {
-      const { cycleStart: _hcs } = getCycleRange(0);
-      const _hcsStr = dateToStr(_hcs);
-      return txns.filter(t => t.date >= _hcsStr);
-    })() : txns;
+    // CC charges used to be hard-limited to "today's current cycle" only —
+    // but statement reconciliation can add or defer charges into past cycles
+    // (e.g. adding a missing charge dated weeks ago), making that cutoff a
+    // real visibility gap: those charges existed correctly in the data but
+    // were impossible to ever see again on this page. Now shows full,
+    // cycle-grouped history exactly like every other account type.
+    const displayTxns = txns;
 
     function renderTxnRowHtml(t, i, withTopBorder) {
       const isIn = t.direction === 'in';
@@ -18690,17 +18794,12 @@ function renderAccounts() {
 
     if (displayTxns.length === 0) {
       html += '<div class="empty"><div class="empty-icon">📭</div><div class="empty-text">' + (acct.type==='credit' ? 'No charges this cycle' : 'No transactions yet') + '</div><div class="empty-sub">' + (acct.type==='credit' ? 'Charges made with this card from 18 Apr will appear here' : 'Log income or make a transfer to get started') + '</div></div>';
-    } else if (acct.type === 'credit') {
-      // CC: unchanged flat list, already scoped to current cycle
-      html += '<div class="section-label">Current cycle charges</div>';
-      html += '<div style="background:var(--surface);border-radius:var(--r);overflow:hidden">';
-      displayTxns.forEach((t, i) => { html += renderTxnRowHtml(t, i, i > 0); });
-      html += '</div>';
     } else {
-      // Non-CC accounts: group by budget cycle, collapsible, current cycle
-      // expanded by default — keeps full history accessible without an
-      // ever-growing unbounded list to scroll through.
-      html += '<div class="section-label">Transaction history</div>';
+      // Grouped by budget cycle, collapsible, current cycle expanded by
+      // default — keeps full history accessible without an ever-growing
+      // unbounded list to scroll through. Same treatment for every account
+      // type, CC included.
+      html += '<div class="section-label">' + (acct.type==='credit' ? 'Charges by cycle' : 'Transaction history') + '</div>';
       const _currentCycleKey = dateToStr(getCycleRange(0).cycleStart);
       if (!window._expandedHistoryCycles) window._expandedHistoryCycles = new Set([_currentCycleKey]);
       const _cycleGroups = {};
