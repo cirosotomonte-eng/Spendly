@@ -2135,9 +2135,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.19.1';
+const APP_VERSION = '2.19.2';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '28 Jun 2026 8:22 PM AEDT';
+const BUILD_TIME = '28 Jun 2026 8:34 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -17715,6 +17715,28 @@ function getCCGoalContributions(ccAcctId, cycleOffset) {
   const gapAmount = closingBalanceCurrent
     ? Math.round((ccAcctForBalance.closingBalance - itemizedGrossTotal) * 100) / 100
     : 0;
+  const goalTotal = Math.round(contributions.reduce((s,c) => s+c.amount, 0) * 100) / 100;
+
+  // A negative salary contribution is never valid in a real payment — it
+  // would mean paying a CC bill somehow INCREASES your salary balance.
+  // This can genuinely happen when the gap is large and negative (Spendly's
+  // itemized total is far above the real closing balance) and a large chunk
+  // of that itemized total is goal-covered — the goal contributions ALONE
+  // can end up exceeding the entire actual bill. Clamped to zero, with a
+  // flag so the UI can warn clearly rather than silently paying the wrong
+  // amount (or nothing) from salary. The real fix in that situation is
+  // reconciling/cleaning up the goal-linked expenses first (e.g. deleting
+  // ones that were actually refunded or cancelled), not paying through it.
+  const rawSalaryTotal = closingBalanceCurrent ? Math.round((itemizedSalaryTotal + gapAmount) * 100) / 100 : itemizedSalaryTotal;
+  // Only clamp in the closing-balance scenario specifically — a negative
+  // salaryTotal from pure itemized refund-netting (no closing balance
+  // involved) is a deliberate, mathematically consistent behavior tested
+  // elsewhere (e.g. a goal slightly overpaying when a refund reduces what's
+  // actually owed below the goal's contribution). This clamp targets a
+  // DIFFERENT, qualitatively worse problem: the itemized total being so far
+  // from the real bill that goal contributions alone exceed it outright.
+  const clampedSalaryTotal = closingBalanceCurrent ? Math.max(0, rawSalaryTotal) : rawSalaryTotal;
+  const goalTotalExceedsClosingBalance = closingBalanceCurrent && rawSalaryTotal < 0;
 
   return {
     unsettled,
@@ -17726,9 +17748,10 @@ function getCCGoalContributions(ccAcctId, cycleOffset) {
     closingBalance: closingBalanceCurrent ? ccAcctForBalance.closingBalance : null,
     dueDate: ccAcctForBalance ? ccAcctForBalance.dueDate : null,
     gapAmount,
-    salaryTotal: closingBalanceCurrent ? Math.round((itemizedSalaryTotal + gapAmount) * 100) / 100 : itemizedSalaryTotal,
+    salaryTotal: clampedSalaryTotal,
+    goalTotalExceedsClosingBalance,
     grossTotal: closingBalanceCurrent ? ccAcctForBalance.closingBalance : itemizedGrossTotal,
-    goalTotal: Math.round(contributions.reduce((s,c) => s+c.amount, 0) * 100) / 100,
+    goalTotal,
   };
 }
 
@@ -17772,6 +17795,12 @@ function openPayCCFromSalary(salaryAccountId, scopedCcId) {
         '<div style="font-size:10px;color:var(--muted);margin-top:2px">Closing balance: ' + fmt(breakdown.closingBalance) + ' · Logged in Spendly: ' + fmt(breakdown.itemizedGrossTotal) + '</div>' +
       '</div>';
     }
+    if (breakdown.goalTotalExceedsClosingBalance) {
+      html += '<div style="margin-bottom:10px;padding:10px 12px;border-radius:8px;background:rgba(255,59,48,0.1);border:1px solid rgba(255,59,48,0.3)">' +
+        '<div style="font-size:11px;font-weight:700;color:var(--red)">🛑 Goal contributions alone exceed this bill</div>' +
+        '<div style="font-size:10px;color:var(--text);margin-top:3px;line-height:1.4">' + fmt(breakdown.goalTotal) + ' is linked to savings goals, but the actual bill is only ' + fmt(breakdown.grossTotal) + '. This usually means some goal-linked expenses were actually refunded or cancelled and need deleting first — check that goal\'s history. Paying now would not move money correctly.</div>' +
+      '</div>';
+    }
     if (breakdown.dueDate) {
       html += '<div style="font-size:11px;color:var(--muted);margin-bottom:10px">📅 Due ' + new Date(breakdown.dueDate+'T00:00:00').toLocaleDateString('en-AU',{day:'numeric',month:'short',year:'numeric'}) + '</div>';
     }
@@ -17801,6 +17830,7 @@ function openPayCCFromSalary(salaryAccountId, scopedCcId) {
     usingClosingBalance: x.breakdown.usingClosingBalance,
     itemizedGrossTotal: x.breakdown.itemizedGrossTotal,
     gapAmount: x.breakdown.gapAmount,
+    goalTotalExceedsClosingBalance: x.breakdown.goalTotalExceedsClosingBalance,
     dueDate: x.breakdown.dueDate,
     unsettledIds: (x.breakdown.unsettled || []).map(e => e.id),
   })));
@@ -17830,8 +17860,8 @@ function openPayCCFromSalary(salaryAccountId, scopedCcId) {
       <div style="display:flex;gap:10px">
         <button onclick="document.getElementById('ccPayModal').remove()"
           style="flex:1;padding:13px;border-radius:12px;border:1.5px solid var(--surface2);background:var(--surface);color:var(--text);font-size:14px;font-weight:600;font-family:var(--font);cursor:pointer">Cancel</button>
-        <button onclick="confirmPayCCFromSalary('${salaryAccountId}', ${breakdownDataJson.replace(/'/g,"\'")})"
-          style="flex:2;padding:13px;border-radius:12px;border:none;background:var(--accent);color:#fff;font-size:14px;font-weight:700;font-family:var(--font);cursor:pointer">Confirm & Pay</button>
+        <button ${bd.goalTotalExceedsClosingBalance ? 'disabled' : ''} onclick="${bd.goalTotalExceedsClosingBalance ? '' : "confirmPayCCFromSalary('" + salaryAccountId + "', " + breakdownDataJson.replace(/'/g,"\'") + ")"}"
+          style="flex:2;padding:13px;border-radius:12px;border:none;background:${bd.goalTotalExceedsClosingBalance ? 'var(--surface3)' : 'var(--accent)'};color:${bd.goalTotalExceedsClosingBalance ? 'var(--muted)' : '#fff'};font-size:14px;font-weight:700;font-family:var(--font);cursor:${bd.goalTotalExceedsClosingBalance ? 'not-allowed' : 'pointer'}">${bd.goalTotalExceedsClosingBalance ? 'Fix goal data first' : 'Confirm & Pay'}</button>
       </div>
     </div>`;
 

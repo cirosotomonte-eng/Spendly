@@ -2355,6 +2355,63 @@ await check('confirmPayCCFromSalary() with the corrected data shape actually mar
   assertEqual(after.grossTotal, 0, 'once settled, the same charge must NOT reappear as still owed — this is exactly the symptom that made the button look broken');
 });
 
+// ─────────────────────────────────────────────────────────────────────────
+console.log('\n── CRITICAL: salaryTotal must never go negative when using a closing balance ──');
+console.log('   (the actual reported "salary amount looks the same" bug)');
+
+await check('getCCGoalContributions() clamps salaryTotal to zero when goal contributions alone exceed the closing balance (the exact reported scenario)', () => {
+  ctx.state = buildMockState();
+  ctx.state.accounts.push({ id: 'negSalCC1', name: 'Card', type: 'credit' });
+  ctx.state.savingsCategories.push({ id: 'negSalGoal1', name: 'Travel' });
+  ctx.state.savingsDeposits.push({ id: 'negSalDep1', catId: 'negSalGoal1', amount: 10000, date: '2026-01-01', type: 'deposit' });
+  const { cycleEnd, cycleStart } = ctx.getCycleRange(0);
+  const acct = ctx.accountById('negSalCC1');
+  acct.closingBalance = 5626.86;
+  acct.closingBalanceCycleEnd = ctx.dateToStr(cycleEnd);
+  ctx.state.expenses.push({ id: 'negSalExp1', date: ctx.dateToStr(cycleStart), amount: 8000, categoryId: 'cat1', paymentAccountId: 'negSalCC1', linkedGoalId: 'negSalGoal1', goalCoveredAmount: 8000 });
+  ctx.state.expenses.push({ id: 'negSalExp2', date: ctx.dateToStr(cycleStart), amount: 980.72, categoryId: 'cat1', paymentAccountId: 'negSalCC1' });
+  const breakdown = ctx.getCCGoalContributions('negSalCC1', 0);
+  assertEqual(breakdown.salaryTotal, 0, 'a negative salary contribution is never valid in a real payment — it would mean paying a CC bill somehow increases the salary balance. Previously this was -2373.14, which is exactly why the reported payment silently moved the salary balance the wrong way instead of decreasing it');
+  assertEqual(breakdown.goalTotalExceedsClosingBalance, true, 'must flag this specific condition distinctly so the UI can warn and block, not just silently clamp');
+});
+
+await check('getCCGoalContributions() does NOT flag goalTotalExceedsClosingBalance for a normal, small gap', () => {
+  ctx.state = buildMockState();
+  ctx.state.accounts.push({ id: 'negSalCC2', name: 'Card', type: 'credit' });
+  const { cycleEnd, cycleStart } = ctx.getCycleRange(0);
+  const acct = ctx.accountById('negSalCC2');
+  acct.closingBalance = 500;
+  acct.closingBalanceCycleEnd = ctx.dateToStr(cycleEnd);
+  ctx.state.expenses.push({ id: 'negSalExp3', date: ctx.dateToStr(cycleStart), amount: 495, categoryId: 'cat1', paymentAccountId: 'negSalCC2' });
+  const breakdown = ctx.getCCGoalContributions('negSalCC2', 0);
+  assertEqual(breakdown.goalTotalExceedsClosingBalance, false, 'a small, normal gap with no goal contributions involved must never trigger this specific warning');
+});
+
+await check('the earlier deliberate refund-netting behavior (negative salaryTotal with NO closing balance involved) is completely unaffected by this fix', () => {
+  ctx.state = buildMockState();
+  ctx.state.accounts.push({ id: 'negSalCC3', name: 'Card', type: 'credit' });
+  ctx.state.savingsCategories.push({ id: 'negSalGoal3', name: 'Holiday' });
+  ctx.state.savingsDeposits.push({ id: 'negSalDep3', catId: 'negSalGoal3', amount: 500, date: '2026-01-01', type: 'deposit' });
+  const { cycleStart } = ctx.getCycleRange(0);
+  const todayInCycle = ctx.dateToStr(cycleStart);
+  ctx.state.expenses.push({ id: 'negSalExp4', date: todayInCycle, amount: 100, categoryId: 'cat1', paymentAccountId: 'negSalCC3', goalCoveredAmount: 100, linkedGoalId: 'negSalGoal3' });
+  ctx.state.accountTransactions.push({ id: 'negSalRef1', type: 'ccRefund', toAccountId: 'negSalCC3', amount: 30, date: todayInCycle, deleted: false });
+  const result = ctx.getCCGoalContributions('negSalCC3', 0);
+  assertEqual(result.salaryTotal, -30, 'this specific behavior — a refund correctly pushing salaryTotal negative when NOT using a closing balance — is deliberate and mathematically consistent (goalTotal + salaryTotal still equals grossTotal exactly); the new clamp must not touch this case at all');
+  assertEqual(result.goalTotalExceedsClosingBalance, false, 'no closing balance is involved here at all, so this flag must never fire');
+});
+
+await check('openPayCCFromSalary() disables Confirm & Pay and shows a distinct warning when goalTotalExceedsClosingBalance is true', () => {
+  const src = ctx.openPayCCFromSalary.toString();
+  assertTrue(src.includes('goalTotalExceedsClosingBalance') && src.includes('disabled'), 'the button must actually be disabled in this state, not just show a warning text the user could ignore and tap through anyway');
+  assertTrue(src.includes('exceed this bill'), 'must show a clear, specific explanation of what is wrong and why, not a generic error');
+});
+
+await check('breakdownDataJson includes goalTotalExceedsClosingBalance, so confirmPayCCFromSalary could also defensively check it', () => {
+  const src = ctx.openPayCCFromSalary.toString();
+  assertTrue(src.includes('goalTotalExceedsClosingBalance: x.breakdown.goalTotalExceedsClosingBalance'), 'the flag must be threaded through to the data actually used at confirm time, not just available in the preview render');
+});
+
 await check('no top-level function is declared more than once anywhere in the file (regression: silent shadowing caused both a data-loss bug and a broken legacy super-contribution modal)', () => {
   const fs = require('fs');
   const html = fs.readFileSync(APP_PATH, 'utf8');
