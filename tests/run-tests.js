@@ -2867,6 +2867,47 @@ await check('triggerBiometric() keeps the Face ID prompt visible after a cancell
   ctx.PublicKeyCredential = undefined; ctx.navigator = {}; ctx.crypto = undefined;
 });
 
+console.log('\n── CC statement reconciliation & settle (re-run safety) ──');
+
+await check('markCCCycleSettled() clears the closing-balance snapshot so the Pay CTA does not stay armed after settling', () => {
+  ctx.state = buildMockState();
+  ctx.state.categories = ctx.state.categories && ctx.state.categories.length ? ctx.state.categories : [{ id: 'c1', name: 'Cat' }];
+  ctx.state.accounts.push({ id: 'ccSettle', name: 'ANZ', type: 'credit', closingBalance: 5626.86, closingBalanceCycleEnd: '2026-06-17' });
+  ctx.state.expenses.push({ id: 'eSettle', date: '2026-06-10', amount: 100, paymentAccountId: 'ccSettle', categoryId: 'c1', name: 'Test' });
+  ctx.confirm = () => true;
+  ctx.markCCCycleSettled('eSettle');
+  const acct = ctx.state.accounts.find(a => a.id === 'ccSettle');
+  assertTrue(acct.closingBalance === undefined, 'closing balance must be cleared when a cycle is marked settled');
+  assertTrue(acct.closingBalanceCycleEnd === undefined, 'closing balance cycle marker must be cleared too');
+  assertTrue((ctx.state.ccPayments||[]).some(p => (p.expenseIds||[]).includes('eSettle')), 'the settled charge must be recorded in a ccPayment');
+});
+
+await check('reconcileKeepUnbilled() dismisses a falsely-flagged charge without deferring or deleting it (extraction missed the line, but it IS billed)', () => {
+  ctx.state = buildMockState();
+  ctx.state.expenses.push({ id: 'eKeep', date: '2026-06-03', amount: 11.47, name: 'GGs' });
+  ctx._reconciliation = {
+    ccAccountId: 'cc', cycleInfo: { cycleStart: new Date('2026-05-18T00:00:00'), cycleEnd: new Date('2026-06-17T00:00:00') }, resolved: {}, collapsed: {},
+    result: { matched: [], missingFromSpendly: [], missingFromStatement: [{ id: 'eKeep', date: '2026-06-03', amount: 11.47, name: 'GGs' }], splitSuggestions: [], possibleMatches: [], refundedPairs: [], creditsWithMatch: [], creditsUnmatched: [], skippedAlreadyResolved: 0, totals: { statementChargesTotal: 0, statementCreditsTotal: 0, spendlyLoggedTotal: 0, totalsDifference: 0 } },
+  };
+  ctx.reconcileKeepUnbilled(0);
+  assertEqual(ctx._reconciliation.resolved['defer-0'], 'kept', 'Keep marks the item resolved as kept');
+  const exp = ctx.state.expenses.find(e => e.id === 'eKeep');
+  assertTrue(!exp.deferToNextCycle, 'Keep must NOT defer the expense to the next cycle');
+});
+
+await check('runStatementReconciliation is review-only for an already-settled cycle — it must NOT re-arm the closing balance (static guard)', () => {
+  const fs = require('fs');
+  const html = fs.readFileSync(APP_PATH, 'utf8');
+  const start = html.indexOf('function runStatementReconciliation(');
+  const end = html.indexOf('function showStatementReconciliationResults(');
+  assertTrue(start !== -1 && end !== -1 && end > start, 'both functions must be present');
+  const body = html.slice(start, end);
+  assertTrue(/const cycleSettled =/.test(body), 'must compute cycleSettled from the cycle\'s settled charges');
+  assertTrue(/if \(cycleSettled\)[\s\S]*closingBalance = undefined/.test(body), 'a settled cycle must CLEAR (not re-arm) the closing-balance snapshot');
+  assertTrue(/else if \(summary[\s\S]*closingBalance = Math\.round/.test(body), 'the re-arm path must sit in the else branch (only when NOT already settled)');
+  assertTrue(/reviewOnly: cycleSettled/.test(body), 'the review must be told it is review-only when settled');
+});
+
 await check('no top-level function is declared more than once anywhere in the file (regression: silent shadowing caused both a data-loss bug and a broken legacy super-contribution modal)', () => {
   const fs = require('fs');
   const html = fs.readFileSync(APP_PATH, 'utf8');

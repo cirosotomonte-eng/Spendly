@@ -2135,9 +2135,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.25.0';
+const APP_VERSION = '2.26.0';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '29 Jun 2026 7:22 PM AEDT';
+const BUILD_TIME = '29 Jun 2026 10:31 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -16319,13 +16319,27 @@ function runStatementReconciliation(ccAccountId, statementTxns, cycleOffset, sum
     return d >= historyStart && d <= cycleEnd;
   });
 
+  // Is this cycle already paid/settled? If every CC charge in it is covered by a
+  // ccPayment, re-running the statement must be REVIEW-ONLY: never re-arm payment.
+  const _settledIds = new Set((state.ccPayments||[]).flatMap(p => p.expenseIds||[]));
+  const cycleSettled = cycleExp.length > 0 && cycleExp.every(e => _settledIds.has(e.id));
+
   // If the AI extracted a closing balance from this statement, save it onto
   // the CC account immediately, bound to THIS reconciliation's specific
   // cycle — same mechanism as entering it manually, so the payment flow
   // picks it up automatically. Never invent a value: only saved if a real
   // number was actually extracted.
   let savedSummary = null;
-  if (summary && typeof summary.closingBalance === 'number' && summary.closingBalance >= 0) {
+  if (cycleSettled) {
+    // Already settled — review only. Don't re-arm, and actively clear any stale
+    // closing-balance snapshot so the Pay CTA / pay wizard can't resurrect.
+    const acct = accountById(ccAccountId);
+    if (acct && acct.closingBalanceCycleEnd === dateToStr(cycleEnd)) {
+      acct.closingBalance = undefined;
+      acct.closingBalanceCycleEnd = undefined;
+      saveState();
+    }
+  } else if (summary && typeof summary.closingBalance === 'number' && summary.closingBalance >= 0) {
     const acct = accountById(ccAccountId);
     if (acct) {
       acct.closingBalance = Math.round(summary.closingBalance * 100) / 100;
@@ -16351,7 +16365,7 @@ function runStatementReconciliation(ccAccountId, statementTxns, cycleOffset, sum
 
   const result = reconcileStatement(filteredStatementTxns, cycleExp, historyExp, { dateToleranceDays: 3 });
   result.skippedAlreadyResolved = skippedCount;
-  showStatementReconciliationResults(ccAccountId, result, { cycleStart, cycleEnd, savedSummary });
+  showStatementReconciliationResults(ccAccountId, result, { cycleStart, cycleEnd, savedSummary, reviewOnly: cycleSettled });
 }
 
 // Basic summary view for now — full interactive per-item actions (add/defer/
@@ -16416,6 +16430,20 @@ function reconcileDeferExpense(index) {
   reconcileMarkResolved('defer-' + index, 'deferred');
   renderReconciliationReview();
   showToast('📅 Deferred to next cycle', 2000);
+}
+
+// The charge really IS on the statement — extraction just missed the line, so the
+// matcher had nothing to pair it with. Leave the expense exactly where it is (its
+// natural cycle); this only dismisses the false "not yet billed" flag. No Defer
+// (which would wrongly push it forward) and no Delete (it's a real expense).
+function reconcileKeepUnbilled(index) {
+  const rc = window._reconciliation;
+  if (!rc) return;
+  const expense = rc.result.missingFromStatement[index];
+  if (!expense) return;
+  reconcileMarkResolved('defer-' + index, 'kept');
+  renderReconciliationReview();
+  showToast('✓ Kept — left in its current cycle', 2000);
 }
 
 // For when a "logged, not yet billed" item turns out to have never actually
@@ -16632,8 +16660,8 @@ function renderReconciliationReview() {
           '<div style="font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + (item.name || (cat?cat.name:'Expense')) + '</div>' +
           '<div style="font-size:11px;color:var(--muted)">' + fmtDateAU(item.date) + ' · ' + fmt(item.amount) + '</div>' +
         '</div>' +
-        (isResolved ? resolvedBadge(isResolved === 'deleted' ? 'Removed' : 'Deferred') :
-          '<div style="display:flex;gap:6px">' + actionButton('📅 Defer', 'reconcileDeferExpense(' + i + ')', 'var(--orange)') + actionButton('🗑️ Delete', 'reconcileDeleteUnbilledExpense(' + i + ')', 'var(--red)') + '</div>') +
+        (isResolved ? resolvedBadge(isResolved === 'deleted' ? 'Removed' : isResolved === 'kept' ? 'Kept' : 'Deferred') :
+          '<div style="display:flex;gap:6px">' + actionButton('✓ Keep', 'reconcileKeepUnbilled(' + i + ')', 'var(--accent)') + actionButton('📅 Defer', 'reconcileDeferExpense(' + i + ')', 'var(--orange)') + actionButton('🗑️ Delete', 'reconcileDeleteUnbilledExpense(' + i + ')', 'var(--red)') + '</div>') +
       '</div>';
     });
     if (result.missingFromStatement.length === 0) html += '<div style="padding:14px 16px;font-size:12px;color:var(--muted)">Nothing pending — every logged charge already appears on the statement.</div>';
@@ -16770,6 +16798,7 @@ function renderReconciliationReview() {
       '<div>' +
         '<div style="font-size:17px;font-weight:700">Statement reconciliation</div>' +
         (cycleLabel ? '<div style="font-size:12px;color:var(--accent);font-weight:600;margin-top:2px">📅 ' + cycleLabel + '</div>' : '') +
+        (cycleInfo && cycleInfo.reviewOnly ? '<div style="font-size:11px;color:#34C759;font-weight:700;margin-top:2px">✓ Already settled — review only (nothing will be charged)</div>' : '') +
         (cycleInfo && cycleInfo.savedSummary ? '<div style="font-size:11px;color:#34C759;font-weight:600;margin-top:2px">📋 Closing balance ' + fmt(cycleInfo.savedSummary.closingBalance) + ' saved' + (cycleInfo.savedSummary.dueDate ? ' · due ' + fmtDateAU(cycleInfo.savedSummary.dueDate) : '') + '</div>' : '') +
         (result.skippedAlreadyResolved > 0 ? '<div style="font-size:11px;color:var(--muted);margin-top:2px">' + result.skippedAlreadyResolved + ' credit' + (result.skippedAlreadyResolved!==1?'s':'') + ' already resolved from a previous reconciliation — not shown again</div>' : '') +
       '</div>' +
@@ -18200,6 +18229,19 @@ function markCCCycleSettled(idsStr) {
     id: uid(), date: todayStr(), amount: 0,
     expenseIds: ids, toCCAccountIds: [],
     note: 'Manually marked as settled', _manual: true,
+  });
+  // Clear the closing-balance snapshot for the settled card(s) — exactly what the
+  // Pay flow does. Without this, getCCGoalContributions() keeps returning the static
+  // closing balance (which overrides the now-zero itemized total), so the "Pay" CTA
+  // stays armed even though everything is settled.
+  const _settledCcIds = new Set();
+  ids.forEach(eid => {
+    const exp = (state.expenses||[]).find(e => e.id === eid);
+    if (exp && exp.paymentAccountId) _settledCcIds.add(exp.paymentAccountId);
+  });
+  _settledCcIds.forEach(accId => {
+    const acct = accountById(accId);
+    if (acct && acct.type === 'credit') { acct.closingBalance = undefined; acct.closingBalanceCycleEnd = undefined; }
   });
   saveState();
   renderAccounts();
