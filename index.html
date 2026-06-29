@@ -2135,9 +2135,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.21.0';
+const APP_VERSION = '2.23.0';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '29 Jun 2026 12:14 PM AEDT';
+const BUILD_TIME = '29 Jun 2026 5:07 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -9689,25 +9689,47 @@ function saveSavingsDeposit() {
 
 function deleteSavingsDeposit() {
   if (!editingSavingsDepositId) return;
-  const dep = (state.savingsDeposits||[]).find(d=>d.id===editingSavingsDepositId);
+  _deleteSavingsDepositById(editingSavingsDepositId);
+  saveState(); closeModal('savingsDepositModal');
+  updateHeader();
+  renderContent();
+}
+
+// Data-only deletion of a savings deposit (no UI). Reverses any linked records so
+// nothing can be left orphaned:
+//   • a linked expense (and its other linked deposit/withdrawal) is removed
+//   • a linked PAID pending payment is reverted to unpaid, returning the money to
+//     salary — otherwise salary stays debited with nothing landing in the goal,
+//     which is exactly the orphaned-payment bug that caused the offset discrepancy.
+function _deleteSavingsDepositById(depId) {
+  const dep = (state.savingsDeposits||[]).find(d=>d.id===depId);
+  if (!dep) return;
   // Also delete the linked expense if it exists
-  if (dep && dep.linkedExpenseId) {
+  if (dep.linkedExpenseId) {
     const linkedExp = (state.expenses||[]).find(e=>e.id===dep.linkedExpenseId);
     if (linkedExp) {
-      // Clean up the other linked deposit/withdrawal on the expense
-      if (linkedExp.linkedDepositId && linkedExp.linkedDepositId !== editingSavingsDepositId) {
+      if (linkedExp.linkedDepositId && linkedExp.linkedDepositId !== depId) {
         state.savingsDeposits = (state.savingsDeposits||[]).filter(d=>d.id!==linkedExp.linkedDepositId);
       }
-      if (linkedExp.linkedWithdrawalId && linkedExp.linkedWithdrawalId !== editingSavingsDepositId) {
+      if (linkedExp.linkedWithdrawalId && linkedExp.linkedWithdrawalId !== depId) {
         state.savingsDeposits = (state.savingsDeposits||[]).filter(d=>d.id!==linkedExp.linkedWithdrawalId);
       }
       state.expenses = (state.expenses||[]).filter(e=>e.id!==dep.linkedExpenseId);
     }
   }
-  state.savingsDeposits = (state.savingsDeposits||[]).filter(d=>d.id!==editingSavingsDepositId);
-  saveState(); closeModal('savingsDepositModal');
-  updateHeader();
-  renderContent();
+  // Atomic reverse: if this deposit is the goal-side credit of a paid pending payment,
+  // un-pay that pending payment so the salary debit is released too.
+  const linkedPending = (state.pendingPayments||[]).find(p =>
+    (dep.pendingPaymentId && p.id === dep.pendingPaymentId) ||
+    (p.depositId && p.depositId === depId)
+  );
+  if (linkedPending && linkedPending.status === 'paid') {
+    linkedPending.status = 'pending';
+    delete linkedPending.paidAmount;
+    delete linkedPending.paidDate;
+    delete linkedPending.depositId;
+  }
+  state.savingsDeposits = (state.savingsDeposits||[]).filter(d=>d.id!==depId);
 }
 
 // ── Helper: scoped color grid ─────────────────────────────────────────────────
@@ -15123,7 +15145,15 @@ function getAccountBalance(accountId) {
 
   // Savings deposits sourced from this account
   (state.savingsDeposits||[]).forEach(d => {
-    if (d.sourceAccountId === accountId) bal -= d.amount;
+    if (d.sourceAccountId === accountId) {
+      // Don't double-count: if this deposit is the goal-side credit of a paid pending
+      // payment, that pending payment already represents the salary debit.
+      if (d.pendingPaymentId) {
+        const lp = (state.pendingPayments||[]).find(p => p.id === d.pendingPaymentId && p.status === 'paid');
+        if (lp) return;
+      }
+      bal -= d.amount;
+    }
   });
 
   // Pending payments paid from this salary account
@@ -17274,23 +17304,18 @@ function payPendingItem(pendingId) {
   const goal = savingsCatById(p.goalId);
   const name = goal ? goal.name : (p.note || 'Saving');
 
-  // Real reported gap: nothing here ever checked whether the salary account
-  // actually has enough to cover this payment. Paying several pending items
-  // in sequence with no check could silently push the salary balance
-  // negative with zero warning — which is exactly what happened. This
-  // doesn't block the payment (the user may have a legitimate reason — an
-  // upcoming deposit, a different mental model of the account, etc.) but it
-  // makes the actual numbers explicit so the choice is genuinely informed
-  // rather than a surprise discovered afterward.
+  // Hard block: you cannot transfer more than the salary account actually holds.
+  // This previously only warned ("Pay anyway?"), which let the balance be driven
+  // negative — the root trigger for the offset discrepancy. Now it's prevented.
   const salBalBeforePay = p.salaryAccountId ? getAccountBalance(p.salaryAccountId) : null;
-  let confirmMsg = 'Pay ' + fmt(p.amount) + ' to ' + name + '?';
   if (salBalBeforePay !== null) {
     const resultingBal = Math.round((salBalBeforePay - p.amount) * 100) / 100;
-    if (resultingBal < 0) {
-      confirmMsg = '⚠️ Salary balance is ' + fmt(salBalBeforePay) + ' — paying ' + fmt(p.amount) + ' to ' + name + ' would leave it ' + fmt(Math.abs(resultingBal)) + ' NEGATIVE.\n\nPay anyway?';
+    if (resultingBal < -0.005) {
+      showToast('🛑 Salary balance is ' + fmt(salBalBeforePay) + ' — paying ' + fmt(p.amount) + ' to ' + name + ' would overdraw it by ' + fmt(Math.abs(resultingBal)) + '. Add income or lower the amount first.', 4500);
+      return;
     }
   }
-  if (!confirm(confirmMsg)) return;
+  if (!confirm('Pay ' + fmt(p.amount) + ' to ' + name + '?')) return;
 
   // Create goal deposit
   if (!state.savingsDeposits) state.savingsDeposits = [];
@@ -17308,13 +17333,19 @@ function payPendingItem(pendingId) {
   state.savingsDeposits.push({
     id: depositId, catId: resolvedGoalId, targetId: resolvedGoalId,
     amount: p.amount, date: todayStr(), note: p.note || name,
-    type: 'deposit', recurringId: p.recurringId, sourceAccountId: p.salaryAccountId,
+    type: 'deposit', recurringId: p.recurringId,
+    // The salary debit lives ONCE on the paid pending payment below. This deposit is
+    // only the goal-side credit, so it must NOT also carry sourceAccountId — doing so
+    // made getAccountBalance subtract the same money twice and drove salary negative.
+    pendingPaymentId: pendingId,
     cycleDate: p.dueDate, // which cycle this deposit belongs to (not when it was paid)
   });
-  // Mark pending as paid
+  // Mark pending as paid — and link it to its goal-side deposit so the two records
+  // stay atomic (deleting one reverts the other; neither can orphan the other).
   p.status = 'paid';
   p.paidDate = todayStr();
   p.paidAmount = p.amount;
+  p.depositId = depositId;
   saveState();
   renderAccounts();
   showToast('✅ Paid ' + fmt(p.amount) + ' to ' + name, 2000);
@@ -17455,10 +17486,89 @@ function cancelPendingItem(pendingId) {
   const p = (state.pendingPayments||[]).find(x => x.id === pendingId);
   if (!p) return;
   if (!confirm('Cancel this pending payment? The money stays in your salary account.')) return;
+  // If it had already been paid, remove its goal-side deposit too — otherwise the
+  // deposit would stay in the goal with no salary debit backing it (orphan).
+  if (p.depositId) {
+    state.savingsDeposits = (state.savingsDeposits||[]).filter(d => d.id !== p.depositId);
+    delete p.depositId;
+    delete p.paidAmount;
+    delete p.paidDate;
+  }
   p.status = 'cancelled';
   saveState();
   renderAccounts();
   showToast('Payment cancelled', 1500);
+}
+
+// ── Fix 4: salary↔goal integrity detector ─────────────────────────────────────
+// Surfaces the two failure modes behind the offset discrepancy so they can be
+// reviewed (used by the cleanup tooling and the test harness's data-integrity layer):
+//   • orphanedPaidPendings — a PAID salary→goal payment with no goal-side deposit
+//     (e.g. the deposit was deleted but the pending stayed paid)
+//   • doubleDebits — a deposit that carries sourceAccountId AND has a matching paid
+//     pending payment, so the same money is subtracted from salary twice
+function findSalaryGoalIssues() {
+  const deps  = (state.savingsDeposits||[]);
+  const pends = (state.pendingPayments||[]);
+  const orphanedPaidPendings = [];
+  const doubleDebits = [];
+  pends.forEach(p => {
+    if (p.status !== 'paid' || !p.salaryAccountId) return;
+    const gid = p.goalId || p.catId;
+    const amt = p.paidAmount != null ? p.paidAmount : p.amount;
+    // Prefer the explicit link; fall back to a goal+amount match for legacy records.
+    let linked = p.depositId ? deps.find(d => d.id === p.depositId) : null;
+    if (!linked) {
+      linked = deps.find(d => d.catId === gid && d.type === 'deposit' &&
+                              Math.abs(d.amount - amt) < 0.005 && !d._claimed);
+    }
+    if (!linked) {
+      orphanedPaidPendings.push({ pendingId: p.id, goalId: gid, amount: amt, dueDate: p.dueDate });
+    } else {
+      linked._claimed = true; // one deposit can satisfy only one pending payment
+      if (linked.sourceAccountId === p.salaryAccountId) {
+        doubleDebits.push({ pendingId: p.id, depositId: linked.id, goalId: gid, amount: amt });
+      }
+    }
+  });
+  deps.forEach(d => { delete d._claimed; });
+  return { orphanedPaidPendings, doubleDebits };
+}
+
+// ── Fix 5 (data repair): rebuild the goal deposit for an orphaned paid payment ──
+// A paid salary→goal payment already knows its goal and amount, so when its goal-side
+// deposit was deleted we can recreate it deterministically from the pending payment
+// itself — no guessing. This restores the money to the goal (and therefore the offset)
+// while keeping the salary debit single. Safe to run repeatedly: it only acts on
+// pendings that findSalaryGoalIssues() still reports as orphaned.
+function resolveOrphanedPaidPendings() {
+  const { orphanedPaidPendings } = findSalaryGoalIssues();
+  if (orphanedPaidPendings.length === 0) { showToast('✅ No orphaned paid payments to fix', 2500); return; }
+  if (!state.savingsDeposits) state.savingsDeposits = [];
+  let restored = 0, total = 0;
+  orphanedPaidPendings.forEach(o => {
+    const p = (state.pendingPayments||[]).find(x => x.id === o.pendingId);
+    if (!p) return;
+    const gid = p.goalId || p.catId;
+    if (!gid) return;
+    const goal = savingsCatById(gid);
+    const amt = p.paidAmount != null ? p.paidAmount : p.amount;
+    const depId = uid();
+    state.savingsDeposits.push({
+      id: depId, catId: gid, targetId: gid,
+      amount: amt, date: p.paidDate || p.dueDate || todayStr(),
+      note: (goal ? goal.name : (p.note || 'Saving')),
+      type: 'deposit', recurringId: p.recurringId || null,
+      pendingPaymentId: p.id, cycleDate: p.dueDate,
+    });
+    p.depositId = depId;
+    restored++; total += amt;
+  });
+  total = Math.round(total * 100) / 100;
+  saveState();
+  if (typeof renderAccounts === 'function') renderAccounts();
+  if (typeof updateHeader === 'function') updateHeader();
+  showToast('✅ Restored ' + restored + ' payment' + (restored!==1?'s':'') + ' — ' + fmt(total) + ' back to your goals', 4000);
 }
 
 function editPendingAmount(pendingId) {
@@ -18131,6 +18241,22 @@ function renderAccounts() {
         window._offsetOrphanBanner = false;
         window._offsetOrphanHTML = '';
       }
+
+      // ── Orphaned PAID pending payments banner (salary debited, goal credit deleted) ──
+      const _spIssues = findSalaryGoalIssues();
+      if (_spIssues.orphanedPaidPendings.length > 0) {
+        const _opCount = _spIssues.orphanedPaidPendings.length;
+        const _opTotal = Math.round(_spIssues.orphanedPaidPendings.reduce((s,o) => s + o.amount, 0) * 100) / 100;
+        window._offsetOrphanPaidBanner = true;
+        window._offsetOrphanPaidHTML = '<div style="background:rgba(255,59,48,0.08);border:1.5px solid rgba(255,59,48,0.25);border-radius:12px;padding:14px;margin-bottom:14px">' +
+          '<div style="font-size:13px;font-weight:700;color:var(--red);margin-bottom:4px">⚠️ ' + _opCount + ' paid payment' + (_opCount!==1?'s':'') + ' missing from goals</div>' +
+          '<div style="font-size:12px;color:var(--muted);margin-bottom:12px">' + fmtB(_opTotal) + ' left salary but its goal deposit was deleted — pulling your offset balance down. This rebuilds the goal deposit from the payment itself.</div>' +
+          '<button onclick="resolveOrphanedPaidPendings()" style="width:100%;background:var(--red);color:#fff;border:none;border-radius:10px;padding:11px;font-size:13px;font-weight:700;font-family:var(--font);cursor:pointer">🔧 Fix now — restore ' + fmtB(_opTotal) + ' to offset</button>' +
+        '</div>';
+      } else {
+        window._offsetOrphanPaidBanner = false;
+        window._offsetOrphanPaidHTML = '';
+      }
     }
 
     // ── Super account detail view ─────────────────────────────────────────────
@@ -18799,6 +18925,10 @@ function renderAccounts() {
     // Orphan deposit banner for offset accounts
     if (acct.type === 'offset' && window._offsetOrphanBanner) {
       html += window._offsetOrphanHTML;
+    }
+    // Orphaned paid-payment banner for offset accounts
+    if (acct.type === 'offset' && window._offsetOrphanPaidBanner) {
+      html += window._offsetOrphanPaidHTML;
     }
 
     // Resumable reconciliation card — shows if a review was minimized (X)

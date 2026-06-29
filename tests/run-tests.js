@@ -2597,52 +2597,166 @@ await check('the cycle navigator (‹ Current cycle ›) still renders BEFORE th
 });
 
 // ─────────────────────────────────────────────────────────────────────────
-console.log('\n── Pending savings payment: warn before pushing salary balance negative ──');
+console.log('\n── Pending savings payment: HARD-BLOCK overdrawing salary (was: warn) ──');
 
-await check('payPendingItem() warns with the specific numbers when paying would push salary negative (the actual reported gap — no check existed at all before)', () => {
+// Behaviour deliberately changed in v2.22.0: paying a pending goal payment that would
+// overdraw the salary account is now PREVENTED, not merely warned. This was the root
+// trigger of the offset discrepancy — a soft "pay anyway?" let salary be driven negative.
+
+await check('payPendingItem() hard-blocks a payment that would overdraw salary — nothing is paid, item stays pending, salary untouched', () => {
   ctx.state = buildMockState();
-  ctx.state.accounts.push({ id: 'warnSalary1', name: 'Salary', type: 'transaction', isSalaryAccount: true, openingBalance: 50 });
-  ctx.state.savingsCategories.push({ id: 'warnGoal1', name: 'Travel' });
-  ctx.state.pendingPayments.push({ id: 'wpp1', salaryAccountId: 'warnSalary1', status: 'pending', dueDate: ctx.todayStr(), amount: 100, goalId: 'warnGoal1', note: 'Test' });
-  let capturedMsg = null;
-  ctx.confirm = (msg) => { capturedMsg = msg; return false; };
-  ctx.payPendingItem('wpp1');
-  assertTrue(capturedMsg.includes('NEGATIVE'), 'must clearly flag that this specific payment would go negative');
-  assertTrue(capturedMsg.includes('$50.00') && capturedMsg.includes('$100.00'), 'must show the actual real numbers (current balance and payment amount), not a generic warning');
+  ctx.state.accounts.push({ id: 'blkSalary1', name: 'Salary', type: 'transaction', isSalaryAccount: true, openingBalance: 50 });
+  ctx.state.savingsCategories.push({ id: 'blkGoal1', name: 'Travel' });
+  ctx.state.pendingPayments.push({ id: 'bpp1', salaryAccountId: 'blkSalary1', status: 'pending', dueDate: ctx.todayStr(), amount: 100, goalId: 'blkGoal1', note: 'Test' });
+  ctx.confirm = () => true; // even if the user "confirms", the block must hold
+  const before = ctx.getAccountBalance('blkSalary1');
+  ctx.payPendingItem('bpp1');
+  const p = ctx.state.pendingPayments.find(x => x.id === 'bpp1');
+  assertEqual(p.status, 'pending', 'an overdrawing payment must NOT be executed — it is blocked, not just warned');
+  assertTrue(!ctx.state.savingsDeposits.some(d => d.note === 'Test' && d.amount === 100), 'no goal deposit may be created when the payment is blocked');
+  assertEqual(ctx.getAccountBalance('blkSalary1'), before, 'salary balance must be untouched after a blocked payment');
 });
 
-await check('payPendingItem() does NOT show the negative-balance warning when the balance genuinely covers it', () => {
+await check('payPendingItem() still pays normally when the salary balance covers it', () => {
   ctx.state = buildMockState();
-  ctx.state.accounts.push({ id: 'warnSalary2', name: 'Salary', type: 'transaction', isSalaryAccount: true, openingBalance: 500 });
-  ctx.state.savingsCategories.push({ id: 'warnGoal2', name: 'Travel' });
-  ctx.state.pendingPayments.push({ id: 'wpp2', salaryAccountId: 'warnSalary2', status: 'pending', dueDate: ctx.todayStr(), amount: 100, goalId: 'warnGoal2', note: 'Test' });
-  let capturedMsg = null;
-  ctx.confirm = (msg) => { capturedMsg = msg; return true; };
-  ctx.payPendingItem('wpp2');
-  assertTrue(!capturedMsg.includes('NEGATIVE'), 'a payment that the balance genuinely covers must not show a false negative-balance warning');
+  ctx.state.accounts.push({ id: 'blkSalary2', name: 'Salary', type: 'transaction', isSalaryAccount: true, openingBalance: 500 });
+  ctx.state.savingsCategories.push({ id: 'blkGoal2', name: 'Travel' });
+  ctx.state.pendingPayments.push({ id: 'bpp2', salaryAccountId: 'blkSalary2', status: 'pending', dueDate: ctx.todayStr(), amount: 100, goalId: 'blkGoal2', note: 'Test' });
+  ctx.confirm = () => true;
+  ctx.payPendingItem('bpp2');
+  const p = ctx.state.pendingPayments.find(x => x.id === 'bpp2');
+  assertEqual(p.status, 'paid', 'a payment the balance genuinely covers must still go through');
 });
 
-await check('payPendingItem() still respects the user declining the warning — no deposit created, item stays pending', () => {
+await check('payPendingItem() blocks only on a genuine overdraw, not when paying exactly empties the account (zero is allowed)', () => {
   ctx.state = buildMockState();
-  ctx.state.accounts.push({ id: 'warnSalary3', name: 'Salary', type: 'transaction', isSalaryAccount: true, openingBalance: 50 });
-  ctx.state.savingsCategories.push({ id: 'warnGoal3', name: 'Travel' });
-  ctx.state.pendingPayments.push({ id: 'wpp3', salaryAccountId: 'warnSalary3', status: 'pending', dueDate: ctx.todayStr(), amount: 100, goalId: 'warnGoal3', note: 'Test' });
-  ctx.confirm = () => false; // user says no
-  ctx.payPendingItem('wpp3');
-  const p = ctx.state.pendingPayments.find(x => x.id === 'wpp3');
-  assertEqual(p.status, 'pending', 'declining the warning must leave the payment unexecuted — this is informed choice, not a hard block, but the choice must actually be respected');
-  assertTrue(!ctx.state.savingsDeposits.some(d => d.note === 'Test' && d.amount === 100), 'no deposit should be created if declined');
+  ctx.state.accounts.push({ id: 'blkSalary3', name: 'Salary', type: 'transaction', isSalaryAccount: true, openingBalance: 100 });
+  ctx.state.savingsCategories.push({ id: 'blkGoal3', name: 'Travel' });
+  ctx.state.pendingPayments.push({ id: 'bpp3', salaryAccountId: 'blkSalary3', status: 'pending', dueDate: ctx.todayStr(), amount: 100, goalId: 'blkGoal3', note: 'Test' });
+  ctx.confirm = () => true;
+  ctx.payPendingItem('bpp3');
+  const p = ctx.state.pendingPayments.find(x => x.id === 'bpp3');
+  assertEqual(p.status, 'paid', 'paying down to exactly zero is fine — only going below zero is blocked');
 });
 
-await check('payPendingItem() still works correctly when the user explicitly confirms despite the warning — the safeguard informs, it does not block', () => {
+await check('payPendingItem() does NOT double-debit salary — the deposit is the goal-side credit only; the paid pending is the single salary debit (the core v2.22.0 fix)', () => {
   ctx.state = buildMockState();
-  ctx.state.accounts.push({ id: 'warnSalary4', name: 'Salary', type: 'transaction', isSalaryAccount: true, openingBalance: 50 });
-  ctx.state.savingsCategories.push({ id: 'warnGoal4', name: 'Travel' });
-  ctx.state.pendingPayments.push({ id: 'wpp4', salaryAccountId: 'warnSalary4', status: 'pending', dueDate: ctx.todayStr(), amount: 100, goalId: 'warnGoal4', note: 'Test' });
-  ctx.confirm = () => true; // user proceeds anyway, fully informed
-  ctx.payPendingItem('wpp4');
-  const p = ctx.state.pendingPayments.find(x => x.id === 'wpp4');
-  assertEqual(p.status, 'paid', 'the user must still be able to proceed if they choose to — this is about an informed decision, not removing their control');
+  ctx.state.accounts.push({ id: 'ddSalary', name: 'Salary', type: 'transaction', isSalaryAccount: true, openingBalance: 1000 });
+  ctx.state.savingsCategories.push({ id: 'ddGoal', name: 'Travel' });
+  ctx.state.pendingPayments.push({ id: 'ddpp', salaryAccountId: 'ddSalary', status: 'pending', dueDate: ctx.todayStr(), amount: 200, goalId: 'ddGoal', note: 'Test' });
+  ctx.confirm = () => true;
+  const goalBefore = ctx.totalSavedForCat('ddGoal');
+  ctx.payPendingItem('ddpp');
+  // Salary must drop by EXACTLY 200 (once), not 400 (the old double-count bug)
+  assertEqual(ctx.getAccountBalance('ddSalary'), 800, 'salary must be debited once (1000 - 200), never twice');
+  assertEqual(ctx.totalSavedForCat('ddGoal') - goalBefore, 200, 'the goal must be credited exactly once');
+  const dep = ctx.state.savingsDeposits.find(d => d.pendingPaymentId === 'ddpp');
+  assertTrue(!!dep, 'the goal-side deposit must be created and linked back to its pending payment');
+  assertTrue(dep.sourceAccountId == null, 'the pending-paid deposit must NOT carry sourceAccountId — that double-debited salary');
+  const p = ctx.state.pendingPayments.find(x => x.id === 'ddpp');
+  assertEqual(p.depositId, dep.id, 'the pending payment must link forward to its deposit (atomic pair)');
+});
+
+await check('deleting a pending-paid deposit reverts its pending payment to unpaid and returns the money to salary — no orphan (the exact deletion that caused the discrepancy)', () => {
+  ctx.state = buildMockState();
+  ctx.state.accounts.push({ id: 'revSalary', name: 'Salary', type: 'transaction', isSalaryAccount: true, openingBalance: 1000 });
+  ctx.state.savingsCategories.push({ id: 'revGoal', name: 'Travel' });
+  ctx.state.pendingPayments.push({ id: 'revpp', salaryAccountId: 'revSalary', status: 'pending', dueDate: ctx.todayStr(), amount: 250, goalId: 'revGoal', note: 'Test' });
+  ctx.confirm = () => true;
+  ctx.payPendingItem('revpp');
+  const dep = ctx.state.savingsDeposits.find(d => d.pendingPaymentId === 'revpp');
+  assertEqual(ctx.getAccountBalance('revSalary'), 750, 'sanity: salary is 1000 - 250 after paying');
+  // Now delete the goal deposit (what the user did to "fix" a negative salary)
+  ctx._deleteSavingsDepositById(dep.id);
+  const p = ctx.state.pendingPayments.find(x => x.id === 'revpp');
+  assertEqual(p.status, 'pending', 'deleting the goal deposit must un-pay its linked pending payment');
+  assertEqual(ctx.getAccountBalance('revSalary'), 1000, 'the money must return to salary — not vanish from the offset');
+  const issues = ctx.findSalaryGoalIssues();
+  assertEqual(issues.orphanedPaidPendings.length, 0, 'there must be no orphaned paid pending payment after an atomic reverse');
+});
+
+await check('cancelPendingItem() on an already-paid item removes its goal deposit too (no orphaned deposit left behind)', () => {
+  ctx.state = buildMockState();
+  ctx.state.accounts.push({ id: 'canSalary', name: 'Salary', type: 'transaction', isSalaryAccount: true, openingBalance: 1000 });
+  ctx.state.savingsCategories.push({ id: 'canGoal', name: 'Travel' });
+  ctx.state.pendingPayments.push({ id: 'canpp', salaryAccountId: 'canSalary', status: 'pending', dueDate: ctx.todayStr(), amount: 120, goalId: 'canGoal', note: 'Test' });
+  ctx.confirm = () => true;
+  ctx.payPendingItem('canpp');
+  const depId = ctx.state.pendingPayments.find(x => x.id === 'canpp').depositId;
+  assertTrue(!!ctx.state.savingsDeposits.find(d => d.id === depId), 'sanity: deposit exists after paying');
+  ctx.cancelPendingItem('canpp');
+  assertTrue(!ctx.state.savingsDeposits.find(d => d.id === depId), 'cancelling a paid item must remove its goal deposit');
+  assertEqual(ctx.getAccountBalance('canSalary'), 1000, 'cancelling returns the money to salary');
+});
+
+await check('findSalaryGoalIssues() flags a paid pending whose goal deposit was deleted (orphaned outflow)', () => {
+  ctx.state = buildMockState();
+  ctx.state.accounts.push({ id: 'intSalary', name: 'Salary', type: 'transaction', isSalaryAccount: true, openingBalance: 1000 });
+  ctx.state.savingsCategories.push({ id: 'intGoal', name: 'Travel' });
+  // A paid pending with NO matching deposit anywhere — the Holidays/Council situation
+  ctx.state.pendingPayments.push({ id: 'intpp', salaryAccountId: 'intSalary', status: 'paid', paidAmount: 268.21, dueDate: ctx.todayStr(), amount: 268.21, goalId: 'intGoal', note: 'Council' });
+  const issues = ctx.findSalaryGoalIssues();
+  assertEqual(issues.orphanedPaidPendings.length, 1, 'a paid pending with no goal deposit must be reported as orphaned');
+  assertEqual(issues.orphanedPaidPendings[0].amount, 268.21, 'the reported orphan must carry the real amount for cleanup');
+});
+
+await check('findSalaryGoalIssues() flags a legacy double-debit (deposit carries sourceAccountId AND a matching paid pending exists)', () => {
+  ctx.state = buildMockState();
+  ctx.state.accounts.push({ id: 'ddSal2', name: 'Salary', type: 'transaction', isSalaryAccount: true, openingBalance: 1000 });
+  ctx.state.savingsCategories.push({ id: 'ddGoal2', name: 'Shares' });
+  ctx.state.pendingPayments.push({ id: 'ddpp2', salaryAccountId: 'ddSal2', status: 'paid', paidAmount: 670.22, dueDate: ctx.todayStr(), amount: 670.22, goalId: 'ddGoal2', note: 'Shares' });
+  ctx.state.savingsDeposits.push({ id: 'dddep2', catId: 'ddGoal2', targetId: 'ddGoal2', type: 'deposit', amount: 670.22, date: ctx.todayStr(), note: 'Shares', sourceAccountId: 'ddSal2' });
+  const issues = ctx.findSalaryGoalIssues();
+  assertEqual(issues.doubleDebits.length, 1, 'a deposit with sourceAccountId plus a matching paid pending is a double-debit and must be flagged');
+});
+
+await check('resolveOrphanedPaidPendings() rebuilds the deleted goal deposit from the paid pending — money returns to the offset, orphan count goes to zero', () => {
+  ctx.state = buildMockState();
+  ctx.state.accounts.push({ id: 'resSal', name: 'Salary', type: 'transaction', isSalaryAccount: true, openingBalance: 1000 });
+  ctx.state.savingsCategories.push({ id: 'resGoal', name: 'Council rates' });
+  // A paid pending whose goal deposit was deleted — exactly the real Holidays/Council case
+  ctx.state.pendingPayments.push({ id: 'respp', salaryAccountId: 'resSal', status: 'paid', paidAmount: 268.21, dueDate: ctx.todayStr(), amount: 268.21, goalId: 'resGoal', note: 'Council rates' });
+  const goalBefore = ctx.totalSavedForCat('resGoal');
+  assertEqual(ctx.findSalaryGoalIssues().orphanedPaidPendings.length, 1, 'sanity: starts orphaned');
+  ctx.resolveOrphanedPaidPendings();
+  assertEqual(ctx.totalSavedForCat('resGoal') - goalBefore, 268.21, 'the exact paid amount must be restored to the goal');
+  assertEqual(ctx.findSalaryGoalIssues().orphanedPaidPendings.length, 0, 'no orphan should remain after the repair');
+  const dep = ctx.state.savingsDeposits.find(d => d.pendingPaymentId === 'respp');
+  assertTrue(!!dep && dep.sourceAccountId == null, 'rebuilt deposit must be linked and must NOT carry sourceAccountId (no re-introduced double-debit)');
+});
+
+await check('resolveOrphanedPaidPendings() does not double-debit salary when it rebuilds a deposit (salary stays put; only the goal is credited)', () => {
+  ctx.state = buildMockState();
+  ctx.state.accounts.push({ id: 'resSal2', name: 'Salary', type: 'transaction', isSalaryAccount: true, openingBalance: 1000 });
+  ctx.state.savingsCategories.push({ id: 'resGoal2', name: 'Holidays' });
+  ctx.state.pendingPayments.push({ id: 'respp2', salaryAccountId: 'resSal2', status: 'paid', paidAmount: 2145.51, dueDate: ctx.todayStr(), amount: 2145.51, goalId: 'resGoal2', note: 'Holidays' });
+  const salBefore = ctx.getAccountBalance('resSal2'); // already reflects the paid pending debit
+  ctx.resolveOrphanedPaidPendings();
+  assertEqual(ctx.getAccountBalance('resSal2'), salBefore, 'rebuilding the goal deposit must not change salary — the pending payment is still the single debit');
+});
+
+await check('resolveOrphanedPaidPendings() is a safe no-op when there is nothing to fix', () => {
+  ctx.state = buildMockState();
+  ctx.state.accounts.push({ id: 'resSal3', name: 'Salary', type: 'transaction', isSalaryAccount: true, openingBalance: 1000 });
+  ctx.state.savingsCategories.push({ id: 'resGoal3', name: 'Travel' });
+  ctx.state.pendingPayments.push({ id: 'respp3', salaryAccountId: 'resSal3', status: 'pending', dueDate: ctx.todayStr(), amount: 100, goalId: 'resGoal3', note: 'Test' });
+  ctx.confirm = () => true;
+  ctx.payPendingItem('respp3'); // clean paid+linked
+  const depCountBefore = ctx.state.savingsDeposits.length;
+  ctx.resolveOrphanedPaidPendings();
+  assertEqual(ctx.state.savingsDeposits.length, depCountBefore, 'a clean state must not have phantom deposits created');
+});
+
+await check('findSalaryGoalIssues() reports a clean linked payment as having no issues', () => {
+  ctx.state = buildMockState();
+  ctx.state.accounts.push({ id: 'clnSal', name: 'Salary', type: 'transaction', isSalaryAccount: true, openingBalance: 1000 });
+  ctx.state.savingsCategories.push({ id: 'clnGoal', name: 'Travel' });
+  ctx.state.pendingPayments.push({ id: 'clnpp', salaryAccountId: 'clnSal', status: 'pending', dueDate: ctx.todayStr(), amount: 300, goalId: 'clnGoal', note: 'Test' });
+  ctx.confirm = () => true;
+  ctx.payPendingItem('clnpp');
+  const issues = ctx.findSalaryGoalIssues();
+  assertEqual(issues.orphanedPaidPendings.length, 0, 'a properly paid+linked payment is not an orphan');
+  assertEqual(issues.doubleDebits.length, 0, 'a properly paid+linked payment is not a double-debit');
 });
 
 await check('payPendingItem() does not throw when a pending payment has no salaryAccountId at all (handles missing data gracefully)', () => {
