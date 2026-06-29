@@ -2135,9 +2135,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.24.0';
+const APP_VERSION = '2.25.0';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '29 Jun 2026 5:36 PM AEDT';
+const BUILD_TIME = '29 Jun 2026 7:22 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -8705,8 +8705,30 @@ function unlockApp() {
 }
 const BIOM_CRED_KEY = 'spendly_biom_cred'; // stored credential ID (base64)
 
+// Whether a real platform authenticator (Face ID / Touch ID / Windows Hello) is usable.
+// null = not yet probed. The WebAuthn API can exist on a device with no usable biometric,
+// so the UI must gate on the probe, not just API existence.
+let _biomPlatformAvail = null;
+async function probeBiometricAvailable() {
+  try {
+    if (window.PublicKeyCredential && typeof PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable === 'function') {
+      _biomPlatformAvail = await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
+    } else {
+      _biomPlatformAvail = false;
+    }
+  } catch (e) {
+    _biomPlatformAvail = false;
+  }
+  return _biomPlatformAvail;
+}
+
 function isBiometricSupported() {
-  return !!(window.PublicKeyCredential && navigator.credentials && navigator.credentials.get);
+  if (!(window.PublicKeyCredential && navigator.credentials && navigator.credentials.get)) return false;
+  // If we've probed and there is no usable platform authenticator, treat as unsupported
+  // so we never offer Face ID where it can't actually work. Before the probe runs
+  // (_biomPlatformAvail === null) we fall back to API existence.
+  if (_biomPlatformAvail === false) return false;
+  return true;
 }
 
 function hasBiometricRegistered() {
@@ -8800,10 +8822,13 @@ async function triggerBiometric() {
       showPinFallback();
     }
   } catch(e) {
-    // User cancelled or Face ID failed — fall back to PIN
+    // User cancelled or Face ID failed — stay on the Face ID prompt so they can retry,
+    // with "Use PIN instead" right there. Never trap them away from a working unlock.
     const btn = document.getElementById('faceIdBtn');
-    if (btn) { btn.style.opacity = '1'; }
-    showPinFallback();
+    if (btn) { btn.style.opacity = '1'; btn.disabled = false; }
+    showFaceIdPrompt();
+    const sub = document.getElementById('lockSub');
+    if (sub) sub.textContent = 'Face ID cancelled — tap to retry, or use your PIN';
   }
 }
 
@@ -8818,6 +8843,8 @@ async function offerBiometric() {
 async function initLock() {
   // Skip PIN if user just authenticated via password this session
   try { if (sessionStorage.getItem('spendly_pin_bypassed') === '1') return; } catch(e) {}
+  // Probe for a real platform authenticator before deciding what to show
+  await probeBiometricAvailable();
   const hasPin = !!localStorage.getItem(LOCK_KEY);
   const skipped = !!localStorage.getItem(LOCK_SKIPPED);
   if (!hasPin && !skipped) {
@@ -8843,11 +8870,13 @@ async function initLock() {
 
     const hasBiom = isBiometricSupported() && hasBiometricRegistered();
     if (hasBiom) {
-      document.getElementById('lockSub').textContent = 'Scanning...';
+      document.getElementById('lockSub').textContent = 'Tap to unlock with Face ID';
       showFaceIdPrompt();
       showLockScreen();
-      // Auto-trigger Face ID after screen is visible
-      setTimeout(() => triggerBiometric(), 400);
+      // Do NOT auto-invoke: iOS Safari requires a user gesture (a tap) to start the
+      // WebAuthn ceremony. Auto-firing here was rejected with no gesture and silently
+      // dropped to the PIN, so Face ID never actually prompted. The user taps the
+      // "Use Face ID" button (which is a gesture) to unlock.
     } else {
       document.getElementById('lockSub').textContent = 'Enter your PIN to continue';
       showPinFallback();
@@ -8858,8 +8887,9 @@ async function initLock() {
 
 // Enable/disable Face ID from Settings
 async function setupFaceId() {
+  await probeBiometricAvailable();
   if (!isBiometricSupported()) {
-    showToast('Face ID / biometric authentication is not supported on this device.', 3000);
+    showToast('Face ID / biometric authentication is not available on this device.', 3000);
     return;
   }
   if (hasBiometricRegistered()) {

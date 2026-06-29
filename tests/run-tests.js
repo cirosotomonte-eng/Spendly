@@ -2809,6 +2809,64 @@ await check('payPendingItem() does not throw when a pending payment has no salar
   assertNoThrow(() => ctx.payPendingItem('wpp5'));
 });
 
+console.log('\n── Face ID / biometric unlock (logic + safety; the WebAuthn ceremony itself is device-only) ──');
+
+await check('isBiometricSupported() is false when no platform authenticator is available, even though the WebAuthn API exists (do not offer Face ID where it cannot work)', async () => {
+  ctx.PublicKeyCredential = { isUserVerifyingPlatformAuthenticatorAvailable: async () => false };
+  ctx.navigator = { credentials: { get(){}, create(){} } };
+  await ctx.probeBiometricAvailable();
+  assertTrue(ctx.isBiometricSupported() === false, 'API present but no usable authenticator must read as unsupported');
+  ctx.PublicKeyCredential = { isUserVerifyingPlatformAuthenticatorAvailable: async () => true };
+  await ctx.probeBiometricAvailable();
+  assertTrue(ctx.isBiometricSupported() === true, 'a usable platform authenticator must read as supported');
+  ctx.PublicKeyCredential = undefined; ctx.navigator = {};
+});
+
+await check('isBiometricSupported() is false when the WebAuthn API is entirely absent (Face ID gated off, PIN-only)', () => {
+  ctx.PublicKeyCredential = undefined; ctx.navigator = {};
+  assertTrue(ctx.isBiometricSupported() === false, 'no WebAuthn API => PIN-only, never a broken Face ID prompt');
+});
+
+await check('hasBiometricRegistered() reflects whether a credential id is stored', () => {
+  ctx.localStorage.removeItem('spendly_biom_cred');
+  assertTrue(ctx.hasBiometricRegistered() === false, 'no stored credential => not registered');
+  ctx.localStorage.setItem('spendly_biom_cred', 'AAAA');
+  assertTrue(ctx.hasBiometricRegistered() === true, 'stored credential => registered');
+  ctx.localStorage.removeItem('spendly_biom_cred');
+});
+
+await check('initLock() never auto-invokes the WebAuthn ceremony — iOS requires a user gesture, so Face ID is tap-triggered (regression: auto-fire silently fell back to PIN)', () => {
+  const fs = require('fs');
+  const html = fs.readFileSync(APP_PATH, 'utf8');
+  const start = html.indexOf('async function initLock()');
+  const end = html.indexOf('async function setupFaceId()');
+  assertTrue(start !== -1 && end !== -1 && end > start, 'initLock and setupFaceId must both be present');
+  const body = html.slice(start, end);
+  assertTrue(!/triggerBiometric\s*\(/.test(body), 'initLock must NOT call triggerBiometric — no auto-fire; the user taps Use Face ID');
+  assertTrue(/probeBiometricAvailable\s*\(/.test(body), 'initLock must probe platform-authenticator availability before gating the UI');
+});
+
+await check('showFaceIdPrompt() and showPinFallback() toggle the lock UI correctly (PIN always reachable)', () => {
+  ctx.showFaceIdPrompt();
+  assertTrue(ctx.document.getElementById('faceIdPrompt').style.display === 'flex', 'Face ID prompt shown');
+  assertTrue(ctx.document.getElementById('pinPad').style.display === 'none', 'PIN pad hidden while Face ID shown');
+  ctx.showPinFallback();
+  assertTrue(ctx.document.getElementById('pinPad').style.display === 'flex', 'PIN pad shown on fallback');
+  assertTrue(ctx.document.getElementById('faceIdPrompt').style.display === 'none', 'Face ID prompt hidden on PIN fallback');
+});
+
+await check('triggerBiometric() keeps the Face ID prompt visible after a cancelled scan instead of trapping the user away from a retry', async () => {
+  ctx.PublicKeyCredential = { isUserVerifyingPlatformAuthenticatorAvailable: async () => true };
+  ctx.crypto = { getRandomValues: (a) => a };
+  ctx.navigator = { credentials: { get: () => Promise.reject(new Error('cancelled')), create(){} } };
+  await ctx.probeBiometricAvailable();
+  ctx.localStorage.setItem('spendly_biom_cred', 'AAAA');
+  await ctx.triggerBiometric();
+  assertTrue(ctx.document.getElementById('faceIdPrompt').style.display === 'flex', 'after a cancel the Face ID prompt stays so the user can retry or pick PIN');
+  ctx.localStorage.removeItem('spendly_biom_cred');
+  ctx.PublicKeyCredential = undefined; ctx.navigator = {}; ctx.crypto = undefined;
+});
+
 await check('no top-level function is declared more than once anywhere in the file (regression: silent shadowing caused both a data-loss bug and a broken legacy super-contribution modal)', () => {
   const fs = require('fs');
   const html = fs.readFileSync(APP_PATH, 'utf8');
