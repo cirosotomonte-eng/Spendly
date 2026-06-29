@@ -2135,9 +2135,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.23.0';
+const APP_VERSION = '2.24.0';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '29 Jun 2026 5:07 PM AEDT';
+const BUILD_TIME = '29 Jun 2026 5:36 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -17571,6 +17571,63 @@ function resolveOrphanedPaidPendings() {
   showToast('✅ Restored ' + restored + ' payment' + (restored!==1?'s':'') + ' — ' + fmt(total) + ' back to your goals', 4000);
 }
 
+// ── Fix 6 (data repair): remove duplicate goal outflows ────────────────────────
+// Same goal + same day + same amount paid out twice is a duplicate (e.g. a weekly
+// mortgage payment logged once automatically and once by hand). Removing the extra
+// restores that money to the goal — and therefore the offset.
+function findDuplicateGoalOutflows() {
+  const out = (state.savingsDeposits||[]).filter(d => d.type === 'withdrawal' || d.type === 'bill-payment');
+  const seen = {}, dupes = [];
+  out.slice().sort((a,b)=>(a.date||'').localeCompare(b.date||'')).forEach(d => {
+    const key = d.catId + '|' + d.date + '|' + Math.round(d.amount * 100);
+    if (seen[key]) dupes.push(d); else seen[key] = true;
+  });
+  return dupes;
+}
+function resolveDuplicateGoalOutflows() {
+  const dupes = findDuplicateGoalOutflows();
+  if (dupes.length === 0) { showToast('✅ No duplicate goal outflows found', 2500); return; }
+  const ids = new Set(dupes.map(d => d.id));
+  const total = Math.round(dupes.reduce((s,d) => s + d.amount, 0) * 100) / 100;
+  state.savingsDeposits = (state.savingsDeposits||[]).filter(d => !ids.has(d.id));
+  saveState();
+  if (typeof renderAccounts === 'function') renderAccounts();
+  if (typeof updateHeader === 'function') updateHeader();
+  showToast('✅ Removed ' + dupes.length + ' duplicate outflow' + (dupes.length!==1?'s':'') + ' — ' + fmt(total) + ' restored', 4000);
+}
+
+// ── Fix 7 (data repair): clear duplicate salary debit on this cycle's double-counts ──
+// Legacy double-debits carry a sourceAccountId on a deposit that ALSO has a paid pending
+// payment, charging salary twice. The paid pending is the real debit, so we strip the
+// stray sourceAccountId. Scoped to the CURRENT cycle on purpose: older double-debits were
+// already manually compensated with offsetting income entries, so re-fixing them would
+// double-correct. Stripping the current-cycle ones restores the unallocated salary slice
+// of the offset.
+function findCurrentCycleDoubleDebits() {
+  const { doubleDebits } = findSalaryGoalIssues();
+  if (!doubleDebits.length) return [];
+  const { cycleStart, cycleEnd } = getCycleRange(0);
+  const s = dateToStr(cycleStart), e = dateToStr(cycleEnd);
+  return doubleDebits.filter(dd => {
+    const dep = (state.savingsDeposits||[]).find(d => d.id === dd.depositId);
+    return dep && dep.date >= s && dep.date <= e;
+  });
+}
+function resolveCurrentCycleDoubleDebits() {
+  const dd = findCurrentCycleDoubleDebits();
+  if (!dd.length) { showToast('✅ No double-counted payments this cycle', 2500); return; }
+  let fixed = 0, total = 0;
+  dd.forEach(x => {
+    const dep = (state.savingsDeposits||[]).find(d => d.id === x.depositId);
+    if (dep && dep.sourceAccountId) { delete dep.sourceAccountId; fixed++; total += dep.amount; }
+  });
+  total = Math.round(total * 100) / 100;
+  saveState();
+  if (typeof renderAccounts === 'function') renderAccounts();
+  if (typeof updateHeader === 'function') updateHeader();
+  showToast('✅ Fixed ' + fixed + ' double-counted payment' + (fixed!==1?'s':'') + ' — ' + fmt(total) + ' restored to Salary', 4000);
+}
+
 function editPendingAmount(pendingId) {
   const p = (state.pendingPayments||[]).find(x => x.id === pendingId);
   if (!p) return;
@@ -18257,6 +18314,36 @@ function renderAccounts() {
         window._offsetOrphanPaidBanner = false;
         window._offsetOrphanPaidHTML = '';
       }
+
+      // ── Duplicate goal outflow banner (e.g. a mortgage payment logged twice) ──
+      const _dupOut = findDuplicateGoalOutflows();
+      if (_dupOut.length > 0) {
+        const _dupTotal = Math.round(_dupOut.reduce((s,d) => s + d.amount, 0) * 100) / 100;
+        window._offsetDupOutBanner = true;
+        window._offsetDupOutHTML = '<div style="background:rgba(255,59,48,0.08);border:1.5px solid rgba(255,59,48,0.25);border-radius:12px;padding:14px;margin-bottom:14px">' +
+          '<div style="font-size:13px;font-weight:700;color:var(--red);margin-bottom:4px">⚠️ ' + _dupOut.length + ' duplicate payment' + (_dupOut.length!==1?'s':'') + ' found</div>' +
+          '<div style="font-size:12px;color:var(--muted);margin-bottom:12px">' + fmtB(_dupTotal) + ' was paid out of a goal twice on the same day — removing the duplicate restores it to your offset.</div>' +
+          '<button onclick="resolveDuplicateGoalOutflows()" style="width:100%;background:var(--red);color:#fff;border:none;border-radius:10px;padding:11px;font-size:13px;font-weight:700;font-family:var(--font);cursor:pointer">🔧 Fix now — restore ' + fmtB(_dupTotal) + ' to offset</button>' +
+        '</div>';
+      } else {
+        window._offsetDupOutBanner = false;
+        window._offsetDupOutHTML = '';
+      }
+
+      // ── Double-counted salary debit banner (this cycle) ──
+      const _ddCur = findCurrentCycleDoubleDebits();
+      if (_ddCur.length > 0) {
+        const _ddTotal = Math.round(_ddCur.reduce((s,o) => s + o.amount, 0) * 100) / 100;
+        window._offsetDDBanner = true;
+        window._offsetDDHTML = '<div style="background:rgba(255,59,48,0.08);border:1.5px solid rgba(255,59,48,0.25);border-radius:12px;padding:14px;margin-bottom:14px">' +
+          '<div style="font-size:13px;font-weight:700;color:var(--red);margin-bottom:4px">⚠️ ' + _ddCur.length + ' payment' + (_ddCur.length!==1?'s':'') + ' charged to Salary twice</div>' +
+          '<div style="font-size:12px;color:var(--muted);margin-bottom:12px">' + fmtB(_ddTotal) + ' was debited from Salary twice this cycle — this restores the unallocated balance to your offset.</div>' +
+          '<button onclick="resolveCurrentCycleDoubleDebits()" style="width:100%;background:var(--red);color:#fff;border:none;border-radius:10px;padding:11px;font-size:13px;font-weight:700;font-family:var(--font);cursor:pointer">🔧 Fix now — restore ' + fmtB(_ddTotal) + ' to Salary</button>' +
+        '</div>';
+      } else {
+        window._offsetDDBanner = false;
+        window._offsetDDHTML = '';
+      }
     }
 
     // ── Super account detail view ─────────────────────────────────────────────
@@ -18929,6 +19016,14 @@ function renderAccounts() {
     // Orphaned paid-payment banner for offset accounts
     if (acct.type === 'offset' && window._offsetOrphanPaidBanner) {
       html += window._offsetOrphanPaidHTML;
+    }
+    // Duplicate goal outflow banner for offset accounts
+    if (acct.type === 'offset' && window._offsetDupOutBanner) {
+      html += window._offsetDupOutHTML;
+    }
+    // Double-counted salary debit banner for offset accounts
+    if (acct.type === 'offset' && window._offsetDDBanner) {
+      html += window._offsetDDHTML;
     }
 
     // Resumable reconciliation card — shows if a review was minimized (X)

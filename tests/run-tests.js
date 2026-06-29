@@ -2735,6 +2735,48 @@ await check('resolveOrphanedPaidPendings() does not double-debit salary when it 
   assertEqual(ctx.getAccountBalance('resSal2'), salBefore, 'rebuilding the goal deposit must not change salary — the pending payment is still the single debit');
 });
 
+await check('resolveDuplicateGoalOutflows() removes a same-goal same-day same-amount duplicate outflow and restores it to the goal (the 23 Mar mortgage double-payment)', () => {
+  ctx.state = buildMockState();
+  ctx.state.savingsCategories.push({ id: 'dupGoal', name: 'Home savings' });
+  ctx.state.savingsDeposits.push({ id: 'dseed', catId: 'dupGoal', type: 'deposit', amount: 2000, date: '2026-03-15', note: 'seed' });
+  ctx.state.savingsDeposits.push({ id: 'dx1', catId: 'dupGoal', type: 'withdrawal', amount: 875, date: '2026-03-23', note: 'Weekly mortgage payment' });
+  ctx.state.savingsDeposits.push({ id: 'dx2', catId: 'dupGoal', type: 'bill-payment', amount: 875, date: '2026-03-23', note: 'Mortgage' });
+  const before = ctx.totalSavedForCat('dupGoal');
+  assertEqual(ctx.findDuplicateGoalOutflows().length, 1, 'two identical same-day outflows must register as exactly one duplicate');
+  ctx.resolveDuplicateGoalOutflows();
+  assertEqual(ctx.totalSavedForCat('dupGoal') - before, 875, 'removing the duplicate restores exactly one payment to the goal');
+  assertEqual(ctx.findDuplicateGoalOutflows().length, 0, 'no duplicates should remain after the repair');
+});
+
+await check('findDuplicateGoalOutflows() does NOT flag two distinct outflows of different amounts on the same day', () => {
+  ctx.state = buildMockState();
+  ctx.state.savingsCategories.push({ id: 'dg2', name: 'Servicios' });
+  ctx.state.savingsDeposits.push({ id: 'aa1', catId: 'dg2', type: 'bill-payment', amount: 73.90, date: '2026-06-18', note: 'Origin Energy' });
+  ctx.state.savingsDeposits.push({ id: 'aa2', catId: 'dg2', type: 'bill-payment', amount: 32.38, date: '2026-06-18', note: 'Origin Energy' });
+  assertEqual(ctx.findDuplicateGoalOutflows().length, 0, 'different amounts on the same day are legitimate, not duplicates');
+});
+
+await check('resolveCurrentCycleDoubleDebits() strips the stray sourceAccountId so a current-cycle payment is debited from Salary only once (restores the unallocated offset slice)', () => {
+  ctx.state = buildMockState();
+  ctx.state.cycleType = 'monthly'; ctx.state.cycleDay = 1;
+  ctx.state.accounts.push({ id: 'ddOff', name: 'Offset', type: 'offset', openingBalance: 0 });
+  ctx.state.accounts.push({ id: 'ddSalC', name: 'Salary', type: 'transaction', isSalaryAccount: true, openingBalance: 1000, linkedOffsetAccountId: 'ddOff' });
+  ctx.state.savingsCategories.push({ id: 'ddGoalC', name: 'Shares', linkedAccountId: 'ddOff' });
+  ctx.state.pendingPayments.push({ id: 'ddppC', salaryAccountId: 'ddSalC', status: 'paid', paidAmount: 670.22, dueDate: ctx.todayStr(), amount: 670.22, goalId: 'ddGoalC', note: 'Shares', depositId: 'dddepC' });
+  ctx.state.savingsDeposits.push({ id: 'dddepC', catId: 'ddGoalC', targetId: 'ddGoalC', type: 'deposit', amount: 670.22, date: ctx.todayStr(), note: 'Shares', sourceAccountId: 'ddSalC' });
+  assertEqual(ctx.getAccountBalance('ddSalC'), -340.44, 'sanity: the double-debit drives salary down twice (1000 - 670.22 - 670.22)');
+  assertEqual(ctx.findCurrentCycleDoubleDebits().length, 1, 'the current-cycle double-debit must be detected');
+  ctx.resolveCurrentCycleDoubleDebits();
+  assertEqual(ctx.getAccountBalance('ddSalC'), 329.78, 'after the fix salary reflects a single debit (1000 - 670.22)');
+  assertEqual(ctx.findCurrentCycleDoubleDebits().length, 0, 'no current-cycle double-debit should remain');
+});
+
+await check('resolveCurrentCycleDoubleDebits() is a safe no-op when there are no double-debits', () => {
+  ctx.state = buildMockState();
+  assertEqual(ctx.findCurrentCycleDoubleDebits().length, 0);
+  assertNoThrow(() => ctx.resolveCurrentCycleDoubleDebits(), 'must not throw on a clean state');
+});
+
 await check('resolveOrphanedPaidPendings() is a safe no-op when there is nothing to fix', () => {
   ctx.state = buildMockState();
   ctx.state.accounts.push({ id: 'resSal3', name: 'Salary', type: 'transaction', isSalaryAccount: true, openingBalance: 1000 });
