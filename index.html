@@ -2135,9 +2135,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.20.1';
+const APP_VERSION = '2.21.0';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '29 Jun 2026 9:35 AM AEDT';
+const BUILD_TIME = '29 Jun 2026 12:14 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -17273,7 +17273,25 @@ function payPendingItem(pendingId) {
   if (!p) return;
   const goal = savingsCatById(p.goalId);
   const name = goal ? goal.name : (p.note || 'Saving');
-  if (!confirm('Pay ' + fmt(p.amount) + ' to ' + name + '?')) return;
+
+  // Real reported gap: nothing here ever checked whether the salary account
+  // actually has enough to cover this payment. Paying several pending items
+  // in sequence with no check could silently push the salary balance
+  // negative with zero warning — which is exactly what happened. This
+  // doesn't block the payment (the user may have a legitimate reason — an
+  // upcoming deposit, a different mental model of the account, etc.) but it
+  // makes the actual numbers explicit so the choice is genuinely informed
+  // rather than a surprise discovered afterward.
+  const salBalBeforePay = p.salaryAccountId ? getAccountBalance(p.salaryAccountId) : null;
+  let confirmMsg = 'Pay ' + fmt(p.amount) + ' to ' + name + '?';
+  if (salBalBeforePay !== null) {
+    const resultingBal = Math.round((salBalBeforePay - p.amount) * 100) / 100;
+    if (resultingBal < 0) {
+      confirmMsg = '⚠️ Salary balance is ' + fmt(salBalBeforePay) + ' — paying ' + fmt(p.amount) + ' to ' + name + ' would leave it ' + fmt(Math.abs(resultingBal)) + ' NEGATIVE.\n\nPay anyway?';
+    }
+  }
+  if (!confirm(confirmMsg)) return;
+
   // Create goal deposit
   if (!state.savingsDeposits) state.savingsDeposits = [];
   const depositId = uid();

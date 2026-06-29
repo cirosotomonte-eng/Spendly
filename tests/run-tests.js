@@ -2596,6 +2596,63 @@ await check('the cycle navigator (‹ Current cycle ›) still renders BEFORE th
   assertTrue(navIdx < ccIdx, 'the cycle navigator itself must remain in its original position, ahead of the Credit Card Balance card');
 });
 
+// ─────────────────────────────────────────────────────────────────────────
+console.log('\n── Pending savings payment: warn before pushing salary balance negative ──');
+
+await check('payPendingItem() warns with the specific numbers when paying would push salary negative (the actual reported gap — no check existed at all before)', () => {
+  ctx.state = buildMockState();
+  ctx.state.accounts.push({ id: 'warnSalary1', name: 'Salary', type: 'transaction', isSalaryAccount: true, openingBalance: 50 });
+  ctx.state.savingsCategories.push({ id: 'warnGoal1', name: 'Travel' });
+  ctx.state.pendingPayments.push({ id: 'wpp1', salaryAccountId: 'warnSalary1', status: 'pending', dueDate: ctx.todayStr(), amount: 100, goalId: 'warnGoal1', note: 'Test' });
+  let capturedMsg = null;
+  ctx.confirm = (msg) => { capturedMsg = msg; return false; };
+  ctx.payPendingItem('wpp1');
+  assertTrue(capturedMsg.includes('NEGATIVE'), 'must clearly flag that this specific payment would go negative');
+  assertTrue(capturedMsg.includes('$50.00') && capturedMsg.includes('$100.00'), 'must show the actual real numbers (current balance and payment amount), not a generic warning');
+});
+
+await check('payPendingItem() does NOT show the negative-balance warning when the balance genuinely covers it', () => {
+  ctx.state = buildMockState();
+  ctx.state.accounts.push({ id: 'warnSalary2', name: 'Salary', type: 'transaction', isSalaryAccount: true, openingBalance: 500 });
+  ctx.state.savingsCategories.push({ id: 'warnGoal2', name: 'Travel' });
+  ctx.state.pendingPayments.push({ id: 'wpp2', salaryAccountId: 'warnSalary2', status: 'pending', dueDate: ctx.todayStr(), amount: 100, goalId: 'warnGoal2', note: 'Test' });
+  let capturedMsg = null;
+  ctx.confirm = (msg) => { capturedMsg = msg; return true; };
+  ctx.payPendingItem('wpp2');
+  assertTrue(!capturedMsg.includes('NEGATIVE'), 'a payment that the balance genuinely covers must not show a false negative-balance warning');
+});
+
+await check('payPendingItem() still respects the user declining the warning — no deposit created, item stays pending', () => {
+  ctx.state = buildMockState();
+  ctx.state.accounts.push({ id: 'warnSalary3', name: 'Salary', type: 'transaction', isSalaryAccount: true, openingBalance: 50 });
+  ctx.state.savingsCategories.push({ id: 'warnGoal3', name: 'Travel' });
+  ctx.state.pendingPayments.push({ id: 'wpp3', salaryAccountId: 'warnSalary3', status: 'pending', dueDate: ctx.todayStr(), amount: 100, goalId: 'warnGoal3', note: 'Test' });
+  ctx.confirm = () => false; // user says no
+  ctx.payPendingItem('wpp3');
+  const p = ctx.state.pendingPayments.find(x => x.id === 'wpp3');
+  assertEqual(p.status, 'pending', 'declining the warning must leave the payment unexecuted — this is informed choice, not a hard block, but the choice must actually be respected');
+  assertTrue(!ctx.state.savingsDeposits.some(d => d.note === 'Test' && d.amount === 100), 'no deposit should be created if declined');
+});
+
+await check('payPendingItem() still works correctly when the user explicitly confirms despite the warning — the safeguard informs, it does not block', () => {
+  ctx.state = buildMockState();
+  ctx.state.accounts.push({ id: 'warnSalary4', name: 'Salary', type: 'transaction', isSalaryAccount: true, openingBalance: 50 });
+  ctx.state.savingsCategories.push({ id: 'warnGoal4', name: 'Travel' });
+  ctx.state.pendingPayments.push({ id: 'wpp4', salaryAccountId: 'warnSalary4', status: 'pending', dueDate: ctx.todayStr(), amount: 100, goalId: 'warnGoal4', note: 'Test' });
+  ctx.confirm = () => true; // user proceeds anyway, fully informed
+  ctx.payPendingItem('wpp4');
+  const p = ctx.state.pendingPayments.find(x => x.id === 'wpp4');
+  assertEqual(p.status, 'paid', 'the user must still be able to proceed if they choose to — this is about an informed decision, not removing their control');
+});
+
+await check('payPendingItem() does not throw when a pending payment has no salaryAccountId at all (handles missing data gracefully)', () => {
+  ctx.state = buildMockState();
+  ctx.state.savingsCategories.push({ id: 'warnGoal5', name: 'Travel' });
+  ctx.state.pendingPayments.push({ id: 'wpp5', salaryAccountId: null, status: 'pending', dueDate: ctx.todayStr(), amount: 50, goalId: 'warnGoal5', note: 'Test' });
+  ctx.confirm = () => true;
+  assertNoThrow(() => ctx.payPendingItem('wpp5'));
+});
+
 await check('no top-level function is declared more than once anywhere in the file (regression: silent shadowing caused both a data-loss bug and a broken legacy super-contribution modal)', () => {
   const fs = require('fs');
   const html = fs.readFileSync(APP_PATH, 'utf8');
