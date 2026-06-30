@@ -2929,6 +2929,16 @@ await check('getSalaryCCOwed() sums owed across credit cards — the signal that
   }
 });
 
+await check('surplus/shortfall panel renders inside Step 3 (after savings, gated on the card) — never at the top of the page', () => {
+  const fs=require('fs'); const html=fs.readFileSync(APP_PATH,'utf8');
+  const iCC = html.indexOf('html += pendingCCHtml;');
+  const iSav = html.indexOf('html += pendingSavingsHtml;');
+  const iRec = html.indexOf('html += reconciliationHtml;');
+  assertTrue(iCC>0 && iSav>0 && iRec>0, 'all three section injections present');
+  assertTrue(iCC < iSav && iSav < iRec, 'render order must be: card -> savings -> surplus/shortfall');
+  assertTrue(html.indexOf('if (getSalaryCCOwed() <= 0.01) html += reconciliationHtml;') > 0, 'surplus/shortfall must be gated on the card being paid/settled');
+});
+
 await check('no top-level function is declared more than once anywhere in the file (regression: silent shadowing caused both a data-loss bug and a broken legacy super-contribution modal)', () => {
   const fs = require('fs');
   const html = fs.readFileSync(APP_PATH, 'utf8');
