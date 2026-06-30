@@ -2135,9 +2135,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.26.0';
+const APP_VERSION = '2.27.0';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '29 Jun 2026 10:31 PM AEDT';
+const BUILD_TIME = '30 Jun 2026 4:56 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -17894,6 +17894,14 @@ function getEffectiveBillingCycleEnd(e) {
 // doesn't disappear when a new cycle starts; only an actual payment
 // settles it. Deferred charges (statement reconciliation) are excluded
 // until the cycle they're actually billable in arrives.
+// True total still owed across all credit cards (the authoritative figure the Pay
+// card uses). Step 3 (savings) is gated on this being clear — savings are sized from
+// what's left after the card, so they must wait until the card is paid or settled.
+function getSalaryCCOwed() {
+  const ccAccts = (state.accounts||[]).filter(a => a.type === 'credit');
+  return Math.round(ccAccts.reduce((s,a) => s + (getCCGoalContributions(a.id).grossTotal||0), 0) * 100) / 100;
+}
+
 function getCCGoalContributions(ccAcctId, cycleOffset) {
   if (cycleOffset === undefined) cycleOffset = _salaryCycleOffset;
   const { cycleStart: _pcs, cycleEnd: _pce } = getCycleRange(cycleOffset);
@@ -18687,19 +18695,25 @@ function renderAccounts() {
       const pendingTotal = Math.round(pending.reduce((s,p) => s + p.amount, 0) * 100) / 100;
 
       const ccAccts = (state.accounts||[]).filter(a => a.type === 'credit');
-      pendingSavingsHtml += '<div style="background:var(--surface);border-radius:var(--r);padding:14px;margin-bottom:14px">' +
+      const _ccOwed = getSalaryCCOwed();
+      const _savingsLocked = _ccOwed > 0.01;
+      const _leftAfterCard = Math.round((balance - _ccOwed) * 100) / 100;
+      pendingSavingsHtml += '<div style="background:var(--surface);border-radius:var(--r);padding:14px;margin-bottom:14px' + (_savingsLocked ? ';opacity:0.6' : '') + '">' +
         '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">' +
           '<div>' +
             '<div style="font-size:13px;font-weight:700;color:var(--text)">⏳ Pending Savings payments</div>' +
             '<div style="font-size:11px;color:var(--muted);margin-top:2px">' + pending.length + ' item' + (pending.length!==1?'s':'') + ' · ' + fmtB(pendingTotal) + '</div>' +
-          '</div>';
+          '</div>' +
+          (_savingsLocked
+            ? '<div style="font-size:10px;font-weight:700;color:var(--muted);background:var(--surface2);border-radius:100px;padding:4px 10px;white-space:nowrap">🔒 Locked</div>'
+            : (ccAccts.length > 0
+                ? '<div style="text-align:right"><div style="font-size:10px;color:var(--muted)">Left after card</div><div style="font-size:14px;font-weight:800;color:' + (_leftAfterCard < 0 ? 'var(--red)' : '#34C759') + '">' + fmtB(_leftAfterCard) + '</div></div>'
+                : '')) +
+        '</div>';
 
-      if (ccAccts.length > 0) {
-        pendingSavingsHtml += '<button data-aid="' + _viewingAccountId + '" onclick="openPayCreditCardsFlow(this.dataset.aid)" style="font-size:11px;font-weight:600;color:var(--accent);background:var(--accent-dim);border:none;border-radius:8px;padding:6px 12px;font-family:var(--font);cursor:pointer">💳 Pay credit cards</button>';
-      }
-      pendingSavingsHtml += '</div>';
-
-      if (pending.length === 0 && pendingPaid.length === 0) {
+      if (_savingsLocked) {
+        pendingSavingsHtml += '<div style="font-size:11.5px;color:var(--muted);line-height:1.5;display:flex;gap:6px"><span>↑</span><span>Pay or settle your card first — savings are sized from what remains after the card.</span></div>';
+      } else if (pending.length === 0 && pendingPaid.length === 0) {
         pendingSavingsHtml += '<div style="font-size:12px;color:var(--muted);font-style:italic;text-align:center;padding:8px 0">No pending payments this cycle ✅</div>';
       } else {
         pending.forEach((p, i) => {
@@ -18794,13 +18808,7 @@ function renderAccounts() {
             pendingCCHtml += '<div style="font-size:12px;color:#34C759;font-weight:600">✓ All settled</div>';
           }
 
-          // Balance after CC paid
-          const _effectiveBal = Math.round((balance - _unsettledTotal) * 100) / 100;
-          pendingCCHtml += '</div>' +
-            '<div style="background:var(--surface2);border-radius:10px;padding:10px 14px;display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">' +
-              '<div style="font-size:12px;color:var(--muted)">Balance after CC paid</div>' +
-              '<div style="font-size:14px;font-weight:700;color:' + (_effectiveBal < 0 ? 'var(--red)' : 'var(--text)') + '">' + fmtB(_effectiveBal) + '</div>' +
-            '</div>';
+          pendingCCHtml += '</div>';
         }
       }
 
@@ -19191,9 +19199,9 @@ function renderAccounts() {
 
     html += recIncomeHtml;
     html += cycleNavHtml;
+    html += reconciliationHtml;
     html += pendingCCHtml;
     html += pendingSavingsHtml;
-    html += reconciliationHtml;
 
     // CC charges used to be hard-limited to "today's current cycle" only —
     // but statement reconciliation can add or defer charges into past cycles

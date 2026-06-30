@@ -2908,6 +2908,27 @@ await check('runStatementReconciliation is review-only for an already-settled cy
   assertTrue(/reviewOnly: cycleSettled/.test(body), 'the review must be told it is review-only when settled');
 });
 
+console.log('\n── Salary page · savings gate (Step 3 locked until card paid) ──');
+
+await check('getSalaryCCOwed() sums owed across credit cards — the signal that locks savings until the card is cleared', () => {
+  ctx.state = buildMockState();
+  ctx.state.accounts.push({ id:'ccA', type:'credit', name:'Card A' });
+  ctx.state.accounts.push({ id:'ccB', type:'credit', name:'Card B' });
+  ctx.state.accounts.push({ id:'savX', type:'savings', name:'Not a card' });
+  const orig = ctx.getCCGoalContributions;
+  try {
+    // owed on both cards -> savings must be locked
+    ctx.getCCGoalContributions = (id) => ({ grossTotal: id==='ccA' ? 1200.50 : id==='ccB' ? 300.25 : 0 });
+    assertEqual(ctx.getSalaryCCOwed(), 1500.75, 'sums grossTotal across credit cards only (ignores non-card accounts)');
+    assertTrue(ctx.getSalaryCCOwed() > 0.01, 'with a balance owed, the gate is engaged (savings locked)');
+    // everything settled -> savings unlock
+    ctx.getCCGoalContributions = () => ({ grossTotal: 0 });
+    assertTrue(ctx.getSalaryCCOwed() <= 0.01, 'once every card reads zero, the gate clears (savings unlock)');
+  } finally {
+    ctx.getCCGoalContributions = orig;
+  }
+});
+
 await check('no top-level function is declared more than once anywhere in the file (regression: silent shadowing caused both a data-loss bug and a broken legacy super-contribution modal)', () => {
   const fs = require('fs');
   const html = fs.readFileSync(APP_PATH, 'utf8');
