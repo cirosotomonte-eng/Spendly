@@ -2135,9 +2135,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.30.0';
+const APP_VERSION = '2.31.0';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '30 Jun 2026 6:14 PM AEDT';
+const BUILD_TIME = '30 Jun 2026 7:32 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -18764,17 +18764,24 @@ function renderAccounts() {
       const _needsDistribute = (_cs.surplus > 0.01 && _cs.eligiblePending.length > 0) || _cs.surplus < -0.01;
       const _savingsLocked = _ccOwed > 0.01;
       const _leftAfterCard = Math.round((balance - _ccOwed) * 100) / 100;
+      const _paidTotal = Math.round((pendingPaid||[]).reduce((s,p) => s + (p.amount||0), 0) * 100) / 100;
+      const _savingsDone = !_savingsLocked && pending.length === 0 && pendingPaid.length > 0;
       pendingSavingsHtml += '<div style="background:var(--surface);border-radius:var(--r);padding:14px;margin-bottom:14px' + (_savingsLocked ? ';opacity:0.6' : '') + '">' +
         '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">' +
           '<div>' +
-            '<div style="font-size:13px;font-weight:700;color:var(--text)">⏳ Pending Savings payments</div>' +
-            '<div style="font-size:11px;color:var(--muted);margin-top:2px">' + pending.length + ' item' + (pending.length!==1?'s':'') + ' · ' + fmtB(pendingTotal) + '</div>' +
+            (_savingsDone
+              ? '<div style="font-size:13px;font-weight:700;color:#34C759">✓ Savings funded</div>' +
+                '<div style="font-size:11px;color:var(--muted);margin-top:2px">' + pendingPaid.length + ' paid this cycle · ' + fmtB(_paidTotal) + '</div>'
+              : '<div style="font-size:13px;font-weight:700;color:var(--text)">⏳ Pending Savings payments</div>' +
+                '<div style="font-size:11px;color:var(--muted);margin-top:2px">' + pending.length + ' item' + (pending.length!==1?'s':'') + ' · ' + fmtB(pendingTotal) + '</div>') +
           '</div>' +
           (_savingsLocked
             ? '<div style="font-size:10px;font-weight:700;color:var(--muted);background:var(--surface2);border-radius:100px;padding:4px 10px;white-space:nowrap">🔒 Locked</div>'
-            : (ccAccts.length > 0
-                ? '<div style="text-align:right"><div style="font-size:10px;color:var(--muted)">Left after card</div><div style="font-size:14px;font-weight:800;color:' + (_leftAfterCard < 0 ? 'var(--red)' : '#34C759') + '">' + fmtB(_leftAfterCard) + '</div></div>'
-                : '')) +
+            : _savingsDone
+              ? '<div style="font-size:10px;font-weight:700;color:#34C759;background:rgba(52,199,89,0.12);border-radius:100px;padding:4px 10px;white-space:nowrap">✓ Funded</div>'
+              : (ccAccts.length > 0
+                  ? '<div style="text-align:right"><div style="font-size:10px;color:var(--muted)">Left after card</div><div style="font-size:14px;font-weight:800;color:' + (_leftAfterCard < 0 ? 'var(--red)' : '#34C759') + '">' + fmtB(_leftAfterCard) + '</div></div>'
+                  : '')) +
         '</div>';
 
       if (_savingsLocked) {
@@ -18865,7 +18872,7 @@ function renderAccounts() {
                 '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:' + (_hasPrevUnsettled ? 'var(--red)' : 'var(--muted)') + '">' + (_isCurrentCycle ? 'Current Cycle Credit Card Balance' : 'Previous Cycle Credit Card Balance') + '</div>' +
                 '<div style="font-size:11px;color:var(--muted);margin-top:2px">' + _allCCExp.length + ' charge' + (_allCCExp.length!==1?'s':'') + (_allRefunds.length>0?' · ' + _allRefunds.length + ' refund'+(_allRefunds.length!==1?'s':''):'') + ' · before ' + _sce.toLocaleDateString('en-AU',{day:'numeric',month:'short'}) + '</div>' +
               '</div>' +
-              (_unsettledTotal > 0.01 ? '' : '<div style="font-size:15px;font-weight:800;color:#34C759">-' + fmtB(_totalCharges) + '</div>') +
+              (_unsettledTotal > 0.01 ? '' : '<div style="font-size:10px;font-weight:700;color:#34C759;background:rgba(52,199,89,0.12);border-radius:100px;padding:4px 10px;white-space:nowrap">✓ Paid</div>') +
             '</div>';
 
           if (_unsettledTotal > 0.01) {
@@ -18876,7 +18883,7 @@ function renderAccounts() {
                 '<button data-ids="' + _unsettledIds.join(',') + '" data-ccids="' + ccAccts.map(a=>a.id).join(',') + '" data-ce="' + _sceStr + '" onclick="markCCCycleSettled(this.dataset.ids, this.dataset.ccids, this.dataset.ce)" style="flex:1;background:var(--surface2);color:var(--muted);border:none;border-radius:10px;padding:8px 12px;font-size:13px;font-weight:600;font-family:var(--font);cursor:pointer">✓ Mark settled</button>' +
               '</div>';
           } else {
-            pendingCCHtml += '<div style="font-size:12px;color:#34C759;font-weight:600">✓ All settled</div>';
+            pendingCCHtml += '<div style="font-size:12px;color:#34C759;font-weight:600">✓ Settled · ' + fmtB(_totalCharges) + ' this cycle</div>';
           }
 
           pendingCCHtml += '</div>';

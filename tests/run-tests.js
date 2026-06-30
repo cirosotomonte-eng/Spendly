@@ -2993,6 +2993,13 @@ await check('Mark settled still reports "nothing to settle" when there is genuin
   assertTrue(pushed === 0, 'no settle record should be created');
 });
 
+await check('Step 3 savings header shows a calm funded state when done (0 pending + paid items), pending otherwise', () => {
+  const fs=require('fs'); const html=fs.readFileSync(APP_PATH,'utf8');
+  assertTrue(/_savingsDone = !_savingsLocked && pending\.length === 0 && pendingPaid\.length > 0/.test(html), 'computes a done flag from no-pending + has-paid');
+  assertTrue(/_savingsDone[\s\S]{0,200}✓ Savings funded/.test(html), 'done state shows the calm "Savings funded" header');
+  assertTrue(html.indexOf('⏳ Pending Savings payments') > 0, 'the pending header still exists for the not-done state');
+});
+
 await check('no top-level function is declared more than once anywhere in the file (regression: silent shadowing caused both a data-loss bug and a broken legacy super-contribution modal)', () => {
   const fs = require('fs');
   const html = fs.readFileSync(APP_PATH, 'utf8');
@@ -3036,7 +3043,7 @@ await check('when fully settled (no Pay CTA shown), the header figure still show
   ctx._viewingAccountId = 'settledSalary';
   ctx.renderAccounts();
   const html = ctx.document.getElementById('content').innerHTML;
-  assertTrue(html.includes('✓ All settled'), 'should show the settled state, no Pay button');
+  assertTrue(html.includes('✓ Settled') || html.includes('✓ Paid'), 'should show the calm settled state, no Pay button');
   assertTrue(!html.includes('💳 Pay $') && !/💳 Pay \$?\d/.test(html), 'no dollar-amount Pay CTA should appear once fully settled (the unrelated "💳 Pay credit cards" button from Pending Savings payments has no amount, so it is not what this checks)');
 });
 
