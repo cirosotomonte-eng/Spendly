@@ -2135,9 +2135,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.28.0';
+const APP_VERSION = '2.29.0';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '30 Jun 2026 5:07 PM AEDT';
+const BUILD_TIME = '30 Jun 2026 5:52 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -17894,6 +17894,31 @@ function getEffectiveBillingCycleEnd(e) {
 // doesn't disappear when a new cycle starts; only an actual payment
 // settles it. Deferred charges (statement reconciliation) are excluded
 // until the cycle they're actually billable in arrives.
+// Single source of truth for the cycle surplus/shortfall, used by BOTH the
+// surplus panel (Step 3-A) and the Pay-gate on the savings list (Step 3-B) so they
+// can never disagree. surplus > 0 means money to distribute; < 0 means a shortfall
+// to absorb. Mortgage-type pendings are excluded from the eligible (distributable) set.
+function computeCycleSurplus(pendingItems, salBal, sceStr) {
+  const sIds = new Set((state.ccPayments||[]).flatMap(p => p.expenseIds||[]));
+  const ccCycleTotal = Math.round((state.expenses||[]).filter(e => {
+    if (!e.paymentAccountId || sIds.has(e.id)) return false;
+    const a = accountById(e.paymentAccountId);
+    return a && a.type === 'credit' && e.date <= sceStr;
+  }).reduce((s,e) => s + e.amount, 0) * 100) / 100;
+  const mortgageKW = ['mortgage', 'home savings'];
+  const eligiblePending = (pendingItems||[]).filter(p => {
+    const goal = savingsCatById(p.goalId);
+    const rec2 = (state.recurringSavings||[]).find(r => r.id === p.recurringId);
+    const name = ((goal ? goal.name : '') + ' ' + (rec2 ? rec2.name : '')).toLowerCase();
+    return !mortgageKW.some(k => name.includes(k));
+  });
+  const mortgagePending = (pendingItems||[]).filter(p => !eligiblePending.includes(p));
+  const eligibleTotal = Math.round(eligiblePending.reduce((s,p) => s + p.amount, 0) * 100) / 100;
+  const mortgageTotal = Math.round(mortgagePending.reduce((s,p) => s + p.amount, 0) * 100) / 100;
+  const surplus = Math.round((salBal - ccCycleTotal - eligibleTotal - mortgageTotal) * 100) / 100;
+  return { ccCycleTotal, eligiblePending, mortgagePending, eligibleTotal, mortgageTotal, surplus };
+}
+
 // True total still owed across all credit cards (the authoritative figure the Pay
 // card uses). Step 3 (savings) is gated on this being clear — savings are sized from
 // what's left after the card, so they must wait until the card is paid or settled.
@@ -18710,6 +18735,11 @@ function renderAccounts() {
         '</div>';
       }
       const _ccOwed = getSalaryCCOwed();
+      const _cs = computeCycleSurplus(pending, balance, _sceStr);
+      // When there's a surplus to add or a shortfall to absorb, the per-goal pending
+      // amounts aren't final yet — so paying now would pay the wrong figure. Lock Pay
+      // until the surplus/shortfall (Step 3-A) is distributed; if it's balanced, pay freely.
+      const _needsDistribute = (_cs.surplus > 0.01 && _cs.eligiblePending.length > 0) || _cs.surplus < -0.01;
       const _savingsLocked = _ccOwed > 0.01;
       const _leftAfterCard = Math.round((balance - _ccOwed) * 100) / 100;
       pendingSavingsHtml += '<div style="background:var(--surface);border-radius:var(--r);padding:14px;margin-bottom:14px' + (_savingsLocked ? ';opacity:0.6' : '') + '">' +
@@ -18730,6 +18760,9 @@ function renderAccounts() {
       } else if (pending.length === 0 && pendingPaid.length === 0) {
         pendingSavingsHtml += '<div style="font-size:12px;color:var(--muted);font-style:italic;text-align:center;padding:8px 0">No pending payments this cycle ✅</div>';
       } else {
+        if (_needsDistribute) {
+          pendingSavingsHtml += '<div style="font-size:11.5px;color:var(--orange);line-height:1.5;display:flex;gap:6px;margin-bottom:8px;padding:8px 10px;background:rgba(240,168,96,0.1);border-radius:8px"><span>↑</span><span>' + (_cs.surplus < 0 ? 'Absorb the shortfall above first' : 'Distribute the surplus above first') + ' — then these amounts are final and ready to pay.</span></div>';
+        }
         pending.forEach((p, i) => {
           const goal = savingsCatById(p.goalId);
           const rec = (state.recurringSavings||[]).find(r => r.id === p.recurringId);
@@ -18748,7 +18781,9 @@ function renderAccounts() {
                     (p.originalAmount && p.amount !== p.originalAmount ? '<div style="font-size:9px;color:var(--muted)">orig. ' + fmtB(p.originalAmount) + '</div>' : '') +
                   '</div>' +
                   '<button data-pid="' + p.id + '" onclick="editPendingAmount(this.dataset.pid)" style="font-size:11px;color:var(--muted);background:var(--surface2);border:none;border-radius:6px;padding:4px 8px;font-family:var(--font);cursor:pointer">✏️</button>' +
-                  '<button data-pid="' + p.id + '" onclick="payPendingItem(this.dataset.pid)" style="font-size:11px;font-weight:600;color:#fff;background:var(--accent);border:none;border-radius:6px;padding:4px 10px;font-family:var(--font);cursor:pointer">Pay</button>' +
+                  (_needsDistribute
+                    ? '<button disabled title="Distribute the surplus/shortfall above first" style="font-size:11px;font-weight:600;color:var(--muted);background:var(--surface2);border:none;border-radius:6px;padding:4px 10px;font-family:var(--font);cursor:not-allowed;opacity:0.6">Pay</button>'
+                    : '<button data-pid="' + p.id + '" onclick="payPendingItem(this.dataset.pid)" style="font-size:11px;font-weight:600;color:#fff;background:var(--accent);border:none;border-radius:6px;padding:4px 10px;font-family:var(--font);cursor:pointer">Pay</button>') +
                   '<button data-pid="' + p.id + '" onclick="cancelPendingItem(this.dataset.pid)" style="font-size:11px;color:var(--red);background:none;border:none;cursor:pointer;padding:4px 6px;font-family:var(--font)">✕</button>' +
                 '</div>' +
               '</div>' +
@@ -18830,27 +18865,15 @@ function renderAccounts() {
       // Includes ALL unsettled CC charges up to end of viewed cycle — unpaid debt
       // from a previous cycle is still real debt and must be reflected here too.
       const _salBal = balance;
-      const _sIds2 = new Set((state.ccPayments||[]).flatMap(p => p.expenseIds||[]));
-      const _ccCycleTotal = Math.round((state.expenses||[]).filter(e => {
-        if (!e.paymentAccountId || _sIds2.has(e.id)) return false;
-        const a = accountById(e.paymentAccountId);
-        return a && a.type === 'credit' && e.date <= _sceStr;
-      }).reduce((s,e) => s + e.amount, 0) * 100) / 100;
-
-      const _mortgageKW = ['mortgage', 'home savings'];
-      const _eligiblePending = pending.filter(p => {
-        const goal = savingsCatById(p.goalId);
-        const rec2 = (state.recurringSavings||[]).find(r => r.id === p.recurringId);
-        const name = ((goal ? goal.name : '') + ' ' + (rec2 ? rec2.name : '')).toLowerCase();
-        return !_mortgageKW.some(k => name.includes(k));
-      });
-      const _mortgagePending = pending.filter(p => !_eligiblePending.includes(p));
-      const _eligibleTotal = Math.round(_eligiblePending.reduce((s,p) => s + p.amount, 0) * 100) / 100;
-      const _mortgageTotal = Math.round(_mortgagePending.reduce((s,p) => s + p.amount, 0) * 100) / 100;
-      const _shortfall = Math.round((_salBal - _ccCycleTotal - _eligibleTotal - _mortgageTotal) * 100) / 100;
+      const _ccCycleTotal = _cs.ccCycleTotal;
+      const _eligiblePending = _cs.eligiblePending;
+      const _mortgagePending = _cs.mortgagePending;
+      const _eligibleTotal = _cs.eligibleTotal;
+      const _mortgageTotal = _cs.mortgageTotal;
+      const _shortfall = _cs.surplus;
 
       // ── Surplus distribution ──────────────────────────────────────────────
-      const _surplus = Math.round((_salBal - _ccCycleTotal - _eligibleTotal - _mortgageTotal) * 100) / 100;
+      const _surplus = _cs.surplus;
       if (_surplus > 0.01 && _eligiblePending.length > 0) {
         const _surplusTotal = _eligibleTotal; // proportional base
         const _additions = _eligiblePending.filter(p => p.amount > 0).map(p => {
@@ -19215,8 +19238,8 @@ function renderAccounts() {
     html += cycleNavHtml;
     html += reconcileStatementCardHtml;
     html += pendingCCHtml;
-    html += pendingSavingsHtml;
     if (getSalaryCCOwed() <= 0.01) html += reconciliationHtml;
+    html += pendingSavingsHtml;
 
     // CC charges used to be hard-limited to "today's current cycle" only —
     // but statement reconciliation can add or defer charges into past cycles

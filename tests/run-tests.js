@@ -2929,13 +2929,13 @@ await check('getSalaryCCOwed() sums owed across credit cards — the signal that
   }
 });
 
-await check('surplus/shortfall panel renders inside Step 3 (after savings, gated on the card) — never at the top of the page', () => {
+await check('surplus/shortfall panel renders inside Step 3 (distribute BEFORE pay, gated on the card) — never at the top of the page', () => {
   const fs=require('fs'); const html=fs.readFileSync(APP_PATH,'utf8');
   const iCC = html.indexOf('html += pendingCCHtml;');
   const iSav = html.indexOf('html += pendingSavingsHtml;');
   const iRec = html.indexOf('html += reconciliationHtml;');
   assertTrue(iCC>0 && iSav>0 && iRec>0, 'all three section injections present');
-  assertTrue(iCC < iSav && iSav < iRec, 'render order must be: card -> savings -> surplus/shortfall');
+  assertTrue(iCC < iRec && iRec < iSav, 'render order must be: card -> distribute surplus/shortfall -> pay savings');
   assertTrue(html.indexOf('if (getSalaryCCOwed() <= 0.01) html += reconciliationHtml;') > 0, 'surplus/shortfall must be gated on the card being paid/settled');
 });
 
@@ -2946,6 +2946,24 @@ await check('① Reconcile-statement card renders at the top of the Salary page 
   assertTrue(iRec>0 && iCC>0 && iRec < iCC, 'the reconcile-statement card must inject before the pay card (top of page)');
   assertTrue(/reconcileStatementCardHtml = [\s\S]*openStatementUpload\(this\.dataset\.aid\)/.test(html), 'the card button must launch openStatementUpload for the chosen card');
   assertTrue(typeof ctx.openStatementUpload === 'function', 'openStatementUpload must exist');
+});
+
+await check('Step 3 Pay-gate: savings Pay is locked while a surplus/shortfall is still pending, and free once amounts are final', () => {
+  // surplus present -> needs distribute -> pay locked
+  let cs = ctx.computeCycleSurplus([{ id:'p1', goalId:'g1', amount:200 }], /*salBal*/ 2000, '2026-07-17');
+  // salBal 2000 - cc 0 - eligible 200 - mortgage 0 = 1800 surplus
+  assertTrue(cs.surplus > 0.01, 'positive surplus computed');
+  let needsDistribute = (cs.surplus > 0.01 && cs.eligiblePending.length > 0) || cs.surplus < -0.01;
+  assertTrue(needsDistribute === true, 'with a surplus to add, Pay must be gated until distributed');
+  // balanced -> no distribute needed -> pay free
+  cs = ctx.computeCycleSurplus([{ id:'p1', goalId:'g1', amount:2000 }], 2000, '2026-07-17');
+  needsDistribute = (cs.surplus > 0.01 && cs.eligiblePending.length > 0) || cs.surplus < -0.01;
+  assertTrue(Math.abs(cs.surplus) <= 0.01, 'balanced cycle -> ~zero surplus');
+  assertTrue(needsDistribute === false, 'when balanced, savings are immediately payable');
+  // shortfall -> needs distribute (absorb) -> pay locked
+  cs = ctx.computeCycleSurplus([{ id:'p1', goalId:'g1', amount:200 }], 50, '2026-07-17');
+  needsDistribute = (cs.surplus > 0.01 && cs.eligiblePending.length > 0) || cs.surplus < -0.01;
+  assertTrue(cs.surplus < -0.01 && needsDistribute === true, 'a shortfall must also gate Pay until absorbed');
 });
 
 await check('no top-level function is declared more than once anywhere in the file (regression: silent shadowing caused both a data-loss bug and a broken legacy super-contribution modal)', () => {
