@@ -2966,6 +2966,33 @@ await check('Step 3 Pay-gate: savings Pay is locked while a surplus/shortfall is
   assertTrue(cs.surplus < -0.01 && needsDistribute === true, 'a shortfall must also gate Pay until absorbed');
 });
 
+await check('Mark settled clears a phantom closing balance on an already-paid cycle (no unsettled charges left)', () => {
+  ctx.state = buildMockState();
+  // a card whose charges are all settled, but a re-run re-armed the closing balance
+  ctx.state.accounts.push({ id:'ccPhantom', name:'ANZ', type:'credit', closingBalance: 5626.86, closingBalanceCycleEnd: '2026-06-17' });
+  ctx.confirm = () => true;
+  // no expense ids passed (all settled) — but card id + cycle end are
+  ctx.markCCCycleSettled('', 'ccPhantom', '2026-06-17');
+  const acct = ctx.state.accounts.find(a => a.id === 'ccPhantom');
+  assertTrue(acct.closingBalance === undefined, 'the phantom closing balance must be cleared even with no unsettled charges');
+  assertTrue(acct.closingBalanceCycleEnd === undefined, 'the cycle marker is cleared too');
+});
+
+await check('Mark settled still reports "nothing to settle" when there is genuinely nothing (no charges, no armed balance)', () => {
+  ctx.state = buildMockState();
+  ctx.state.accounts.push({ id:'ccClean', name:'ANZ', type:'credit' });
+  let toastMsg = '';
+  const origToast = ctx.showToast; ctx.showToast = (m) => { toastMsg = m; };
+  let pushed = 0; const origLen = (ctx.state.ccPayments||[]).length;
+  try {
+    ctx.confirm = () => true;
+    ctx.markCCCycleSettled('', 'ccClean', '2026-06-17');
+    pushed = (ctx.state.ccPayments||[]).length - origLen;
+  } finally { ctx.showToast = origToast; }
+  assertTrue(/[Nn]othing to settle/.test(toastMsg), 'with nothing armed and no charges, it must say nothing to settle');
+  assertTrue(pushed === 0, 'no settle record should be created');
+});
+
 await check('no top-level function is declared more than once anywhere in the file (regression: silent shadowing caused both a data-loss bug and a broken legacy super-contribution modal)', () => {
   const fs = require('fs');
   const html = fs.readFileSync(APP_PATH, 'utf8');

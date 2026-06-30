@@ -2135,9 +2135,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.29.0';
+const APP_VERSION = '2.30.0';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '30 Jun 2026 5:52 PM AEDT';
+const BUILD_TIME = '30 Jun 2026 6:14 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -18253,32 +18253,54 @@ function confirmPayCCFromSalary(salaryAccountId) {
 }
 
 // ── Delete / reverse a CC payment transaction ─────────────────────────────
-function markCCCycleSettled(idsStr) {
+function markCCCycleSettled(idsStr, ccIdsStr, cycleEndStr) {
   const ids = idsStr ? idsStr.split(',').filter(Boolean) : [];
-  if (ids.length === 0) { showToast('Nothing to settle', 2000); return; }
-  if (!confirm('Mark ' + ids.length + ' charge' + (ids.length!==1?'s':'') + ' as settled? No money will be transferred — use this if you have already paid externally.')) return;
-  if (!state.ccPayments) state.ccPayments = [];
-  state.ccPayments.push({
-    id: uid(), date: todayStr(), amount: 0,
-    expenseIds: ids, toCCAccountIds: [],
-    note: 'Manually marked as settled', _manual: true,
-  });
-  // Clear the closing-balance snapshot for the settled card(s) — exactly what the
-  // Pay flow does. Without this, getCCGoalContributions() keeps returning the static
-  // closing balance (which overrides the now-zero itemized total), so the "Pay" CTA
-  // stays armed even though everything is settled.
-  const _settledCcIds = new Set();
+  const ccIds = ccIdsStr ? ccIdsStr.split(',').filter(Boolean) : [];
+
+  // Which cards' closing-balance snapshot might need clearing: any passed by the
+  // card, plus any inferred from the settled charges.
+  const _settledCcIds = new Set(ccIds);
   ids.forEach(eid => {
     const exp = (state.expenses||[]).find(e => e.id === eid);
     if (exp && exp.paymentAccountId) _settledCcIds.add(exp.paymentAccountId);
   });
+
+  // Is there a stale closing-balance snapshot to clear for this cycle? This is the
+  // "already paid, but a statement re-run re-armed the balance" case: no unsettled
+  // charges remain, yet the card still shows a figure that needs clearing.
+  let _armedToClear = false;
   _settledCcIds.forEach(accId => {
     const acct = accountById(accId);
-    if (acct && acct.type === 'credit') { acct.closingBalance = undefined; acct.closingBalanceCycleEnd = undefined; }
+    if (acct && acct.type === 'credit' && acct.closingBalance !== undefined &&
+        (!cycleEndStr || acct.closingBalanceCycleEnd === cycleEndStr)) _armedToClear = true;
+  });
+
+  if (ids.length === 0 && !_armedToClear) { showToast('Nothing to settle', 2000); return; }
+
+  const _msg = ids.length > 0
+    ? 'Mark ' + ids.length + ' charge' + (ids.length!==1?'s':'') + ' as settled? No money will be transferred — use this if you have already paid externally.'
+    : 'This cycle is already paid. Clear the leftover balance still showing? No money will be transferred.';
+  if (!confirm(_msg)) return;
+
+  if (ids.length > 0) {
+    if (!state.ccPayments) state.ccPayments = [];
+    state.ccPayments.push({
+      id: uid(), date: todayStr(), amount: 0,
+      expenseIds: ids, toCCAccountIds: [],
+      note: 'Manually marked as settled', _manual: true,
+    });
+  }
+  // Clear the closing-balance snapshot for this cycle so the Pay CTA / phantom
+  // balance disappears (matches what the Pay flow does).
+  _settledCcIds.forEach(accId => {
+    const acct = accountById(accId);
+    if (acct && acct.type === 'credit' && (!cycleEndStr || acct.closingBalanceCycleEnd === cycleEndStr)) {
+      acct.closingBalance = undefined; acct.closingBalanceCycleEnd = undefined;
+    }
   });
   saveState();
   renderAccounts();
-  showToast('✅ Previous cycle marked as settled', 2500);
+  showToast(ids.length > 0 ? '✅ Previous cycle marked as settled' : '✅ Cleared — cycle was already paid', 2500);
 }
 
 function deleteCCTransaction(txnId, ccAccountId) {
@@ -18851,7 +18873,7 @@ function renderAccounts() {
             pendingCCHtml +=
               '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding-top:10px;border-top:1px solid var(--surface2)">' +
                 '<button data-aid="' + _viewingAccountId + '" onclick="openPayCreditCardsFlow(this.dataset.aid)" style="flex:1;background:var(--red);color:#fff;border:none;border-radius:10px;padding:8px 12px;font-size:13px;font-weight:700;font-family:var(--font);cursor:pointer">💳 Pay ' + fmtB(_unsettledTotal) + '</button>' +
-                '<button data-ids="' + _unsettledIds.join(',') + '" onclick="markCCCycleSettled(this.dataset.ids)" style="flex:1;background:var(--surface2);color:var(--muted);border:none;border-radius:10px;padding:8px 12px;font-size:13px;font-weight:600;font-family:var(--font);cursor:pointer">✓ Mark settled</button>' +
+                '<button data-ids="' + _unsettledIds.join(',') + '" data-ccids="' + ccAccts.map(a=>a.id).join(',') + '" data-ce="' + _sceStr + '" onclick="markCCCycleSettled(this.dataset.ids, this.dataset.ccids, this.dataset.ce)" style="flex:1;background:var(--surface2);color:var(--muted);border:none;border-radius:10px;padding:8px 12px;font-size:13px;font-weight:600;font-family:var(--font);cursor:pointer">✓ Mark settled</button>' +
               '</div>';
           } else {
             pendingCCHtml += '<div style="font-size:12px;color:#34C759;font-weight:600">✓ All settled</div>';
