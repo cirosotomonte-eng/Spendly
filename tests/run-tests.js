@@ -3000,6 +3000,35 @@ await check('Step 3 savings header shows a calm funded state when done (0 pendin
   assertTrue(html.indexOf('⏳ Pending Savings payments') > 0, 'the pending header still exists for the not-done state');
 });
 
+await check('duplicate review: two same-goal/date/amount outflows with DIFFERENT purposes are flagged as candidates, and Keep both dismisses them permanently (Piggy Bank reallocation false positive)', () => {
+  ctx.state = buildMockState();
+  ctx.state.savingsCategories.push({ id: 'piggy', name: 'Piggy Bank' });
+  ctx.state.savingsDeposits.push({ id: 'r1', catId: 'piggy', type: 'withdrawal', amount: 200, date: '2026-06-29', note: 'Reallocated to Servicios' });
+  ctx.state.savingsDeposits.push({ id: 'r2', catId: 'piggy', type: 'withdrawal', amount: 200, date: '2026-06-29', note: 'Reallocated to Papas' });
+  const pairs = ctx.findDuplicateGoalOutflows();
+  assertEqual(pairs.length, 1, 'the pair is surfaced as a review candidate');
+  assertTrue(pairs[0].orig && pairs[0].dup && pairs[0].orig.note !== pairs[0].dup.note, 'both transactions (with their differing notes) are available to show');
+  // user confirms they are legit -> Keep both
+  ctx.confirm = () => true;
+  ctx.keepBothOutflows('r2');
+  assertEqual(ctx.findDuplicateGoalOutflows().length, 0, 'after Keep both, the pair is never flagged again');
+  assertTrue((ctx.state.savingsDeposits||[]).some(d => d.id === 'r2'), 'Keep both must NOT delete anything — both outflows remain');
+});
+
+await check('duplicate review: Remove ② deletes exactly the reviewed outflow and restores it to the goal', () => {
+  ctx.state = buildMockState();
+  ctx.state.savingsCategories.push({ id: 'hs', name: 'Home savings' });
+  ctx.state.savingsDeposits.push({ id: 'seed', catId: 'hs', type: 'deposit', amount: 2000, date: '2026-03-15', note: 'seed' });
+  ctx.state.savingsDeposits.push({ id: 'm1', catId: 'hs', type: 'withdrawal', amount: 875, date: '2026-03-23', note: 'Weekly mortgage payment' });
+  ctx.state.savingsDeposits.push({ id: 'm2', catId: 'hs', type: 'bill-payment', amount: 875, date: '2026-03-23', note: 'Mortgage' });
+  const before = ctx.totalSavedForCat('hs');
+  ctx.confirm = () => true;
+  ctx.removeDuplicateOutflow('m2');
+  assertEqual(ctx.totalSavedForCat('hs') - before, 875, 'removing the genuine duplicate restores exactly one payment');
+  assertTrue(!(ctx.state.savingsDeposits||[]).some(d => d.id === 'm2'), 'the reviewed outflow is gone');
+  assertTrue((ctx.state.savingsDeposits||[]).some(d => d.id === 'm1'), 'the original is untouched');
+});
+
 await check('no top-level function is declared more than once anywhere in the file (regression: silent shadowing caused both a data-loss bug and a broken legacy super-contribution modal)', () => {
   const fs = require('fs');
   const html = fs.readFileSync(APP_PATH, 'utf8');

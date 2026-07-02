@@ -2135,9 +2135,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.31.0';
+const APP_VERSION = '2.32.0';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '30 Jun 2026 7:32 PM AEDT';
+const BUILD_TIME = '02 Jul 2026 1:01 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -17635,24 +17635,49 @@ function resolveOrphanedPaidPendings() {
 // mortgage payment logged once automatically and once by hand). Removing the extra
 // restores that money to the goal — and therefore the offset.
 function findDuplicateGoalOutflows() {
-  const out = (state.savingsDeposits||[]).filter(d => d.type === 'withdrawal' || d.type === 'bill-payment');
+  // Candidates only: same goal + date + amount. This CANNOT distinguish a real
+  // double-entry from two legitimate same-amount payments (e.g. two reallocations to
+  // different goals), so it never auto-resolves — the user reviews each pair. Pairs the
+  // user has explicitly kept (acknowledgedDuplicates) are excluded permanently.
+  const ack = new Set(state.acknowledgedDuplicates || []);
+  const out = (state.savingsDeposits||[]).filter(d => (d.type === 'withdrawal' || d.type === 'bill-payment') && !ack.has(d.id));
   const seen = {}, dupes = [];
   out.slice().sort((a,b)=>(a.date||'').localeCompare(b.date||'')).forEach(d => {
     const key = d.catId + '|' + d.date + '|' + Math.round(d.amount * 100);
-    if (seen[key]) dupes.push(d); else seen[key] = true;
+    if (seen[key]) dupes.push({ dup: d, orig: seen[key] }); else seen[key] = d;
   });
   return dupes;
 }
 function resolveDuplicateGoalOutflows() {
   const dupes = findDuplicateGoalOutflows();
   if (dupes.length === 0) { showToast('✅ No duplicate goal outflows found', 2500); return; }
-  const ids = new Set(dupes.map(d => d.id));
-  const total = Math.round(dupes.reduce((s,d) => s + d.amount, 0) * 100) / 100;
+  const ids = new Set(dupes.map(p => p.dup.id));
+  const total = Math.round(dupes.reduce((s,p) => s + p.dup.amount, 0) * 100) / 100;
   state.savingsDeposits = (state.savingsDeposits||[]).filter(d => !ids.has(d.id));
   saveState();
   if (typeof renderAccounts === 'function') renderAccounts();
   if (typeof updateHeader === 'function') updateHeader();
   showToast('✅ Removed ' + dupes.length + ' duplicate outflow' + (dupes.length!==1?'s':'') + ' — ' + fmt(total) + ' restored', 4000);
+}
+// Remove ONE reviewed outflow the user confirms is a genuine duplicate.
+function removeDuplicateOutflow(depId) {
+  const dep = (state.savingsDeposits||[]).find(d => d.id === depId);
+  if (!dep) { showToast('Already removed', 2000); return; }
+  if (!confirm('Remove this outflow — ' + fmt(dep.amount) + (dep.note ? ' · ' + dep.note : '') + '? This restores that amount to the goal and your offset. Only do this if it is a genuine double-entry.')) return;
+  state.savingsDeposits = (state.savingsDeposits||[]).filter(d => d.id !== depId);
+  saveState();
+  if (typeof renderAccounts === 'function') renderAccounts();
+  if (typeof updateHeader === 'function') updateHeader();
+  showToast('✅ Removed — ' + fmt(dep.amount) + ' restored', 3500);
+}
+// Mark a flagged pair as legitimate so it is never flagged again.
+function keepBothOutflows(depId) {
+  if (!depId) return;
+  if (!state.acknowledgedDuplicates) state.acknowledgedDuplicates = [];
+  if (!state.acknowledgedDuplicates.includes(depId)) state.acknowledgedDuplicates.push(depId);
+  saveState();
+  if (typeof renderAccounts === 'function') renderAccounts();
+  showToast('✓ Kept — these won\u2019t be flagged again', 3000);
 }
 
 // ── Fix 7 (data repair): clear duplicate salary debit on this cycle's double-counts ──
@@ -18442,15 +18467,28 @@ function renderAccounts() {
         window._offsetOrphanPaidHTML = '';
       }
 
-      // ── Duplicate goal outflow banner (e.g. a mortgage payment logged twice) ──
+      // ── Possible duplicate goal outflows: REVIEW, never auto-fix ──
       const _dupOut = findDuplicateGoalOutflows();
       if (_dupOut.length > 0) {
-        const _dupTotal = Math.round(_dupOut.reduce((s,d) => s + d.amount, 0) * 100) / 100;
         window._offsetDupOutBanner = true;
-        window._offsetDupOutHTML = '<div style="background:rgba(255,59,48,0.08);border:1.5px solid rgba(255,59,48,0.25);border-radius:12px;padding:14px;margin-bottom:14px">' +
-          '<div style="font-size:13px;font-weight:700;color:var(--red);margin-bottom:4px">⚠️ ' + _dupOut.length + ' duplicate payment' + (_dupOut.length!==1?'s':'') + ' found</div>' +
-          '<div style="font-size:12px;color:var(--muted);margin-bottom:12px">' + fmtB(_dupTotal) + ' was paid out of a goal twice on the same day — removing the duplicate restores it to your offset.</div>' +
-          '<button onclick="resolveDuplicateGoalOutflows()" style="width:100%;background:var(--red);color:#fff;border:none;border-radius:10px;padding:11px;font-size:13px;font-weight:700;font-family:var(--font);cursor:pointer">🔧 Fix now — restore ' + fmtB(_dupTotal) + ' to offset</button>' +
+        const _fmtDay = (ds) => { try { return new Date(ds + 'T00:00:00').toLocaleDateString('en-AU',{day:'numeric',month:'short'}); } catch(e){ return ds; } };
+        const _rows = _dupOut.map(pair => {
+          const g = (typeof savingsCatById === 'function') ? savingsCatById(pair.dup.catId) : null;
+          const gname = g ? (g.name || 'Goal') : 'Goal';
+          return '<div style="background:var(--surface2);border-radius:8px;padding:10px;margin-top:8px">' +
+            '<div style="font-size:12px;font-weight:700;color:var(--text)">' + gname + ' · ' + fmtB(pair.dup.amount) + ' · ' + _fmtDay(pair.dup.date) + '</div>' +
+            '<div style="font-size:11px;color:var(--muted);margin-top:5px">① ' + (pair.orig.note || pair.orig.name || '(no note)') + '</div>' +
+            '<div style="font-size:11px;color:var(--muted);margin-top:2px">② ' + (pair.dup.note || pair.dup.name || '(no note)') + '</div>' +
+            '<div style="display:flex;gap:6px;margin-top:10px">' +
+              '<button data-id="' + pair.dup.id + '" onclick="removeDuplicateOutflow(this.dataset.id)" style="flex:1;background:var(--red-dim);color:var(--red);border:none;border-radius:8px;padding:8px;font-size:12px;font-weight:700;font-family:var(--font);cursor:pointer">Remove ②</button>' +
+              '<button data-id="' + pair.dup.id + '" onclick="keepBothOutflows(this.dataset.id)" style="flex:1;background:var(--surface3);color:var(--text);border:none;border-radius:8px;padding:8px;font-size:12px;font-weight:600;font-family:var(--font);cursor:pointer">Keep both</button>' +
+            '</div>' +
+          '</div>';
+        }).join('');
+        window._offsetDupOutHTML = '<div style="background:rgba(240,168,96,0.08);border:1.5px solid rgba(240,168,96,0.3);border-radius:12px;padding:14px;margin-bottom:14px">' +
+          '<div style="font-size:13px;font-weight:700;color:var(--orange);margin-bottom:4px">🔍 ' + _dupOut.length + ' possible duplicate' + (_dupOut.length!==1?'s':'') + ' to review</div>' +
+          '<div style="font-size:12px;color:var(--muted);margin-bottom:2px">These share a goal, date and amount. Check the two notes — if they\u2019re two real payments (e.g. reallocations to different goals), tap <b>Keep both</b>. Only <b>Remove</b> a genuine double-entry.</div>' +
+          _rows +
         '</div>';
       } else {
         window._offsetDupOutBanner = false;
