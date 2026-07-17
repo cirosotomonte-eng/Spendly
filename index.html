@@ -2135,9 +2135,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.32.0';
+const APP_VERSION = '2.33.0';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '02 Jul 2026 1:01 PM AEDT';
+const BUILD_TIME = '17 Jul 2026 2:38 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -2290,6 +2290,85 @@ function hideAuthScreen() {
   document.getElementById('authScreen').classList.add('hidden');
   stopAutofillPoller();
   showApp();
+}
+
+// ── Password recovery (reset-link handling) ───────────────────────────────────
+// A Supabase recovery link lands back on the app with the recovery tokens in the
+// URL hash. The client is created with detectSessionInUrl:false, so nothing parses
+// them automatically — we do it here, establish the session, and show a
+// set-new-password screen. Runs BEFORE the normal auth gate so a locked-out user
+// (who by definition can't log in) can still reset.
+async function handlePasswordRecovery() {
+  try {
+    const hash = window.location.hash || '';
+    if (hash.indexOf('type=recovery') === -1) return false;
+    const params = new URLSearchParams(hash.replace(/^#/, ''));
+    const errDesc = params.get('error_description');
+    if (errDesc) { showPasswordResetScreen({ error: decodeURIComponent(errDesc.replace(/\+/g, ' ')) }); return true; }
+    const access_token = params.get('access_token');
+    const refresh_token = params.get('refresh_token');
+    if (!access_token) return false;
+    await getSB().auth.setSession({ access_token, refresh_token: refresh_token || '' });
+    // strip the tokens from the URL so they don't linger in history
+    try { history.replaceState(null, '', window.location.pathname); } catch(e) {}
+    showPasswordResetScreen({});
+    return true;
+  } catch (e) {
+    console.error('recovery handling failed', e);
+    showPasswordResetScreen({ error: 'This reset link is invalid or has expired — request a new one.' });
+    return true;
+  }
+}
+
+function showPasswordResetScreen(opts) {
+  opts = opts || {};
+  const ls = document.getElementById('launchScreen'); if (ls) ls.style.display = 'none';
+  const as = document.getElementById('authScreen'); if (as) as.classList.add('hidden');
+  const appEl = document.getElementById('app'); if (appEl) appEl.style.visibility = 'hidden';
+  let el = document.getElementById('pwResetScreen');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'pwResetScreen';
+    el.style.cssText = 'position:fixed;inset:0;z-index:99999;background:var(--bg,#0f0f0f);display:flex;align-items:center;justify-content:center;padding:24px;font-family:var(--font,-apple-system,sans-serif)';
+    document.body.appendChild(el);
+  }
+  el.innerHTML =
+    '<div style="width:100%;max-width:360px">' +
+      '<div style="font-size:22px;font-weight:800;color:var(--text,#f0f0f0);margin-bottom:6px">Set a new password</div>' +
+      '<div style="font-size:13px;color:var(--muted,#888);margin-bottom:18px">Choose a new password for your account.</div>' +
+      '<input id="pwResetNew" type="password" autocomplete="new-password" placeholder="New password" style="width:100%;box-sizing:border-box;background:var(--surface,#1a1a1a);border:1px solid var(--border,#333);border-radius:10px;padding:13px;font-size:15px;color:var(--text,#f0f0f0);font-family:inherit;margin-bottom:10px">' +
+      '<input id="pwResetConfirm" type="password" autocomplete="new-password" placeholder="Confirm new password" style="width:100%;box-sizing:border-box;background:var(--surface,#1a1a1a);border:1px solid var(--border,#333);border-radius:10px;padding:13px;font-size:15px;color:var(--text,#f0f0f0);font-family:inherit;margin-bottom:14px">' +
+      '<button id="pwResetBtn" onclick="submitNewPassword()" style="width:100%;background:var(--accent,#4F8EF7);color:#fff;border:none;border-radius:10px;padding:13px;font-size:15px;font-weight:700;font-family:inherit;cursor:pointer">Update password</button>' +
+      '<div id="pwResetMsg" style="font-size:13px;margin-top:12px;min-height:18px;color:var(--red,#ff5c5c)">' + (opts.error ? opts.error : '') + '</div>' +
+    '</div>';
+}
+
+async function submitNewPassword() {
+  const p1 = (document.getElementById('pwResetNew') || {}).value || '';
+  const p2 = (document.getElementById('pwResetConfirm') || {}).value || '';
+  const msg = document.getElementById('pwResetMsg');
+  const btn = document.getElementById('pwResetBtn');
+  msg.style.color = 'var(--red,#ff5c5c)';
+  if (p1.length < 8) { msg.textContent = 'Use at least 8 characters.'; return; }
+  if (p1 !== p2) { msg.textContent = 'Passwords do not match.'; return; }
+  btn.disabled = true; const old = btn.textContent; btn.textContent = 'Updating…';
+  try {
+    const { error } = await getSB().auth.updateUser({ password: p1 });
+    if (error) {
+      msg.textContent = (typeof friendlyAuthError === 'function') ? friendlyAuthError(error.message) : error.message;
+      btn.disabled = false; btn.textContent = old; return;
+    }
+    msg.style.color = 'var(--accent,#4F8EF7)';
+    msg.textContent = '✅ Password updated — sign in with your new password.';
+    setTimeout(async () => {
+      try { await getSB().auth.signOut(); } catch(e) {}
+      try { sessionStorage.removeItem('spendly_pin_bypassed'); } catch(e) {}
+      const scr = document.getElementById('pwResetScreen'); if (scr) scr.remove();
+      showAuthScreen();
+    }, 1500);
+  } catch (e) {
+    msg.textContent = 'Something went wrong — please try again.'; btn.disabled = false; btn.textContent = old;
+  }
 }
 
 // ── Autofill detection ────────────────────────────────────────────────────────
@@ -20080,6 +20159,8 @@ async function init() {
   setupAutoModeListener(); // keep theme live-updating if system light/dark changes while app is open
 
   if (SPENDLY_MODE === 'cloud') {
+    // ── Password reset link? Handle it before the normal auth gate ──────────
+    if (await handlePasswordRecovery()) return;
     // ── Cloud mode: check Supabase session first ───────────────────────────
     const safetyTimer = setTimeout(() => {
       const ls = document.getElementById('launchScreen');

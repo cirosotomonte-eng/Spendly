@@ -3029,6 +3029,17 @@ await check('duplicate review: Remove ② deletes exactly the reviewed outflow a
   assertTrue((ctx.state.savingsDeposits||[]).some(d => d.id === 'm1'), 'the original is untouched');
 });
 
+await check('password recovery: app handles a Supabase reset link (parses type=recovery, sets session, updates password) before the normal auth gate', () => {
+  const fs=require('fs'); const html=fs.readFileSync(APP_PATH,'utf8');
+  assertTrue(/async function handlePasswordRecovery\(/.test(html), 'a recovery handler exists');
+  assertTrue(/indexOf\('type=recovery'\)/.test(html), 'it detects a recovery link');
+  assertTrue(/setSession\(\{ access_token/.test(html), 'it establishes the session from the URL tokens (client has detectSessionInUrl:false)');
+  assertTrue(/updateUser\(\{ password/.test(html), 'it saves the new password via updateUser');
+  const iRec = html.indexOf('await handlePasswordRecovery()');
+  const iSess = html.indexOf('await getSB().auth.getSession()');
+  assertTrue(iRec > 0 && iSess > 0 && iRec < iSess, 'recovery must run before the normal session check, so a locked-out user can still reset');
+});
+
 await check('no top-level function is declared more than once anywhere in the file (regression: silent shadowing caused both a data-loss bug and a broken legacy super-contribution modal)', () => {
   const fs = require('fs');
   const html = fs.readFileSync(APP_PATH, 'utf8');
