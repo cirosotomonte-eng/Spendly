@@ -3040,6 +3040,49 @@ await check('password recovery: app handles a Supabase reset link (parses type=r
   assertTrue(iRec > 0 && iSess > 0 && iRec < iSess, 'recovery must run before the normal session check, so a locked-out user can still reset');
 });
 
+console.log('\n── Editing a fired recurring expense ──');
+
+await check("editing a fired recurring expense keeps recurringId and deferToNextCycle, so the engine cannot re-fire it as a duplicate", () => {
+  ctx.state = buildMockState();
+  const st = ctx.state;
+  st.savingsCategories.push({ id: 'gEdit', name: 'Strata', status: 'active' });
+  st.categories.push({ id: 'cEdit', name: 'Strata bill', linkedSavingsGoalIds: ['gEdit'] });
+  st.savingsDeposits.push({ id: 'seedEdit', catId: 'gEdit', targetId: 'gEdit', amount: 500, date: '2026-07-01', type: 'deposit', note: 'seed' });
+  // an expense as produced by applyRecurringExpenses (fired from a rule), also deferred
+  st.savingsDeposits.push({ id: 'wOld', catId: 'gEdit', targetId: 'gEdit', amount: 250, date: '2026-07-19', type: 'bill-payment', note: 'Strata', linkedExpenseId: 'eFired' });
+  st.expenses.push({ id: 'eFired', amount: 250, name: 'Strata', categoryId: 'cEdit', date: '2026-07-19',
+    transactionType: 'expense', linkedGoalId: 'gEdit', linkedDepositId: null, linkedWithdrawalId: 'wOld',
+    goalCoveredAmount: 250, recurringId: 'rEdit', catchUp: true, deferToNextCycle: true });
+
+  // neutralise DOM-heavy render paths
+  const keep = { rc: ctx.renderContent, uh: ctx.updateHeader, cm: ctx.closeModal, pp: ctx.populateExpPaymentSelect, ut: ctx._updateTxGoalInfo, om: ctx.openModal };
+  ctx.renderContent = () => {}; ctx.updateHeader = () => {}; ctx.closeModal = () => {};
+  ctx.populateExpPaymentSelect = () => {}; ctx._updateTxGoalInfo = () => {}; ctx.openModal = () => {};
+  try {
+    ctx.openEditExpense('eFired');
+    ctx.document.getElementById('expAmount').value = '400';
+    ctx.document.getElementById('expName').value = 'Strata';
+    ctx.document.getElementById('expCat').value = 'cEdit';
+    ctx.document.getElementById('expDate').value = '2026-07-19';
+    ctx.saveExpense();
+  } finally {
+    ctx.renderContent = keep.rc; ctx.updateHeader = keep.uh; ctx.closeModal = keep.cm;
+    ctx.populateExpPaymentSelect = keep.pp; ctx._updateTxGoalInfo = keep.ut; ctx.openModal = keep.om;
+  }
+
+  const edited = (ctx.state.expenses || []).find(e => e.id === 'eFired');
+  assertTrue(!!edited, 'the edited expense still exists');
+  assertEqual(edited.amount, 400, 'the new amount is saved');
+  assertEqual(edited.recurringId, 'rEdit', 'recurringId MUST survive the edit — losing it lets applyRecurringExpenses re-fire this occurrence as a duplicate');
+  assertTrue(edited.deferToNextCycle === true, 'deferToNextCycle MUST survive the edit — losing it silently un-defers a reconciled charge');
+
+  // the goal withdrawal is REPLACED, not duplicated
+  const outs = (ctx.state.savingsDeposits || []).filter(d => d.catId === 'gEdit' && d.type === 'bill-payment');
+  assertEqual(outs.length, 1, 'exactly one withdrawal against the goal — the old one is removed, not left alongside');
+  assertEqual(outs[0].amount, 400, 'the surviving withdrawal is at the edited amount');
+  assertEqual(ctx.totalSavedForCat('gEdit'), 100, 'goal balance reflects the edited amount only (500 - 400)');
+});
+
 await check('no top-level function is declared more than once anywhere in the file (regression: silent shadowing caused both a data-loss bug and a broken legacy super-contribution modal)', () => {
   const fs = require('fs');
   const html = fs.readFileSync(APP_PATH, 'utf8');
