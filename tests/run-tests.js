@@ -3083,6 +3083,72 @@ await check("editing a fired recurring expense keeps recurringId and deferToNext
   assertEqual(ctx.totalSavedForCat('gEdit'), 100, 'goal balance reflects the edited amount only (500 - 400)');
 });
 
+console.log('\n── Goal-link integrity ──');
+
+await check("findGoalLinkIssues detects a re-fired recurring duplicate; repairing removes it and hands the rule link back so it cannot fire again", () => {
+  ctx.state = buildMockState();
+  const st = ctx.state;
+  st.savingsCategories.push({ id: 'gInt', name: 'Servicios', status: 'active' });
+  st.categories.push({ id: 'cInt', name: 'Servicios', linkedSavingsGoalIds: ['gInt'] });
+  st.savingsDeposits.push({ id: 'seedInt', catId: 'gInt', targetId: 'gInt', amount: 500, date: '2026-07-01', type: 'deposit' });
+  // the edited original (rule link lost by the old bug) ...
+  st.savingsDeposits.push({ id: 'wKeep', catId: 'gInt', targetId: 'gInt', amount: 68.24, date: '2026-07-16', type: 'bill-payment', linkedExpenseId: 'eKeep' });
+  st.expenses.push({ id: 'eKeep', amount: 68.24, name: 'Electricity', categoryId: 'cInt', date: '2026-07-16', linkedGoalId: 'gInt', linkedWithdrawalId: 'wKeep', goalCoveredAmount: 68.24 });
+  // ... and the copy the engine re-fired at the rule amount
+  st.savingsDeposits.push({ id: 'wDup', catId: 'gInt', targetId: 'gInt', amount: 76, date: '2026-07-16', type: 'bill-payment', linkedExpenseId: 'eDup' });
+  st.expenses.push({ id: 'eDup', amount: 76, name: 'Electricity', categoryId: 'cInt', date: '2026-07-16', linkedGoalId: 'gInt', linkedWithdrawalId: 'wDup', goalCoveredAmount: 76, recurringId: 'rInt' });
+
+  const issues = ctx.findGoalLinkIssues();
+  assertEqual(issues.refired.length, 1, 'the re-fired pair is detected');
+  assertEqual(issues.refired[0].dup.id, 'eDup', 'the copy carrying the rule link is the duplicate to remove');
+  assertEqual(issues.refired[0].keep.id, 'eKeep', 'the edited original is the one kept');
+
+  const before = ctx.totalSavedForCat('gInt');
+  ctx.confirm = () => true;
+  ctx.resolveRefiredExpense('eDup', 'eKeep');
+  assertEqual(Math.round((ctx.totalSavedForCat('gInt') - before) * 100) / 100, 76, 'removing the duplicate restores its withdrawal to the goal');
+  assertTrue(!(ctx.state.expenses||[]).some(e => e.id === 'eDup'), 'the duplicate expense is gone');
+  const kept = (ctx.state.expenses||[]).find(e => e.id === 'eKeep');
+  assertEqual(kept.amount, 68.24, 'the kept expense keeps your edited amount');
+  assertEqual(kept.recurringId, 'rInt', 'the rule link moves to the kept expense so the engine treats the occurrence as fired');
+  assertEqual(ctx.findGoalLinkIssues().refired.length, 0, 'no issue remains');
+});
+
+await check("findGoalLinkIssues detects a dangling goal-withdrawal link and repairs it by re-pointing at the surviving withdrawal (no balance change)", () => {
+  ctx.state = buildMockState();
+  const st = ctx.state;
+  st.savingsCategories.push({ id: 'gM', name: 'Home savings', status: 'active' });
+  st.categories.push({ id: 'cM', name: 'Mortgage', linkedSavingsGoalIds: ['gM'] });
+  st.savingsDeposits.push({ id: 'seedM', catId: 'gM', targetId: 'gM', amount: 2000, date: '2026-03-01', type: 'deposit' });
+  // the surviving withdrawal, left unlinked when its duplicate was deleted
+  st.savingsDeposits.push({ id: 'wReal', catId: 'gM', targetId: 'gM', amount: 875, date: '2026-03-23', type: 'withdrawal', note: 'Weekly mortgage payment' });
+  // the expense still points at the DELETED duplicate
+  st.expenses.push({ id: 'eM', amount: 875, name: 'Mortgage', categoryId: 'cM', date: '2026-03-23', linkedGoalId: 'gM', linkedWithdrawalId: 'wGone', goalCoveredAmount: 875 });
+
+  const issues = ctx.findGoalLinkIssues();
+  assertEqual(issues.brokenLinks.length, 1, 'the dangling link is detected');
+  assertEqual(issues.brokenLinks[0].id, 'eM', 'it points at the right expense');
+
+  const before = ctx.totalSavedForCat('gM');
+  ctx.confirm = () => true;
+  ctx.repairBrokenGoalLink('eM');
+  assertEqual(ctx.totalSavedForCat('gM'), before, 'repairing a link must NOT change the goal balance');
+  const fixed = (ctx.state.expenses||[]).find(e => e.id === 'eM');
+  assertEqual(fixed.linkedWithdrawalId, 'wReal', 'the expense now points at the withdrawal that actually exists');
+  const w = (ctx.state.savingsDeposits||[]).find(d => d.id === 'wReal');
+  assertEqual(w.linkedExpenseId, 'eM', 'the withdrawal links back, so a later edit or delete can find it');
+  assertEqual(ctx.findGoalLinkIssues().brokenLinks.length, 0, 'no issue remains');
+});
+
+await check("findGoalLinkIssues does not flag two legitimate same-day expenses that share a name but have no rule link", () => {
+  ctx.state = buildMockState();
+  ctx.state.expenses.push({ id: 'x1', amount: 31.90, name: 'Coles', categoryId: 'cat1', date: '2026-06-12' });
+  ctx.state.expenses.push({ id: 'x2', amount: 19.30, name: 'Coles', categoryId: 'cat1', date: '2026-06-12' });
+  const issues = ctx.findGoalLinkIssues();
+  assertEqual(issues.refired.length, 0, 'two real shopping trips on one day are not a re-fired duplicate');
+  assertEqual(issues.brokenLinks.length, 0, 'and nothing has a broken link');
+});
+
 await check('no top-level function is declared more than once anywhere in the file (regression: silent shadowing caused both a data-loss bug and a broken legacy super-contribution modal)', () => {
   const fs = require('fs');
   const html = fs.readFileSync(APP_PATH, 'utf8');

@@ -2135,9 +2135,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.34.0';
+const APP_VERSION = '2.35.0';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '19 Jul 2026 12:21 PM AEDT';
+const BUILD_TIME = '19 Jul 2026 12:31 PM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -17722,6 +17722,93 @@ function resolveOrphanedPaidPendings() {
 // Same goal + same day + same amount paid out twice is a duplicate (e.g. a weekly
 // mortgage payment logged once automatically and once by hand). Removing the extra
 // restores that money to the goal — and therefore the offset.
+// ── Goal-link integrity ──────────────────────────────────────────────────────
+// Two classes of damage that used to be created silently and could not be seen
+// in the UI:
+//  1. REFIRED: editing a fired recurring expense dropped its recurringId (fixed in
+//     the editor), so applyRecurringExpenses no longer recognised the occurrence and
+//     re-fired it — leaving two expenses on the same day and two goal withdrawals.
+//  2. BROKEN LINK: an expense whose linkedWithdrawalId points at a savingsDeposit
+//     that no longer exists. The balance looks right, but editing that expense would
+//     fail to remove the (missing) old withdrawal and write a second one — a latent
+//     double-debit. Detecting these means this class of damage surfaces in the app
+//     instead of needing a manual export scan.
+function findGoalLinkIssues() {
+  const exps = state.expenses || [];
+  const deps = state.savingsDeposits || [];
+  const depById = new Set(deps.map(d => d.id));
+
+  // 1. Re-fired recurring duplicates: same category + date + name, where one copy
+  // carries the rule link and another does not (the edited original).
+  const groups = {};
+  exps.forEach(e => {
+    const k = e.categoryId + '|' + e.date + '|' + (e.name || '');
+    (groups[k] = groups[k] || []).push(e);
+  });
+  const refired = [];
+  Object.values(groups).forEach(list => {
+    if (list.length < 2) return;
+    const withRule = list.filter(e => e.recurringId);
+    const withoutRule = list.filter(e => !e.recurringId);
+    if (withRule.length === 1 && withoutRule.length >= 1) {
+      refired.push({ dup: withRule[0], keep: withoutRule[0] });
+    }
+  });
+
+  // 2. Dangling goal-withdrawal links.
+  const brokenLinks = exps.filter(e => e.linkedWithdrawalId && !depById.has(e.linkedWithdrawalId));
+
+  return { refired, brokenLinks };
+}
+
+// Remove a re-fired duplicate and hand its rule link back to the expense you kept,
+// so the recurring engine sees that occurrence as done and cannot fire it a third time.
+function resolveRefiredExpense(dupId, keepId) {
+  const dup = (state.expenses||[]).find(e => e.id === dupId);
+  const keep = (state.expenses||[]).find(e => e.id === keepId);
+  if (!dup || !keep) { showToast('Already resolved', 2000); return; }
+  const restored = dup.goalCoveredAmount || 0;
+  if (!confirm('Remove the duplicate ' + fmt(dup.amount) + ' "' + (dup.name||'') + '" and keep your edited ' + fmt(keep.amount) + '?' + (restored > 0 ? ' This restores ' + fmt(restored) + ' to the goal.' : ''))) return;
+  // drop the duplicate's goal withdrawal, then the duplicate itself
+  if (dup.linkedWithdrawalId) state.savingsDeposits = (state.savingsDeposits||[]).filter(d => d.id !== dup.linkedWithdrawalId);
+  if (dup.linkedDepositId) state.savingsDeposits = (state.savingsDeposits||[]).filter(d => d.id !== dup.linkedDepositId);
+  state.expenses = (state.expenses||[]).filter(e => e.id !== dupId);
+  // hand the rule link to the surviving expense so the occurrence counts as fired
+  keep.recurringId = dup.recurringId;
+  saveState();
+  if (typeof renderAccounts === 'function') renderAccounts();
+  if (typeof updateHeader === 'function') updateHeader();
+  showToast('✅ Duplicate removed' + (restored > 0 ? ' — ' + fmt(restored) + ' restored' : ''), 3500);
+}
+
+// Re-point an expense at the goal withdrawal that actually survives, so a later edit
+// or delete can find it (instead of silently creating a second withdrawal).
+function repairBrokenGoalLink(expId) {
+  const e = (state.expenses||[]).find(x => x.id === expId);
+  if (!e) return;
+  const covered = e.goalCoveredAmount || 0;
+  const match = (state.savingsDeposits||[]).find(d =>
+    d.catId === e.linkedGoalId && d.date === e.date &&
+    (d.type === 'withdrawal' || d.type === 'bill-payment') &&
+    Math.abs(d.amount - covered) < 0.01 && !d.linkedExpenseId
+  );
+  if (match) {
+    if (!confirm('Reconnect this ' + fmt(e.amount) + ' "' + (e.name||'') + '" to its goal withdrawal? Nothing is added or removed — it only repairs the link.')) return;
+    e.linkedWithdrawalId = match.id;
+    match.linkedExpenseId = e.id;
+    saveState();
+    if (typeof renderAccounts === 'function') renderAccounts();
+    showToast('✅ Link repaired', 3000);
+  } else {
+    if (!confirm('No matching goal withdrawal was found for this ' + fmt(e.amount) + ' "' + (e.name||'') + '". Clear the broken link? The goal balance does not change — this only stops a future edit creating a second withdrawal.')) return;
+    e.linkedWithdrawalId = null;
+    e.goalCoveredAmount = 0;
+    saveState();
+    if (typeof renderAccounts === 'function') renderAccounts();
+    showToast('✅ Broken link cleared', 3000);
+  }
+}
+
 function findDuplicateGoalOutflows() {
   // Candidates only: same goal + date + amount. This CANNOT distinguish a real
   // double-entry from two legitimate same-amount payments (e.g. two reallocations to
@@ -18555,6 +18642,38 @@ function renderAccounts() {
         window._offsetOrphanPaidHTML = '';
       }
 
+      // ── Goal-link integrity: re-fired duplicates + dangling withdrawal links ──
+      const _gl = findGoalLinkIssues();
+      if (_gl.refired.length > 0 || _gl.brokenLinks.length > 0) {
+        window._offsetGoalLinkBanner = true;
+        const _glDay = (ds) => { try { return new Date(ds + 'T00:00:00').toLocaleDateString('en-AU',{day:'numeric',month:'short'}); } catch(e){ return ds; } };
+        let _glRows = '';
+        _gl.refired.forEach(p => {
+          _glRows += '<div style="background:var(--surface2);border-radius:8px;padding:10px;margin-top:8px">' +
+            '<div style="font-size:12px;font-weight:700;color:var(--text)">' + (p.dup.name || 'Expense') + ' · ' + _glDay(p.dup.date) + '</div>' +
+            '<div style="font-size:11px;color:var(--muted);margin-top:5px">① Kept (your edit): ' + fmtB(p.keep.amount) + '</div>' +
+            '<div style="font-size:11px;color:var(--muted);margin-top:2px">② Duplicate (re-fired by the schedule): ' + fmtB(p.dup.amount) + '</div>' +
+            '<button data-dup="' + p.dup.id + '" data-keep="' + p.keep.id + '" onclick="resolveRefiredExpense(this.dataset.dup, this.dataset.keep)" style="width:100%;margin-top:9px;background:var(--red-dim);color:var(--red);border:none;border-radius:8px;padding:8px;font-size:12px;font-weight:700;font-family:var(--font);cursor:pointer">Remove ②' + ((p.dup.goalCoveredAmount||0) > 0 ? ' — restore ' + fmtB(p.dup.goalCoveredAmount) : '') + '</button>' +
+          '</div>';
+        });
+        _gl.brokenLinks.forEach(e => {
+          _glRows += '<div style="background:var(--surface2);border-radius:8px;padding:10px;margin-top:8px">' +
+            '<div style="font-size:12px;font-weight:700;color:var(--text)">' + (e.name || 'Expense') + ' · ' + fmtB(e.amount) + ' · ' + _glDay(e.date) + '</div>' +
+            '<div style="font-size:11px;color:var(--muted);margin-top:5px">Its goal withdrawal is missing. Your balance is unaffected, but editing this expense could create a second withdrawal.</div>' +
+            '<button data-eid="' + e.id + '" onclick="repairBrokenGoalLink(this.dataset.eid)" style="width:100%;margin-top:9px;background:var(--accent-dim);color:var(--accent);border:none;border-radius:8px;padding:8px;font-size:12px;font-weight:700;font-family:var(--font);cursor:pointer">Repair link</button>' +
+          '</div>';
+        });
+        const _glCount = _gl.refired.length + _gl.brokenLinks.length;
+        window._offsetGoalLinkHTML = '<div style="background:rgba(240,168,96,0.08);border:1.5px solid rgba(240,168,96,0.3);border-radius:12px;padding:14px;margin-bottom:14px">' +
+          '<div style="font-size:13px;font-weight:700;color:var(--orange);margin-bottom:4px">🔗 ' + _glCount + ' goal link issue' + (_glCount!==1?'s':'') + ' to review</div>' +
+          '<div style="font-size:12px;color:var(--muted)">Check each before repairing — nothing is changed automatically.</div>' +
+          _glRows +
+        '</div>';
+      } else {
+        window._offsetGoalLinkBanner = false;
+        window._offsetGoalLinkHTML = '';
+      }
+
       // ── Possible duplicate goal outflows: REVIEW, never auto-fix ──
       const _dupOut = findDuplicateGoalOutflows();
       if (_dupOut.length > 0) {
@@ -19288,6 +19407,10 @@ function renderAccounts() {
     // Orphaned paid-payment banner for offset accounts
     if (acct.type === 'offset' && window._offsetOrphanPaidBanner) {
       html += window._offsetOrphanPaidHTML;
+    }
+    // Goal link integrity banner for offset accounts
+    if (acct.type === 'offset' && window._offsetGoalLinkBanner) {
+      html += window._offsetGoalLinkHTML;
     }
     // Duplicate goal outflow banner for offset accounts
     if (acct.type === 'offset' && window._offsetDupOutBanner) {
