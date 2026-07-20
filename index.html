@@ -26,8 +26,8 @@ const SPENDLY_MODE = 'cloud';
 // derive its cache name and reported version from the SAME constants the app uses.
 // Previously the worker carried its own hardcoded version that was never bumped,
 // so its cache name never changed and its version never matched the running app.
-const APP_VERSION = '2.42.0';
-const BUILD_TIME = '20 Jul 2026 10:10 PM AEDT';
+const APP_VERSION = '2.43.0';
+const BUILD_TIME = '21 Jul 2026 9:03 AM AEDT';
 
 // Only load Supabase SDK in cloud mode
 if (SPENDLY_MODE === 'cloud') {
@@ -18328,13 +18328,17 @@ function getEffectiveBillingCycleEnd(e) {
 // surplus panel (Step 3-A) and the Pay-gate on the savings list (Step 3-B) so they
 // can never disagree. surplus > 0 means money to distribute; < 0 means a shortfall
 // to absorb. Mortgage-type pendings are excluded from the eligible (distributable) set.
-function computeCycleSurplus(pendingItems, salBal, sceStr) {
-  const sIds = new Set((state.ccPayments||[]).flatMap(p => p.expenseIds||[]));
-  const ccCycleTotal = Math.round((state.expenses||[]).filter(e => {
-    if (!e.paymentAccountId || sIds.has(e.id)) return false;
-    const a = accountById(e.paymentAccountId);
-    return a && a.type === 'credit' && e.date <= sceStr;
-  }).reduce((s,e) => s + e.amount, 0) * 100) / 100;
+function computeCycleSurplus(pendingItems, salBal, sceStr, cycleOffset) {
+  // What the card still owes must come from getCCGoalContributions — the SAME figure
+  // the Pay card and the pay wizard use. Computing it separately here (raw expense
+  // dates) made this panel disagree with the payment: it ignored deferrals, refunds
+  // and the statement closing balance, so after paying a statement in full it could
+  // still report charges owed, show a phantom shortfall, and block the pending
+  // savings behind a "distribute" step that had already been done.
+  if (cycleOffset === undefined) cycleOffset = _salaryCycleOffset;
+  const ccCycleTotal = Math.round((state.accounts||[])
+    .filter(a => a.type === 'credit')
+    .reduce((s,a) => s + (getCCGoalContributions(a.id, cycleOffset).grossTotal || 0), 0) * 100) / 100;
   const mortgageKW = ['mortgage', 'home savings'];
   const eligiblePending = (pendingItems||[]).filter(p => {
     const goal = savingsCatById(p.goalId);
@@ -19232,7 +19236,7 @@ function renderAccounts() {
         '</div>';
       }
       const _ccOwed = getSalaryCCOwed();
-      const _cs = computeCycleSurplus(pending, balance, _sceStr);
+      const _cs = computeCycleSurplus(pending, balance, _sceStr, _salaryCycleOffset);
       // When there's a surplus to add or a shortfall to absorb, the per-goal pending
       // amounts aren't final yet — so paying now would pay the wrong figure. Lock Pay
       // until the surplus/shortfall (Step 3-A) is distributed; if it's balanced, pay freely.

@@ -3366,6 +3366,27 @@ await check("the reconciliation review pre-applies previous acknowledgements whe
   assertTrue(!/window\._reconciliation = \{ ccAccountId, result, cycleInfo, resolved: \{\}/.test(html), 'the review no longer starts with an empty resolved map, which discarded prior acknowledgements');
 });
 
+console.log('\n── Cycle panel agrees with the card payment ──');
+
+await check("after the card is paid, the cycle panel reports nothing owed — deferred charges must not resurface as a phantom shortfall blocking the savings", () => {
+  ctx.state = buildMockState();
+  const st = ctx.state;
+  st.accounts.push({ id: 'ccPh', name: 'ANZ', type: 'credit' });
+  const { cycleEnd } = ctx.getCycleRange(0);
+  const ceStr = ctx.dateToStr(cycleEnd);
+  // two charges dated in this cycle: one paid with the statement, one deferred out
+  st.expenses.push({ id: 'ePaid', amount: 3379.03, name: 'Statement charges', date: ceStr, paymentAccountId: 'ccPh' });
+  st.expenses.push({ id: 'eDef', amount: 134.89, name: 'Late charge', date: ceStr, paymentAccountId: 'ccPh', deferToNextCycle: true });
+  // the statement payment settles only what it covered
+  st.ccPayments = (st.ccPayments||[]).concat([{ id: 'payPh', date: ceStr, amount: 3379.03, expenseIds: ['ePaid'] }]);
+
+  const cs = ctx.computeCycleSurplus([], 5679.68, ceStr, 0);
+  assertEqual(cs.ccCycleTotal, 0, 'the deferred charge belongs to the NEXT cycle, so this cycle shows nothing still owed');
+  assertTrue(cs.surplus > 0, 'with the card paid there is no phantom shortfall, so the savings are not blocked behind a distribute step');
+  // and it must agree with the figure the Pay card shows
+  assertEqual(cs.ccCycleTotal, ctx.getCCGoalContributions('ccPh', 0).grossTotal, 'the panel and the Pay card must never disagree about what is owed');
+});
+
 await check('no top-level function is declared more than once anywhere in the file (regression: silent shadowing caused both a data-loss bug and a broken legacy super-contribution modal)', () => {
   const fs = require('fs');
   const html = fs.readFileSync(APP_PATH, 'utf8');
