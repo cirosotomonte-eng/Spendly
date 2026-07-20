@@ -3345,6 +3345,27 @@ await check("a deferred charge moves to the NEXT statement cycle and is picked u
   assertEqual(ctx.dateToStr(ctx.getEffectiveBillingCycleEnd(e)), ctx.dateToStr(nextEnd), 'after deferral it belongs to the next cycle, so the next statement will pick it up');
 });
 
+await check("acknowledging a split/grouped suggestion persists, so re-running the same statement shows it already handled", () => {
+  ctx.state = buildMockState();
+  ctx.state.accounts.push({ id: 'ccSp', name: 'ANZ', type: 'credit' });
+  const sug = { expense: { id: 'eSp', amount: 50 }, sum: 50, statementTxns: [{ amount: 30 }, { amount: 20 }] };
+  ctx.window._reconciliation = { ccAccountId: 'ccSp', result: { splitSuggestions: [sug] }, resolved: {}, collapsed: {} };
+  const keep = ctx.renderReconciliationReview; ctx.renderReconciliationReview = () => {};
+  try { ctx.reconcileAcknowledgeSplit(0); } finally { ctx.renderReconciliationReview = keep; }
+
+  assertTrue((ctx.state.resolvedStatementAcks||[]).length === 1, 'the acknowledgement is written to state, not just the in-memory session');
+  assertTrue(ctx._reconcileIsAcked('ccSp', 'split', sug), 'the same suggestion is recognised as already acknowledged on a later run');
+  // a different suggestion, and the same one on another card, must NOT be pre-acked
+  assertTrue(!ctx._reconcileIsAcked('ccSp', 'split', { expense: { id: 'eOther' }, sum: 50 }), 'a different suggestion is still asked about');
+  assertTrue(!ctx._reconcileIsAcked('ccOther', 'split', sug), 'acknowledgements are scoped to the card they were made on');
+});
+
+await check("the reconciliation review pre-applies previous acknowledgements when it opens", () => {
+  const fs = require('fs'); const html = fs.readFileSync(APP_PATH, 'utf8');
+  assertTrue(/_reconcileIsAcked\(ccAccountId, 'split', sug\)/.test(html), 'it checks stored acknowledgements while building the review');
+  assertTrue(!/window\._reconciliation = \{ ccAccountId, result, cycleInfo, resolved: \{\}/.test(html), 'the review no longer starts with an empty resolved map, which discarded prior acknowledgements');
+});
+
 await check('no top-level function is declared more than once anywhere in the file (regression: silent shadowing caused both a data-loss bug and a broken legacy super-contribution modal)', () => {
   const fs = require('fs');
   const html = fs.readFileSync(APP_PATH, 'utf8');

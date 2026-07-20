@@ -26,8 +26,8 @@ const SPENDLY_MODE = 'cloud';
 // derive its cache name and reported version from the SAME constants the app uses.
 // Previously the worker carried its own hardcoded version that was never bumped,
 // so its cache name never changed and its version never matched the running app.
-const APP_VERSION = '2.41.0';
-const BUILD_TIME = '20 Jul 2026 10:05 PM AEDT';
+const APP_VERSION = '2.42.0';
+const BUILD_TIME = '20 Jul 2026 10:10 PM AEDT';
 
 // Only load Supabase SDK in cloud mode
 if (SPENDLY_MODE === 'cloud') {
@@ -16565,7 +16565,13 @@ function fmtDateAU(dateStr) {
 }
 
 function showStatementReconciliationResults(ccAccountId, result, cycleInfo) {
-  window._reconciliation = { ccAccountId, result, cycleInfo, resolved: {}, collapsed: { matched: true } };
+  // Re-apply acknowledgements made on a previous run of this same statement, so a
+  // second look shows them already handled instead of asking again.
+  const _preResolved = {};
+  (result.splitSuggestions||[]).forEach((sug, i) => {
+    if (_reconcileIsAcked(ccAccountId, 'split', sug)) _preResolved['split-' + i] = 'ack';
+  });
+  window._reconciliation = { ccAccountId, result, cycleInfo, resolved: _preResolved, collapsed: { matched: true } };
   renderReconciliationReview();
 }
 
@@ -16672,7 +16678,36 @@ function reconcileDeleteUnbilledExpense(index) {
   showToast('🗑️ Removed — looks like it never actually happened', 2500);
 }
 
+// Acknowledgements ("Got it") used to live only in the in-memory review session, so
+// re-uploading the same statement asked about every split and refund pair all over
+// again — the same complaint as re-offering already-deferred charges. Persist them
+// against a stable signature so a second look shows them already handled.
+function _reconcileAckSignature(kind, item) {
+  // Split/grouped suggestions have no other persistent record (refund pairs already
+  // persist via logResolvedStatementCredit, which filters the credit out on re-run).
+  if (kind === 'split') {
+    return 'split|' + ((item.expense && item.expense.id) || '') + '|' + Math.round((item.sum||0) * 100);
+  }
+  return kind + '|unknown';
+}
+function _reconcileRecordAck(kind, item) {
+  const rc = window._reconciliation;
+  if (!rc) return;
+  if (!state.resolvedStatementAcks) state.resolvedStatementAcks = [];
+  const sig = _reconcileAckSignature(kind, item);
+  if (!state.resolvedStatementAcks.some(a => a.ccAccountId === rc.ccAccountId && a.sig === sig)) {
+    state.resolvedStatementAcks.push({ ccAccountId: rc.ccAccountId, sig, date: todayStr() });
+    saveState();
+  }
+}
+function _reconcileIsAcked(ccAccountId, kind, item) {
+  const sig = _reconcileAckSignature(kind, item);
+  return (state.resolvedStatementAcks||[]).some(a => a.ccAccountId === ccAccountId && a.sig === sig);
+}
+
 function reconcileAcknowledgeSplit(index) {
+  const rc = window._reconciliation;
+  if (rc) _reconcileRecordAck('split', (rc.result.splitSuggestions||[])[index] || {});
   reconcileMarkResolved('split-' + index);
   renderReconciliationReview();
 }
