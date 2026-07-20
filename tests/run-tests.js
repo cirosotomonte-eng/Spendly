@@ -3246,6 +3246,43 @@ await check("undeferExpense reverses a deferral so the charge counts in its own 
   assertEqual(e.amount, 99, 'and must not alter it');
 });
 
+console.log('\n── CC payment: goal money debited exactly once ──');
+
+await check("paying the card does NOT debit goals a second time — a $100 goal-covered charge must remove $100 from the goal in total, not $200", () => {
+  ctx.state = buildMockState();
+  const st = ctx.state;
+  st.accounts.push({ id: 'offDD', name: 'Offset', type: 'offset' });
+  st.accounts.push({ id: 'salDD', name: 'Salary', type: 'transaction', linkedOffsetId: 'offDD' });
+  st.accounts.push({ id: 'ccDD', name: 'ANZ CC', type: 'credit' });
+  st.savingsCategories.push({ id: 'gDD', name: 'Servicios', status: 'active', linkedAccountId: 'offDD' });
+  st.savingsDeposits.push({ id: 'seedDD', catId: 'gDD', targetId: 'gDD', amount: 1000, date: '2026-07-01', type: 'deposit' });
+  // the charge, with the withdrawal the app creates at log time
+  st.savingsDeposits.push({ id: 'wDD', catId: 'gDD', targetId: 'gDD', amount: 100, date: '2026-07-10', type: 'bill-payment', note: 'Water', linkedExpenseId: 'eDD' });
+  st.expenses.push({ id: 'eDD', amount: 100, name: 'Water', categoryId: 'cat1', date: '2026-07-10',
+    paymentAccountId: 'ccDD', linkedGoalId: 'gDD', linkedWithdrawalId: 'wDD', goalCoveredAmount: 100 });
+
+  assertEqual(ctx.totalSavedForCat('gDD'), 900, 'the goal is debited once when the charge is logged');
+
+  const info = ctx.getCCGoalContributions('ccDD', 0);
+  ctx.window._ccPayModalData = [{
+    id: 'ccDD', owed: info.grossTotal, salaryTotal: info.salaryTotal, goalTotal: info.goalTotal,
+    contributions: info.contributions, usingClosingBalance: false,
+    itemizedGrossTotal: info.grossTotal, gapAmount: 0, goalTotalExceedsClosingBalance: false,
+    dueDate: null, unsettledIds: ['eDD'],
+  }];
+  ctx.document.getElementById('ccPaySelect').value = '0';
+  const keep = { rc: ctx.renderContent, ra: ctx.renderAccounts, uh: ctx.updateHeader };
+  ctx.renderContent = () => {}; ctx.renderAccounts = () => {}; ctx.updateHeader = () => {};
+  ctx.confirm = () => true;
+  try { ctx.confirmPayCCFromSalary('salDD'); }
+  finally { ctx.renderContent = keep.rc; ctx.renderAccounts = keep.ra; ctx.updateHeader = keep.uh; }
+
+  assertEqual(ctx.totalSavedForCat('gDD'), 900, 'paying the card must NOT take the same money out of the goal again');
+  const contribs = (ctx.state.savingsDeposits || []).filter(d => /CC payment contribution/i.test(d.note || ''));
+  assertEqual(contribs.length, 0, 'no second goal withdrawal is written at payment time');
+  assertTrue((ctx.state.ccPayments || []).some(p => (p.expenseIds || []).includes('eDD')), 'the charge is still recorded as settled');
+});
+
 await check('no top-level function is declared more than once anywhere in the file (regression: silent shadowing caused both a data-loss bug and a broken legacy super-contribution modal)', () => {
   const fs = require('fs');
   const html = fs.readFileSync(APP_PATH, 'utf8');
