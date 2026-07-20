@@ -26,8 +26,8 @@ const SPENDLY_MODE = 'cloud';
 // derive its cache name and reported version from the SAME constants the app uses.
 // Previously the worker carried its own hardcoded version that was never bumped,
 // so its cache name never changed and its version never matched the running app.
-const APP_VERSION = '2.37.0';
-const BUILD_TIME = '20 Jul 2026 11:36 AM AEDT';
+const APP_VERSION = '2.38.0';
+const BUILD_TIME = '20 Jul 2026 12:01 PM AEDT';
 
 // Only load Supabase SDK in cloud mode
 if (SPENDLY_MODE === 'cloud') {
@@ -4313,10 +4313,18 @@ function updateHeader() {
   // pulled into it from the previous one).
   const deferredBadgeEl = document.getElementById('deferredBadge');
   if (deferredBadgeEl) {
-    const deferredIn = cycleExpenses().filter(e => e.deferToNextCycle);
-    if (deferredIn.length > 0) {
-      const total = Math.round(deferredIn.reduce((s,e) => s + e.amount, 0) * 100) / 100;
-      deferredBadgeEl.textContent = '📅 ' + deferredIn.length + ' deferred charge' + (deferredIn.length!==1?'s':'') + ' (' + fmt(total) + ') — why?';
+    const { pulledIn, pushedOut } = getDeferredForCycle();
+    if (pulledIn.length > 0 || pushedOut.length > 0) {
+      const parts = [];
+      if (pulledIn.length > 0) {
+        const t = Math.round(pulledIn.reduce((s,e) => s + e.amount, 0) * 100) / 100;
+        parts.push(pulledIn.length + ' deferred in (' + fmt(t) + ')');
+      }
+      if (pushedOut.length > 0) {
+        const t = Math.round(pushedOut.reduce((s,e) => s + e.amount, 0) * 100) / 100;
+        parts.push(pushedOut.length + ' moved to next cycle (' + fmt(t) + ')');
+      }
+      deferredBadgeEl.textContent = '📅 ' + parts.join(' · ') + ' — why?';
       deferredBadgeEl.style.display = 'block';
     } else {
       deferredBadgeEl.style.display = 'none';
@@ -13762,29 +13770,78 @@ function showRecurringDiagnostic() {
 // Large, centered, unmissable loading overlay — for operations that genuinely
 // take a while (AI extraction calls) where a small toast easily gets missed.
 // ── Deferred charges visibility ───────────────────────────────────────────────
+// A deferral moves an expense's BUDGET cycle forward one, without touching its
+// date. That means it touches two cycles: the one it was spent in (where it
+// disappears from the spend total) and the one it lands in. Both need to say so,
+// otherwise a cycle total changes for a reason that is invisible on screen.
+function getDeferredForCycle(offset) {
+  if (offset === undefined) offset = state.viewingCycleOffset || 0;
+  const { cycleStart, cycleEnd } = getCycleRange(offset);
+  const { cycleStart: prevStart, cycleEnd: prevEnd } = getCycleRange(offset - 1);
+  const pulledIn = [], pushedOut = [];
+  (state.expenses||[]).forEach(e => {
+    if (!e.deferToNextCycle) return;
+    const d = new Date(e.date + 'T00:00:00');
+    if (d >= prevStart && d <= prevEnd) pulledIn.push(e);
+    else if (d >= cycleStart && d <= cycleEnd) pushedOut.push(e);
+  });
+  return { pulledIn, pushedOut };
+}
+
+// Reverse a deferral. Previously deferToNextCycle could only ever be set to true,
+// so a mis-tapped Defer permanently altered budget maths with no way back.
+function undeferExpense(expId) {
+  const e = (state.expenses||[]).find(x => x.id === expId);
+  if (!e) return;
+  if (!confirm('Un-defer ' + fmt(e.amount) + ' "' + (e.name||'') + '"? It will count toward the cycle it was actually spent in.')) return;
+  delete e.deferToNextCycle;
+  saveState();
+  if (typeof renderContent === 'function') renderContent();
+  if (typeof updateHeader === 'function') updateHeader();
+  const open = document.getElementById('deferredItemsModal');
+  if (open) { open.remove(); showDeferredItemsModal(); }
+  showToast('✅ Un-deferred — back in its own cycle', 3000);
+}
+
 function showDeferredItemsModal() {
   const existing = document.getElementById('deferredItemsModal');
   if (existing) existing.remove();
-  const deferredIn = cycleExpenses().filter(e => e.deferToNextCycle);
-  const total = Math.round(deferredIn.reduce((s,e) => s + e.amount, 0) * 100) / 100;
+  const { pulledIn, pushedOut } = getDeferredForCycle();
+  const total = Math.round(pulledIn.reduce((s,e) => s + e.amount, 0) * 100) / 100;
 
   const overlay = document.createElement('div');
   overlay.id = 'deferredItemsModal';
   overlay.className = 'modal-overlay open';
   overlay.style.alignItems = 'center';
-  let rows = deferredIn.map(e => {
+  const rowFor = (e) => {
     const cat = catById(e.categoryId);
     return '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-top:1px solid var(--surface2)">' +
       '<div style="min-width:0"><div style="font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + (e.name || (cat?cat.name:'Expense')) + '</div>' +
       '<div style="font-size:11px;color:var(--muted)">Spent ' + new Date(e.date+'T00:00:00').toLocaleDateString('en-AU',{day:'numeric',month:'short',year:'numeric'}) + '</div></div>' +
-      '<div style="font-size:13px;font-weight:700;flex-shrink:0;margin-left:10px">' + fmt(e.amount) + '</div>' +
+      '<div style="display:flex;align-items:center;gap:8px;flex-shrink:0;margin-left:10px">' +
+        '<div style="font-size:13px;font-weight:700">' + fmt(e.amount) + '</div>' +
+        '<button data-eid="' + e.id + '" onclick="undeferExpense(this.dataset.eid)" style="background:var(--surface3);color:var(--text);border:none;border-radius:7px;padding:5px 9px;font-size:11px;font-weight:600;font-family:var(--font);cursor:pointer">Un-defer</button>' +
+      '</div>' +
     '</div>';
-  }).join('');
+  };
+  let body = '';
+  if (pulledIn.length > 0) {
+    body += '<div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:2px">Counted in this cycle</div>' +
+      '<div style="font-size:12px;color:var(--muted);margin-bottom:8px">Spent earlier, but the bank had not billed them when you reconciled — so they count here instead. Total: ' + fmt(total) + '</div>' +
+      '<div style="background:var(--surface2);border-radius:10px;padding:4px 14px;margin-bottom:16px">' + pulledIn.map(rowFor).join('') + '</div>';
+  }
+  if (pushedOut.length > 0) {
+    const outTotal = Math.round(pushedOut.reduce((s,e) => s + e.amount, 0) * 100) / 100;
+    body += '<div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:2px">Moved to the next cycle</div>' +
+      '<div style="font-size:12px;color:var(--muted);margin-bottom:8px">Spent in this cycle, but counted against the next one — which is why they are missing from this cycle\u2019s spend. Total: ' + fmt(outTotal) + '</div>' +
+      '<div style="background:var(--surface2);border-radius:10px;padding:4px 14px;margin-bottom:16px">' + pushedOut.map(rowFor).join('') + '</div>';
+  }
+  if (!body) body = '<div style="font-size:12px;color:var(--muted);margin-bottom:16px">No deferred charges affect this cycle.</div>';
+
   overlay.innerHTML =
     '<div class="modal-sheet" style="max-width:380px;max-height:85vh;overflow-y:auto;box-sizing:border-box">' +
-      '<div style="font-size:16px;font-weight:700;margin-bottom:4px">📅 Deferred charges</div>' +
-      '<div style="font-size:12px;color:var(--muted);margin-bottom:14px">These count toward THIS cycle\'s budget instead of the one they were actually spent in — the bank hadn\'t billed them yet when you reconciled, so they were pushed forward. Total: ' + fmt(total) + '</div>' +
-      '<div style="background:var(--surface2);border-radius:10px;padding:4px 14px;margin-bottom:16px">' + rows + '</div>' +
+      '<div style="font-size:16px;font-weight:700;margin-bottom:12px">📅 Deferred charges</div>' +
+      body +
       '<button onclick="document.getElementById(\'deferredItemsModal\').remove()" style="width:100%;background:var(--accent);color:#fff;border:none;border-radius:10px;padding:12px;font-size:14px;font-weight:700;font-family:var(--font);cursor:pointer">Got it</button>' +
     '</div>';
   document.body.appendChild(overlay);

@@ -2143,7 +2143,7 @@ await check('updateHeader() shows the deferred badge with the correct count and 
   assertNoThrow(() => ctx.updateHeader());
   const badge = ctx.document.getElementById('deferredBadge');
   assertEqual(badge.style.display, 'block', 'badge must be visible when deferred charges count against this cycle');
-  assertTrue(badge.textContent.includes('2 deferred charges') && badge.textContent.includes('200'), 'must show an accurate count and total, not just a generic notice');
+  assertTrue(badge.textContent.includes('2 deferred in') && badge.textContent.includes('200'), 'must show an accurate count and total for charges deferred INTO this cycle, not just a generic notice');
 });
 
 await check('updateHeader() hides the deferred badge when nothing is deferred into the viewed cycle', () => {
@@ -2165,7 +2165,7 @@ await check('showDeferredItemsModal() runs without throwing for a real deferred 
 await check('showDeferredItemsModal() builds rows from each deferred item\'s real name, date, and amount', () => {
   const src = ctx.showDeferredItemsModal.toString();
   assertTrue(src.includes('e.name') && src.includes('e.date') && src.includes('e.amount'), 'each row must be built from the actual expense\'s own name, real spend date, and amount — not the cycle it is being counted toward');
-  assertTrue(src.includes('deferToNextCycle'), 'must source its list from actually-deferred expenses, not an arbitrary or hardcoded set');
+  assertTrue(src.includes('getDeferredForCycle'), 'must source its list from the shared deferred-lookup (which filters on deferToNextCycle), not an arbitrary or hardcoded set');
 });
 
 
@@ -3195,6 +3195,55 @@ await check("update banner compares against the real version constant, not an un
   const fs = require('fs'); const html = fs.readFileSync(APP_PATH, 'utf8');
   assertTrue(!/const appVer = '\$\{APP_VER\}'/.test(html), 'the broken literal comparison is gone');
   assertTrue(/const appVer = APP_VER;/.test(html), 'it now reads the actual constant, so the comparison is meaningful');
+});
+
+console.log('\n── Deferral visibility & reversal ──');
+
+await check("getDeferredForCycle reports BOTH directions — charges pulled into the viewed cycle and charges pushed out of it", () => {
+  ctx.state = buildMockState();
+  ctx.state.viewingCycleOffset = 0;
+  const { cycleStart: prevStart } = ctx.getCycleRange(-1);
+  const { cycleStart: thisStart } = ctx.getCycleRange(0);
+  // spent last cycle, deferred INTO this one
+  ctx.state.expenses.push({ id: 'dIn', date: ctx.dateToStr(prevStart), amount: 150, categoryId: 'cat1', deferToNextCycle: true });
+  // spent THIS cycle, deferred OUT to the next one
+  ctx.state.expenses.push({ id: 'dOut', date: ctx.dateToStr(thisStart), amount: 60, categoryId: 'cat1', deferToNextCycle: true });
+  const d = ctx.getDeferredForCycle(0);
+  assertEqual(d.pulledIn.length, 1, 'the charge deferred into this cycle is reported');
+  assertEqual(d.pulledIn[0].id, 'dIn', 'and it is the right one');
+  assertEqual(d.pushedOut.length, 1, 'the charge deferred OUT of this cycle is reported too — previously this was invisible');
+  assertEqual(d.pushedOut[0].id, 'dOut', 'and it is the right one');
+});
+
+await check("the deferred badge announces charges moved OUT of the viewed cycle, so a cycle total never changes for an invisible reason", () => {
+  ctx.state = buildMockState();
+  ctx.state.currentTab = 'expenses';
+  ctx.state.viewingCycleOffset = 0;
+  const { cycleStart: thisStart } = ctx.getCycleRange(0);
+  ctx.state.expenses.push({ id: 'dOut2', date: ctx.dateToStr(thisStart), amount: 60, categoryId: 'cat1', deferToNextCycle: true });
+  assertNoThrow(() => ctx.updateHeader());
+  const badge = ctx.document.getElementById('deferredBadge');
+  assertEqual(badge.style.display, 'block', 'the badge must appear on the cycle the charge was spent in');
+  assertTrue(/moved to next cycle/.test(badge.textContent), 'it must say the charge moved out');
+  assertTrue(badge.textContent.includes('60'), 'and show the amount that left this cycle');
+});
+
+await check("undeferExpense reverses a deferral so the charge counts in its own cycle again", () => {
+  ctx.state = buildMockState();
+  ctx.state.viewingCycleOffset = 0;
+  const { cycleStart: prevStart } = ctx.getCycleRange(-1);
+  ctx.state.expenses.push({ id: 'dUndo', date: ctx.dateToStr(prevStart), amount: 99, categoryId: 'cat1', name: 'Mis-tap', deferToNextCycle: true });
+  assertEqual(ctx.getDeferredForCycle(0).pulledIn.length, 1, 'starts deferred');
+  ctx.confirm = () => true;
+  const _rc = ctx.renderContent, _uh = ctx.updateHeader;
+  ctx.renderContent = () => {}; ctx.updateHeader = () => {};
+  try { ctx.undeferExpense('dUndo'); } finally { ctx.renderContent = _rc; ctx.updateHeader = _uh; }
+  const e = (ctx.state.expenses||[]).find(x => x.id === 'dUndo');
+  assertTrue(!e.deferToNextCycle, 'the deferral flag is cleared — a mis-tapped Defer is no longer permanent');
+  assertEqual(ctx.getDeferredForCycle(0).pulledIn.length, 0, 'it no longer counts toward the following cycle');
+  assertEqual(ctx.getDeferredForCycle(-1).pushedOut.length, 0, 'and it is not reported as pushed out of its own cycle either');
+  assertTrue((ctx.state.expenses||[]).some(x => x.id === 'dUndo'), 'un-deferring must NOT delete the expense');
+  assertEqual(e.amount, 99, 'and must not alter it');
 });
 
 await check('no top-level function is declared more than once anywhere in the file (regression: silent shadowing caused both a data-loss bug and a broken legacy super-contribution modal)', () => {
