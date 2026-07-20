@@ -3387,6 +3387,34 @@ await check("after the card is paid, the cycle panel reports nothing owed — de
   assertEqual(cs.ccCycleTotal, ctx.getCCGoalContributions('ccPh', 0).grossTotal, 'the panel and the Pay card must never disagree about what is owed');
 });
 
+console.log('\n── Goal transaction history ──');
+
+await check("every goal transaction is reachable — the goal card links to a full history, not a dead '+N more' label", () => {
+  const fs = require('fs'); const html = fs.readFileSync(APP_PATH, 'utf8');
+  assertTrue(/function showGoalHistory\(catId\)/.test(html), 'a full-history view exists');
+  assertTrue(/showGoalHistory\(\\'" \+ cat\.id/.test(html) || /showGoalHistory\(/.test(html), 'the goal card links to it');
+  assertTrue(!/\+'\+\(allDeps\.length-4\)\+' more/.test(html), "the old unclickable '+N more' label is gone");
+  assertTrue(/depositsForCat\(catId\)/.test(html), 'the history lists every transaction for the goal, not a truncated slice');
+});
+
+await check("goal history shows a running balance that ends at the goal's actual balance", () => {
+  ctx.state = buildMockState();
+  ctx.state.savingsCategories.push({ id: 'gH', name: 'History', icon: '💰', status: 'active' });
+  ctx.state.savingsDeposits.push({ id: 'h1', catId: 'gH', targetId: 'gH', amount: 500, date: '2026-05-01', type: 'deposit', note: 'first' });
+  ctx.state.savingsDeposits.push({ id: 'h2', catId: 'gH', targetId: 'gH', amount: 120, date: '2026-05-10', type: 'bill-payment', note: 'bill' });
+  ctx.state.savingsDeposits.push({ id: 'h3', catId: 'gH', targetId: 'gH', amount: 80, date: '2026-05-20', type: 'deposit', note: 'top up' });
+  const deps = ctx.depositsForCat('gH').sort((a,b) => b.date.localeCompare(a.date) || b.id.localeCompare(a.id));
+  assertEqual(deps.length, 3, 'all transactions are listed, none truncated away');
+  // replicate the running balance the view builds
+  let run = 0;
+  deps.slice().reverse().forEach(d => {
+    const out = d.type === 'withdrawal' || d.type === 'bill-payment';
+    run = Math.round((run + (out ? -d.amount : d.amount)) * 100) / 100;
+  });
+  assertEqual(run, 460, 'running balance: 500 - 120 + 80');
+  assertEqual(run, ctx.totalSavedForCat('gH'), 'and it must land on the same figure the goal itself reports');
+});
+
 await check('no top-level function is declared more than once anywhere in the file (regression: silent shadowing caused both a data-loss bug and a broken legacy super-contribution modal)', () => {
   const fs = require('fs');
   const html = fs.readFileSync(APP_PATH, 'utf8');

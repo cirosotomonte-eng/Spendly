@@ -26,8 +26,8 @@ const SPENDLY_MODE = 'cloud';
 // derive its cache name and reported version from the SAME constants the app uses.
 // Previously the worker carried its own hardcoded version that was never bumped,
 // so its cache name never changed and its version never matched the running app.
-const APP_VERSION = '2.43.0';
-const BUILD_TIME = '21 Jul 2026 9:03 AM AEDT';
+const APP_VERSION = '2.44.0';
+const BUILD_TIME = '21 Jul 2026 9:18 AM AEDT';
 
 // Only load Supabase SDK in cloud mode
 if (SPENDLY_MODE === 'cloud') {
@@ -10219,7 +10219,9 @@ function renderSavings() {
             '<div style="font-size:13px;font-weight:600;color:'+(isW||isBill?'var(--red)':'var(--accent)')+'">'+( isW||isBill?'-':'+' )+fmt(d.amount)+'</div>' +
           '</div>';
         });
-        if (allDeps.length > 4) html += '<div style="padding:8px 14px;font-size:11px;color:var(--muted)">+'+(allDeps.length-4)+' more</div>';
+        html += '<div onclick="showGoalHistory(\'' + cat.id + '\')" style="padding:10px 14px;border-top:1px solid var(--surface2);font-size:12px;font-weight:600;color:var(--accent);cursor:pointer;display:flex;justify-content:space-between;align-items:center">' +
+          '<span>' + (allDeps.length > 4 ? 'View all ' + allDeps.length + ' transactions' : 'View history') + '</span><span>›</span>' +
+        '</div>';
         html += '</div>';
       }
     }
@@ -13801,6 +13803,80 @@ function undeferExpense(expId) {
   const open = document.getElementById('deferredItemsModal');
   if (open) { open.remove(); showDeferredItemsModal(); }
   showToast('✅ Un-deferred — back in its own cycle', 3000);
+}
+
+// Full transaction history for one goal. The goal card shows only the few most
+// recent entries, so without this the rest were unreachable — the "+N more" line was
+// plain text, not a control.
+function showGoalHistory(catId) {
+  const cat = savingsCatById(catId);
+  if (!cat) return;
+  const deps = depositsForCat(catId).sort((a,b) => b.date.localeCompare(a.date) || b.id.localeCompare(a.id));
+  const existing = document.getElementById('goalHistoryModal');
+  if (existing) existing.remove();
+
+  // Running balance, computed oldest-first then displayed newest-first, so each row
+  // shows what the goal held right after that transaction.
+  const asc = deps.slice().reverse();
+  const balanceAfter = {};
+  let run = 0;
+  asc.forEach(d => {
+    const isOut = d.type === 'withdrawal' || d.type === 'bill-payment';
+    run = Math.round((run + (isOut ? -d.amount : d.amount)) * 100) / 100;
+    balanceAfter[d.id] = run;
+  });
+
+  const totalIn = Math.round(deps.filter(d => !(d.type==='withdrawal'||d.type==='bill-payment')).reduce((s,d)=>s+d.amount,0) * 100) / 100;
+  const totalOut = Math.round(deps.filter(d => d.type==='withdrawal'||d.type==='bill-payment').reduce((s,d)=>s+d.amount,0) * 100) / 100;
+
+  let rows = '';
+  let lastMonth = '';
+  deps.forEach(d => {
+    const dt = new Date(d.date + 'T00:00:00');
+    const month = dt.toLocaleDateString('en-AU', { month: 'long', year: 'numeric' });
+    if (month !== lastMonth) {
+      lastMonth = month;
+      rows += '<div style="position:sticky;top:0;background:var(--bg);padding:10px 16px 6px;font-size:10px;font-weight:700;letter-spacing:0.07em;text-transform:uppercase;color:var(--muted);z-index:1">' + month + '</div>';
+    }
+    const isW = d.type === 'withdrawal' || d.type === 'bill-payment';
+    const isBill = d.type === 'bill-payment';
+    const isAuto = !!d.linkedExpenseId;
+    rows += '<div onclick="document.getElementById(\'goalHistoryModal\').remove();openEditDeposit(\'' + d.id + '\')" style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:11px 16px;border-top:1px solid var(--surface2);cursor:pointer">' +
+      '<div style="min-width:0">' +
+        '<div style="display:flex;align-items:center;gap:6px"><span style="font-size:11px">' + (isBill?'🧾':isAuto?'🔗':isW?'💸':'💰') + '</span>' +
+        '<span style="font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + (d.note || (isBill?'Bill payment':isW?'Withdrawal':'Deposit')) + '</span></div>' +
+        '<div style="font-size:11px;color:var(--muted);margin-top:2px">' + dt.toLocaleDateString('en-AU',{weekday:'short',day:'numeric',month:'short',year:'numeric'}) + '</div>' +
+      '</div>' +
+      '<div style="text-align:right;flex-shrink:0">' +
+        '<div style="font-size:13px;font-weight:700;color:' + (isW?'var(--red)':'var(--accent)') + '">' + (isW?'-':'+') + fmt(d.amount) + '</div>' +
+        '<div style="font-size:10px;color:var(--muted);margin-top:2px">' + fmt(balanceAfter[d.id]) + '</div>' +
+      '</div>' +
+    '</div>';
+  });
+  if (!rows) rows = '<div style="padding:20px 16px;font-size:13px;color:var(--muted);text-align:center">No transactions yet.</div>';
+
+  const overlay = document.createElement('div');
+  overlay.id = 'goalHistoryModal';
+  overlay.className = 'modal-overlay open';
+  overlay.style.alignItems = 'flex-end';
+  overlay.innerHTML =
+    '<div style="background:var(--bg);border-radius:20px 20px 0 0;width:100%;max-width:480px;box-sizing:border-box;max-height:88vh;display:flex;flex-direction:column">' +
+      '<div style="padding:18px 16px 12px;border-bottom:1px solid var(--surface2)">' +
+        '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">' +
+          '<div><div style="font-size:16px;font-weight:800">' + (cat.icon||'') + ' ' + (cat.name||'Goal') + '</div>' +
+          '<div style="font-size:11px;color:var(--muted);margin-top:2px">' + deps.length + ' transaction' + (deps.length!==1?'s':'') + '</div></div>' +
+          '<button onclick="document.getElementById(\'goalHistoryModal\').remove()" style="background:var(--surface2);color:var(--text);border:none;border-radius:50%;width:30px;height:30px;font-size:15px;font-family:var(--font);cursor:pointer;flex-shrink:0">×</button>' +
+        '</div>' +
+        '<div style="display:flex;gap:14px;margin-top:12px">' +
+          '<div><div style="font-size:10px;color:var(--muted)">In</div><div style="font-size:13px;font-weight:700;color:var(--accent)">+' + fmt(totalIn) + '</div></div>' +
+          '<div><div style="font-size:10px;color:var(--muted)">Out</div><div style="font-size:13px;font-weight:700;color:var(--red)">-' + fmt(totalOut) + '</div></div>' +
+          '<div style="margin-left:auto;text-align:right"><div style="font-size:10px;color:var(--muted)">Balance</div><div style="font-size:13px;font-weight:800">' + fmt(totalSavedForCat(catId)) + '</div></div>' +
+        '</div>' +
+      '</div>' +
+      '<div style="overflow-y:auto;-webkit-overflow-scrolling:touch">' + rows + '</div>' +
+    '</div>';
+  document.body.appendChild(overlay);
+  overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
 }
 
 function showDeferredItemsModal() {
