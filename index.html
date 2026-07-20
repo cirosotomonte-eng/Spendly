@@ -21,6 +21,14 @@
 // ─────────────────────────────────────────────────────────────────────────────
 const SPENDLY_MODE = 'cloud';
 
+// ── Version (single source of truth) ─────────────────────────────────────────
+// Declared here, ahead of the service worker registration below, so the worker can
+// derive its cache name and reported version from the SAME constants the app uses.
+// Previously the worker carried its own hardcoded version that was never bumped,
+// so its cache name never changed and its version never matched the running app.
+const APP_VERSION = '2.37.0';
+const BUILD_TIME = '20 Jul 2026 11:36 AM AEDT';
+
 // Only load Supabase SDK in cloud mode
 if (SPENDLY_MODE === 'cloud') {
   const s = document.createElement('script');
@@ -36,7 +44,10 @@ document.getElementById('pwaManifest').href = URL.createObjectURL(mblob);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
-  const APP_VER = '2.3.19-202604081542';
+  // Derived from the app's own version + build stamp, so every deployed build gets a
+  // fresh cache name (retiring the previous cache on activate) and reports a version
+  // that actually matches the running app.
+  const APP_VER = APP_VERSION + '-' + BUILD_TIME.replace(/[^0-9A-Za-z]/g, '');
   const swCode = `
 const CACHE = 'spendly-${APP_VER}';
 const VERSION = '${APP_VER}';
@@ -84,7 +95,10 @@ self.addEventListener('message', e => {
   navigator.serviceWorker.addEventListener('message', e => {
     if (e.data && e.data.type === 'VERSION') {
       const swVer = e.data.version;
-      const appVer = '${APP_VER}';
+      // Compare against the real constant. This previously read '${APP_VER}' inside a
+      // plain quoted string (outside the worker template), so it was never interpolated
+      // and could never match — the comparison was meaningless.
+      const appVer = APP_VER;
       if (swVer && swVer !== appVer) {
         showUpdateBanner();
       }
@@ -2135,9 +2149,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.36.0';
+// APP_VERSION and BUILD_TIME are declared in the first script block (above the
+// service worker registration) so the worker can share them.
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '20 Jul 2026 10:40 AM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 

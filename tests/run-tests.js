@@ -3174,6 +3174,29 @@ await check("getPendingCardGoalDebits totals goal money still sitting on the car
   assertTrue(!pc.items.some(e => e.id === 'p5'), 'a card charge with no goal link is excluded');
 });
 
+console.log('\n── Service worker versioning ──');
+
+await check("service worker version derives from APP_VERSION + BUILD_TIME (no stale hardcoded version) so every build gets a fresh cache", () => {
+  const fs = require('fs'); const html = fs.readFileSync(APP_PATH, 'utf8');
+  assertTrue(/const APP_VER = APP_VERSION \+ '-' \+ BUILD_TIME/.test(html), 'the worker version is derived from the app constants');
+  assertTrue(!/const APP_VER = '[0-9]/.test(html), 'no hardcoded literal worker version remains');
+  // the constants must be declared BEFORE the worker block, or the derivation throws
+  const iVer = html.indexOf('const APP_VERSION =');
+  const iSW = html.indexOf("if ('serviceWorker' in navigator)");
+  assertTrue(iVer > 0 && iSW > 0 && iVer < iSW, 'APP_VERSION must be declared before the service worker registration');
+  const iBuild = html.indexOf('const BUILD_TIME =');
+  assertTrue(iBuild > 0 && iBuild < iSW, 'BUILD_TIME must also be declared before the service worker registration');
+  // and only once each, or the page throws a redeclaration error
+  assertEqual((html.match(/const APP_VERSION = /g) || []).length, 1, 'APP_VERSION declared exactly once');
+  assertEqual((html.match(/const BUILD_TIME = /g) || []).length, 1, 'BUILD_TIME declared exactly once');
+});
+
+await check("update banner compares against the real version constant, not an uninterpolated string literal", () => {
+  const fs = require('fs'); const html = fs.readFileSync(APP_PATH, 'utf8');
+  assertTrue(!/const appVer = '\$\{APP_VER\}'/.test(html), 'the broken literal comparison is gone');
+  assertTrue(/const appVer = APP_VER;/.test(html), 'it now reads the actual constant, so the comparison is meaningful');
+});
+
 await check('no top-level function is declared more than once anywhere in the file (regression: silent shadowing caused both a data-loss bug and a broken legacy super-contribution modal)', () => {
   const fs = require('fs');
   const html = fs.readFileSync(APP_PATH, 'utf8');
