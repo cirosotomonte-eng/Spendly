@@ -3283,6 +3283,44 @@ await check("paying the card does NOT debit goals a second time — a $100 goal-
   assertTrue((ctx.state.ccPayments || []).some(p => (p.expenseIds || []).includes('eDD')), 'the charge is still recorded as settled');
 });
 
+console.log('\n── Charges billed earlier than their date (bank posting date) ──');
+
+await check("billedPrevCycle pulls a charge back one billing cycle — the exact mirror of deferToNextCycle", () => {
+  ctx.state = buildMockState();
+  const { cycleStart } = ctx.getCycleRange(0);
+  const dayAfterPrevClose = ctx.dateToStr(cycleStart); // first day of this cycle
+  const e = { id: 'be1', date: dayAfterPrevClose, amount: 73.9, name: 'Origin Energy' };
+  const natural = ctx.getEffectiveBillingCycleEnd(e);
+  e.billedPrevCycle = true;
+  const pulled = ctx.getEffectiveBillingCycleEnd(e);
+  assertTrue(pulled < natural, 'the charge now belongs to the EARLIER billing cycle');
+  // and it must not fight with the opposite flag
+  const e2 = { id: 'be2', date: dayAfterPrevClose, amount: 10, billedPrevCycle: true, deferToNextCycle: true };
+  assertEqual(ctx.dateToStr(ctx.getEffectiveBillingCycleEnd(e2)), ctx.dateToStr(pulled), 'billedPrevCycle wins when both flags are somehow present');
+});
+
+await check("a charge counted on an already-paid statement stops showing as pending on the card (this is what makes the offset disagree with the bank)", () => {
+  ctx.state = buildMockState();
+  const st = ctx.state;
+  st.accounts.push({ id: 'ccBE', name: 'ANZ', type: 'credit' });
+  st.savingsCategories.push({ id: 'gBE', name: 'Servicios', status: 'active' });
+  st.savingsDeposits.push({ id: 'sBE', catId: 'gBE', targetId: 'gBE', amount: 500, date: '2026-06-01', type: 'deposit' });
+  st.expenses.push({ id: 'eBE', amount: 73.9, name: 'Origin Energy', date: '2026-06-18',
+    paymentAccountId: 'ccBE', linkedGoalId: 'gBE', goalCoveredAmount: 73.9 });
+  assertEqual(ctx.getPendingCardGoalDebits().total, 73.9, 'it starts out counted as still pending on the card');
+  // the action records it against the payment that actually covered it
+  st.ccPayments = (st.ccPayments||[]).concat([{ id: 'mBE', date: '2026-07-20', amount: 0, expenseIds: ['eBE'], note: 'Counted on an already-paid statement', _manual: true }]);
+  assertEqual(ctx.getPendingCardGoalDebits().total, 0, 'once counted on the paid statement it is no longer pending — the money really has left the bank');
+});
+
+await check("runStatementReconciliation flags matched charges dated after the statement close, and only those", () => {
+  const fs = require('fs'); const html = fs.readFileSync(APP_PATH, 'utf8');
+  assertTrue(/result\.billedEarly = \(result\.matched \|\| \[\]\)\.filter/.test(html), 'candidates come from charges that MATCHED a line on this statement — not a date-window guess');
+  assertTrue(/m\.expense\.date > _ceStr/.test(html), 'only charges dated after the statement closed are offered');
+  assertTrue(/!m\.expense\.billedPrevCycle/.test(html), 'already-counted charges are not offered again');
+  assertTrue(/function reconcileCountOnThisStatement/.test(html), 'the review offers an explicit action rather than applying it silently');
+});
+
 await check('no top-level function is declared more than once anywhere in the file (regression: silent shadowing caused both a data-loss bug and a broken legacy super-contribution modal)', () => {
   const fs = require('fs');
   const html = fs.readFileSync(APP_PATH, 'utf8');

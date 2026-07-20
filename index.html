@@ -26,8 +26,8 @@ const SPENDLY_MODE = 'cloud';
 // derive its cache name and reported version from the SAME constants the app uses.
 // Previously the worker carried its own hardcoded version that was never bumped,
 // so its cache name never changed and its version never matched the running app.
-const APP_VERSION = '2.39.0';
-const BUILD_TIME = '20 Jul 2026 7:38 PM AEDT';
+const APP_VERSION = '2.40.0';
+const BUILD_TIME = '20 Jul 2026 7:55 PM AEDT';
 
 // Only load Supabase SDK in cloud mode
 if (SPENDLY_MODE === 'cloud') {
@@ -16524,6 +16524,17 @@ function runStatementReconciliation(ccAccountId, statementTxns, cycleOffset, sum
 
   const result = reconcileStatement(filteredStatementTxns, cycleExp, historyExp, { dateToleranceDays: 3 });
   result.skippedAlreadyResolved = skippedCount;
+  // A charge that MATCHED a line on this statement but is dated after the statement
+  // closed was posted by the bank before the close (posting date vs transaction
+  // date). Spendly infers the billing cycle from the transaction date alone, so it
+  // would otherwise keep showing as owed for another whole cycle — overstating what
+  // is still pending on the card. The statement itself is the evidence, so this is
+  // precise rather than a date-window guess.
+  const _ceStr = dateToStr(cycleEnd);
+  result.billedEarly = (result.matched || []).filter(m =>
+    m.expense && m.expense.date > _ceStr && !m.expense.billedPrevCycle
+  ).map(m => m.expense);
+  window._reconcileCycleSettled = cycleSettled;
   showStatementReconciliationResults(ccAccountId, result, { cycleStart, cycleEnd, savedSummary, reviewOnly: cycleSettled });
 }
 
@@ -16595,6 +16606,33 @@ function reconcileDeferExpense(index) {
 // matcher had nothing to pair it with. Leave the expense exactly where it is (its
 // natural cycle); this only dismisses the false "not yet billed" flag. No Defer
 // (which would wrongly push it forward) and no Delete (it's a real expense).
+// The charge appeared on THIS statement even though it is dated after the close.
+// Pull it into that billing cycle, and — if that statement has already been paid —
+// record it as settled by that payment, so it stops showing as money still owed
+// (which is what makes Spendly's offset disagree with the bank).
+function reconcileCountOnThisStatement(index) {
+  const rc = window._reconciliation;
+  if (!rc) return;
+  const exp = (rc.result.billedEarly || [])[index];
+  if (!exp) return;
+  const real = (state.expenses||[]).find(e => e.id === exp.id);
+  if (!real) return;
+  real.billedPrevCycle = true;
+  delete real.deferToNextCycle;
+  if (window._reconcileCycleSettled) {
+    if (!state.ccPayments) state.ccPayments = [];
+    state.ccPayments.push({
+      id: uid(), date: todayStr(), amount: 0,
+      expenseIds: [real.id], toCCAccountIds: [],
+      note: 'Counted on an already-paid statement', _manual: true,
+    });
+  }
+  saveState();
+  reconcileMarkResolved('billedEarly-' + index, 'kept');
+  renderReconciliationReview();
+  showToast('✅ Counted on this statement', 2500);
+}
+
 function reconcileKeepUnbilled(index) {
   const rc = window._reconciliation;
   if (!rc) return;
@@ -16825,6 +16863,29 @@ function renderReconciliationReview() {
     });
     if (result.missingFromStatement.length === 0) html += '<div style="padding:14px 16px;font-size:12px;color:var(--muted)">Nothing pending — every logged charge already appears on the statement.</div>';
     html += '</div>';
+  }
+
+  // Charges on this statement but dated after it closed (bank posting date)
+  if ((result.billedEarly || []).length > 0) {
+    html += sectionHeader('billedEarly', '🧾', 'On this statement but dated later', result.billedEarly.length, 'var(--orange)');
+    if (!collapsed.billedEarly) {
+      html += '<div style="background:var(--surface);border-radius:0 0 var(--r) var(--r);overflow:hidden;margin-bottom:10px">';
+      html += '<div style="padding:10px 16px;font-size:11px;color:var(--muted);line-height:1.5">These matched a line on this statement, but you logged them after the statement closed — the bank posts a charge a day or two after you make it. Counting them here settles them with this statement instead of leaving them owed for another cycle.</div>';
+      result.billedEarly.forEach((item, i) => {
+        const key = 'billedEarly-' + i;
+        const isResolved = resolved[key];
+        const cat = catById(item.categoryId);
+        html += '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 16px;border-top:1px solid var(--surface2)">' +
+          '<div style="min-width:0">' +
+            '<div style="font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + (item.name || (cat?cat.name:'Expense')) + '</div>' +
+            '<div style="font-size:11px;color:var(--muted)">' + fmtDateAU(item.date) + ' · ' + fmt(item.amount) + '</div>' +
+          '</div>' +
+          (isResolved ? resolvedBadge('Counted here') :
+            '<div style="display:flex;gap:6px">' + actionButton('✓ Count here', 'reconcileCountOnThisStatement(' + i + ')', 'var(--accent)') + '</div>') +
+        '</div>';
+      });
+      html += '</div>';
+    }
   }
 
   // Split suggestions
@@ -17807,6 +17868,28 @@ function resolveOrphanedPaidPendings() {
 // Goal money already debited in Spendly but still sitting on a credit card — the
 // bank hasn't moved it yet, so it only leaves the real offset when the card is paid.
 // This is the expected, legitimate gap between Spendly's offset and the bank's.
+function markBilledPrevCycle(expId) {
+  const e = (state.expenses||[]).find(x => x.id === expId);
+  if (!e) return;
+  if (!confirm('Was ' + fmt(e.amount) + ' "' + (e.name||'') + '" on the earlier statement? It will settle with that statement\u2019s payment instead of showing as still owed.')) return;
+  e.billedPrevCycle = true;
+  delete e.deferToNextCycle;
+  saveState();
+  if (typeof renderAccounts === 'function') renderAccounts();
+  if (typeof updateHeader === 'function') updateHeader();
+  showToast('✅ Counted on the earlier statement', 3000);
+}
+
+function unmarkBilledPrevCycle(expId) {
+  const e = (state.expenses||[]).find(x => x.id === expId);
+  if (!e) return;
+  delete e.billedPrevCycle;
+  saveState();
+  if (typeof renderAccounts === 'function') renderAccounts();
+  if (typeof updateHeader === 'function') updateHeader();
+  showToast('✅ Back on its own statement', 3000);
+}
+
 function getPendingCardGoalDebits() {
   const settled = new Set((state.ccPayments||[]).flatMap(p => p.expenseIds||[]));
   const items = (state.expenses||[]).filter(e => {
@@ -18157,6 +18240,15 @@ function reconcileStatement(statementTxns, cycleExpenses, historyExpenses, optio
 
 function getEffectiveBillingCycleRange(e) {
   const natural = getCycleRangeForDate(e.date);
+  // The bank's POSTING date can differ from the transaction date, so a charge can
+  // appear on the statement that closed just before it. This is the exact mirror of
+  // deferToNextCycle: pull the charge back one cycle so it settles with the payment
+  // that actually covered it. The two flags are mutually exclusive.
+  if (e.billedPrevCycle) {
+    const dayBefore = new Date(natural.cycleStart);
+    dayBefore.setDate(dayBefore.getDate() - 1);
+    return getCycleRangeForDate(dateToStr(dayBefore));
+  }
   if (!e.deferToNextCycle) return natural;
   const dayAfter = new Date(natural.cycleEnd);
   dayAfter.setDate(dayAfter.getDate() + 1);
