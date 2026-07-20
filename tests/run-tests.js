@@ -3321,6 +3321,30 @@ await check("runStatementReconciliation flags matched charges dated after the st
   assertTrue(/function reconcileCountOnThisStatement/.test(html), 'the review offers an explicit action rather than applying it silently');
 });
 
+await check("re-running a statement does NOT offer an already-deferred charge for deferral again (it belongs to the next cycle now)", () => {
+  const fs = require('fs'); const html = fs.readFileSync(APP_PATH, 'utf8');
+  const start = html.indexOf('function runStatementReconciliation(');
+  const end = html.indexOf('function showStatementReconciliationResults(');
+  const body = html.slice(start, end);
+  assertTrue(/getEffectiveBillingCycleEnd\(e\)\) === _cycleEndStr/.test(body),
+    'cycle membership must come from the EFFECTIVE billing cycle, so a deferred charge is no longer part of this statement');
+  assertTrue(!/const cycleExp[\s\S]{0,200}d >= cycleStart && d <= cycleEnd/.test(body),
+    'it must no longer select cycle charges by raw date, which ignored deferrals and re-offered them every re-run');
+  assertTrue(/result\.deferredOut = deferredOut/.test(body),
+    'previously-deferred charges are still surfaced, so their absence is visible rather than silent');
+});
+
+await check("a deferred charge moves to the NEXT statement cycle and is picked up when reconciling that one", () => {
+  ctx.state = buildMockState();
+  ctx.state.accounts.push({ id: 'ccRe', name: 'ANZ', type: 'credit' });
+  const { cycleEnd: thisEnd } = ctx.getCycleRange(0);
+  const { cycleEnd: nextEnd } = ctx.getCycleRange(1);
+  const e = { id: 'eRe', amount: 40, name: 'Late charge', date: ctx.dateToStr(thisEnd), paymentAccountId: 'ccRe' };
+  assertEqual(ctx.dateToStr(ctx.getEffectiveBillingCycleEnd(e)), ctx.dateToStr(thisEnd), 'starts in this cycle');
+  e.deferToNextCycle = true;
+  assertEqual(ctx.dateToStr(ctx.getEffectiveBillingCycleEnd(e)), ctx.dateToStr(nextEnd), 'after deferral it belongs to the next cycle, so the next statement will pick it up');
+});
+
 await check('no top-level function is declared more than once anywhere in the file (regression: silent shadowing caused both a data-loss bug and a broken legacy super-contribution modal)', () => {
   const fs = require('fs');
   const html = fs.readFileSync(APP_PATH, 'utf8');

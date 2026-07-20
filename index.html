@@ -26,8 +26,8 @@ const SPENDLY_MODE = 'cloud';
 // derive its cache name and reported version from the SAME constants the app uses.
 // Previously the worker carried its own hardcoded version that was never bumped,
 // so its cache name never changed and its version never matched the running app.
-const APP_VERSION = '2.40.0';
-const BUILD_TIME = '20 Jul 2026 7:55 PM AEDT';
+const APP_VERSION = '2.41.0';
+const BUILD_TIME = '20 Jul 2026 10:05 PM AEDT';
 
 // Only load Supabase SDK in cloud mode
 if (SPENDLY_MODE === 'cloud') {
@@ -16467,8 +16467,20 @@ function runStatementReconciliation(ccAccountId, statementTxns, cycleOffset, sum
   const { cycleStart, cycleEnd } = getCycleRange(cycleOffset);
   const { cycleStart: historyStart } = getCycleRange(cycleOffset - 3);
 
+  // Which charges belong to THIS statement — by effective billing cycle, not raw
+  // date. Deferring a charge moves it to the next cycle, so a re-run of the same
+  // statement must not offer it for deferral all over again; equally, a charge
+  // pulled back with billedPrevCycle belongs here. This is the same source of truth
+  // the payment maths uses, so reconciliation and settlement can't disagree.
+  const _cycleEndStr = dateToStr(cycleEnd);
   const cycleExp = (state.expenses||[]).filter(e => {
     if (e.paymentAccountId !== ccAccountId) return false;
+    return dateToStr(getEffectiveBillingCycleEnd(e)) === _cycleEndStr;
+  });
+  // Charges dated in this cycle that were previously deferred out of it — excluded
+  // above, but surfaced in the review so their absence is visible rather than silent.
+  const deferredOut = (state.expenses||[]).filter(e => {
+    if (e.paymentAccountId !== ccAccountId || !e.deferToNextCycle) return false;
     const d = new Date(e.date + 'T00:00:00');
     return d >= cycleStart && d <= cycleEnd;
   });
@@ -16524,6 +16536,7 @@ function runStatementReconciliation(ccAccountId, statementTxns, cycleOffset, sum
 
   const result = reconcileStatement(filteredStatementTxns, cycleExp, historyExp, { dateToleranceDays: 3 });
   result.skippedAlreadyResolved = skippedCount;
+  result.deferredOut = deferredOut;
   // A charge that MATCHED a line on this statement but is dated after the statement
   // closed was posted by the bank before the close (posting date vs transaction
   // date). Spendly infers the billing cycle from the transaction date alone, so it
@@ -16862,6 +16875,10 @@ function renderReconciliationReview() {
       '</div>';
     });
     if (result.missingFromStatement.length === 0) html += '<div style="padding:14px 16px;font-size:12px;color:var(--muted)">Nothing pending — every logged charge already appears on the statement.</div>';
+    if ((result.deferredOut || []).length > 0) {
+      const _dTot = Math.round(result.deferredOut.reduce((s,e) => s + e.amount, 0) * 100) / 100;
+      html += '<div style="padding:12px 16px;border-top:1px solid var(--surface2);font-size:11px;color:var(--muted);line-height:1.5">📅 ' + result.deferredOut.length + ' charge' + (result.deferredOut.length!==1?'s':'') + ' (' + fmt(_dTot) + ') ' + (result.deferredOut.length!==1?'were':'was') + ' already deferred to the next cycle, so ' + (result.deferredOut.length!==1?'they are':'it is') + ' not listed again here.</div>';
+    }
     html += '</div>';
   }
 
