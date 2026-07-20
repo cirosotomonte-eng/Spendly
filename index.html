@@ -2135,9 +2135,9 @@ const PALETTE = [
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
-const APP_VERSION = '2.35.0';
+const APP_VERSION = '2.36.0';
 const BUILD_DATE = '2026-03-29';
-const BUILD_TIME = '19 Jul 2026 12:31 PM AEDT';
+const BUILD_TIME = '20 Jul 2026 10:40 AM AEDT';
 const LAST_BACKUP_NUDGE_KEY = 'spendly_last_backup_nudge';
 const LAST_EXPORT_KEY = 'spendly_last_export';
 
@@ -17733,6 +17733,21 @@ function resolveOrphanedPaidPendings() {
 //     fail to remove the (missing) old withdrawal and write a second one — a latent
 //     double-debit. Detecting these means this class of damage surfaces in the app
 //     instead of needing a manual export scan.
+// Goal money already debited in Spendly but still sitting on a credit card — the
+// bank hasn't moved it yet, so it only leaves the real offset when the card is paid.
+// This is the expected, legitimate gap between Spendly's offset and the bank's.
+function getPendingCardGoalDebits() {
+  const settled = new Set((state.ccPayments||[]).flatMap(p => p.expenseIds||[]));
+  const items = (state.expenses||[]).filter(e => {
+    if (!e.goalCoveredAmount || e.goalCoveredAmount <= 0.01) return false;
+    if (settled.has(e.id)) return false;
+    const a = accountById(e.paymentAccountId);
+    return a && a.type === 'credit';
+  });
+  const total = Math.round(items.reduce((s,e) => s + e.goalCoveredAmount, 0) * 100) / 100;
+  return { total, items };
+}
+
 function findGoalLinkIssues() {
   const exps = state.expenses || [];
   const deps = state.savingsDeposits || [];
@@ -19388,6 +19403,23 @@ function renderAccounts() {
           '<span style="color:var(--text)">Total allocated</span>' +
           '<span>' + fmtB(grandAllocated + (unallocAmt > 0.01 ? unallocAmt : 0)) + '</span>' +
         '</div>';
+
+        // Pending on card — the expected difference against the real bank balance.
+        const _pc = getPendingCardGoalDebits();
+        if (_pc.total > 0.01) {
+          breakdown += '<div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--surface2)">' +
+            '<div style="display:flex;justify-content:space-between;font-size:12px">' +
+              '<span style="color:var(--muted)">⏳ Pending on card</span>' +
+              '<span style="font-weight:700;color:var(--orange)">' + fmtB(_pc.total) + '</span>' +
+            '</div>' +
+            '<div style="font-size:11px;color:var(--muted);margin-top:5px;line-height:1.5">Already taken out of your goals here, but still on the card — it leaves your bank when you pay it. Your real offset should read about <b>' + fmtB(balance + _pc.total) + '</b> until then.</div>' +
+            _pc.items.slice(0, 8).map(e => {
+              const g = savingsCatById(e.linkedGoalId);
+              return '<div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-top:4px"><span>' + (e.name || 'Charge') + (g ? ' · ' + (g.name||'') : '') + '</span><span>' + fmtB(e.goalCoveredAmount) + '</span></div>';
+            }).join('') +
+            (_pc.items.length > 8 ? '<div style="font-size:11px;color:var(--muted);margin-top:4px">+ ' + (_pc.items.length - 8) + ' more</div>' : '') +
+          '</div>';
+        }
 
         breakdown += '</div>';
         return breakdown;

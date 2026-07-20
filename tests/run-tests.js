@@ -3149,6 +3149,31 @@ await check("findGoalLinkIssues does not flag two legitimate same-day expenses t
   assertEqual(issues.brokenLinks.length, 0, 'and nothing has a broken link');
 });
 
+await check("getPendingCardGoalDebits totals goal money still sitting on the card — the expected gap vs the real bank offset", () => {
+  ctx.state = buildMockState();
+  const st = ctx.state;
+  st.savingsCategories.push({ id: 'gPC', name: 'Servicios', status: 'active' });
+  st.accounts.push({ id: 'ccPC', name: 'ANZ', type: 'credit' });
+  st.accounts.push({ id: 'bankPC', name: 'Everyday', type: 'transaction' });
+  // unpaid, goal-linked, on the card -> counts
+  st.expenses.push({ id: 'p1', amount: 90, name: 'Uber gift card', date: '2026-07-03', paymentAccountId: 'ccPC', linkedGoalId: 'gPC', goalCoveredAmount: 90 });
+  st.expenses.push({ id: 'p2', amount: 68.24, name: 'Electricity', date: '2026-07-16', paymentAccountId: 'ccPC', linkedGoalId: 'gPC', goalCoveredAmount: 68.24 });
+  // already settled by a card payment -> must NOT count (money has left the bank)
+  st.expenses.push({ id: 'p3', amount: 50, name: 'Paid already', date: '2026-06-01', paymentAccountId: 'ccPC', linkedGoalId: 'gPC', goalCoveredAmount: 50 });
+  st.ccPayments = (st.ccPayments||[]).concat([{ id: 'pay1', date: '2026-06-29', amount: 50, expenseIds: ['p3'] }]);
+  // goal-linked but paid straight from the bank -> must NOT count (no timing gap)
+  st.expenses.push({ id: 'p4', amount: 30, name: 'Direct debit', date: '2026-07-10', paymentAccountId: 'bankPC', linkedGoalId: 'gPC', goalCoveredAmount: 30 });
+  // on the card but not goal-linked -> must NOT count (never touched the offset)
+  st.expenses.push({ id: 'p5', amount: 25, name: 'Coffee', date: '2026-07-11', paymentAccountId: 'ccPC' });
+
+  const pc = ctx.getPendingCardGoalDebits();
+  assertEqual(pc.total, 158.24, 'only unpaid, goal-linked, card-charged amounts count toward the expected gap');
+  assertEqual(pc.items.length, 2, 'and exactly those two charges are listed');
+  assertTrue(!pc.items.some(e => e.id === 'p3'), 'a charge already covered by a card payment is excluded');
+  assertTrue(!pc.items.some(e => e.id === 'p4'), 'a goal expense paid from the bank is excluded');
+  assertTrue(!pc.items.some(e => e.id === 'p5'), 'a card charge with no goal link is excluded');
+});
+
 await check('no top-level function is declared more than once anywhere in the file (regression: silent shadowing caused both a data-loss bug and a broken legacy super-contribution modal)', () => {
   const fs = require('fs');
   const html = fs.readFileSync(APP_PATH, 'utf8');
