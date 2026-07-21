@@ -26,8 +26,8 @@ const SPENDLY_MODE = 'cloud';
 // derive its cache name and reported version from the SAME constants the app uses.
 // Previously the worker carried its own hardcoded version that was never bumped,
 // so its cache name never changed and its version never matched the running app.
-const APP_VERSION = '2.44.0';
-const BUILD_TIME = '21 Jul 2026 9:18 AM AEDT';
+const APP_VERSION = '2.45.0';
+const BUILD_TIME = '21 Jul 2026 12:33 PM AEDT';
 
 // Only load Supabase SDK in cloud mode
 if (SPENDLY_MODE === 'cloud') {
@@ -19395,10 +19395,15 @@ function renderAccounts() {
       // ── CC charges (cycle-scoped) ─────────────────────────────────────────
       if (ccAccts.length > 0) {
         const _settledIds = new Set((state.ccPayments||[]).flatMap(p => p.expenseIds||[]));
+        // By EFFECTIVE billing cycle, not raw date: a charge deferred to the next
+        // cycle was not part of this statement and was not covered by its payment,
+        // so counting it here made the settled figure disagree with what was actually
+        // paid (and with the Pay card, which uses the same effective-cycle rule).
         const _allCCExp = (state.expenses||[]).filter(e => {
           if (!e.paymentAccountId) return false;
           const payAcct = accountById(e.paymentAccountId);
-          return payAcct && payAcct.type === 'credit' && e.date >= _scsStr && e.date <= _sceStr;
+          if (!payAcct || payAcct.type !== 'credit') return false;
+          return dateToStr(getEffectiveBillingCycleEnd(e)) === _sceStr;
         }).sort((a,b) => b.date.localeCompare(a.date));
 
         if (_allCCExp.length > 0) {

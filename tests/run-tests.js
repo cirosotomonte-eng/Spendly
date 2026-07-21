@@ -3415,6 +3415,35 @@ await check("goal history shows a running balance that ends at the goal's actual
   assertEqual(run, ctx.totalSavedForCat('gH'), 'and it must land on the same figure the goal itself reports');
 });
 
+await check("the CC card's settled figure counts charges by effective billing cycle, so a deferred charge is not added to what was actually paid", () => {
+  const fs = require('fs'); const html = fs.readFileSync(APP_PATH, 'utf8');
+  assertTrue(/const _allCCExp = [\s\S]{0,400}getEffectiveBillingCycleEnd\(e\)\) === _sceStr/.test(html),
+    'the cycle charge list must use the effective billing cycle');
+  assertTrue(!/type === 'credit' && e\.date >= _scsStr && e\.date <= _sceStr/.test(html),
+    'the old raw-date filter is gone — it counted charges deferred out of the cycle, inflating the settled total');
+  // no raw-date CC cycle filter should survive anywhere
+  assertTrue(!/type === 'credit' && e\.date/.test(html), 'no raw-date credit-cycle filter remains anywhere in the app');
+});
+
+await check("a charge deferred out of a cycle is excluded from that cycle's charge total", () => {
+  ctx.state = buildMockState();
+  ctx.state.accounts.push({ id: 'ccT', name: 'ANZ', type: 'credit' });
+  const { cycleEnd } = ctx.getCycleRange(0);
+  const ceStr = ctx.dateToStr(cycleEnd);
+  const paid = { id: 'tPaid', amount: 3379.03, date: ceStr, paymentAccountId: 'ccT' };
+  const deferred = { id: 'tDef', amount: 134.89, date: ceStr, paymentAccountId: 'ccT', deferToNextCycle: true };
+  ctx.state.expenses.push(paid, deferred);
+  const inCycle = (ctx.state.expenses||[]).filter(e => {
+    if (!e.paymentAccountId) return false;
+    const a = ctx.accountById(e.paymentAccountId);
+    if (!a || a.type !== 'credit') return false;
+    return ctx.dateToStr(ctx.getEffectiveBillingCycleEnd(e)) === ceStr;
+  });
+  const total = Math.round(inCycle.reduce((s,e) => s + e.amount, 0) * 100) / 100;
+  assertEqual(total, 3379.03, 'the cycle total equals what the statement billed and the payment covered, excluding the deferred charge');
+  assertEqual(inCycle.length, 1, 'and the deferred charge is not counted in the charge count either');
+});
+
 await check('no top-level function is declared more than once anywhere in the file (regression: silent shadowing caused both a data-loss bug and a broken legacy super-contribution modal)', () => {
   const fs = require('fs');
   const html = fs.readFileSync(APP_PATH, 'utf8');
