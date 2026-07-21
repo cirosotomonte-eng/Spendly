@@ -26,8 +26,8 @@ const SPENDLY_MODE = 'cloud';
 // derive its cache name and reported version from the SAME constants the app uses.
 // Previously the worker carried its own hardcoded version that was never bumped,
 // so its cache name never changed and its version never matched the running app.
-const APP_VERSION = '2.45.0';
-const BUILD_TIME = '21 Jul 2026 12:33 PM AEDT';
+const APP_VERSION = '2.46.0';
+const BUILD_TIME = '21 Jul 2026 3:47 PM AEDT';
 
 // Only load Supabase SDK in cloud mode
 if (SPENDLY_MODE === 'cloud') {
@@ -18018,6 +18018,97 @@ function unmarkBilledPrevCycle(expId) {
   showToast('✅ Back on its own statement', 3000);
 }
 
+// ── Reconcile the offset to the bank ─────────────────────────────────────────
+// Spendly's offset should equal the bank balance MINUS anything still sitting on
+// the card (already taken out of goals here, not yet out of the bank). When a real
+// difference remains after that, this records it as one clearly-labelled entry
+// rather than a mystery deposit into a real goal — so the correction is auditable
+// and never silently inflates a goal you are planning against.
+const OFFSET_ADJUST_GOAL = 'Reconciliation adjustments';
+
+function _getAdjustGoal(offsetAccountId, create) {
+  let g = (state.savingsCategories||[]).find(x => x.name === OFFSET_ADJUST_GOAL);
+  if (!g && create) {
+    g = { id: uid(), name: OFFSET_ADJUST_GOAL, icon: '⚖️', target: 0, status: 'active', linkedAccountId: offsetAccountId };
+    if (!state.savingsCategories) state.savingsCategories = [];
+    state.savingsCategories.push(g);
+  }
+  return g;
+}
+
+// Difference between the bank's balance and what Spendly implies it should be.
+// Positive => Spendly is running low; negative => Spendly is running high.
+function computeBankAdjustment(realBalance) {
+  const offset = getTrueOffsetBalance();
+  const pending = getPendingCardGoalDebits().total;
+  const expected = Math.round((offset + pending) * 100) / 100;
+  const diff = Math.round((realBalance - expected) * 100) / 100;
+  return { offset, pending, expected, diff };
+}
+
+function applyBankAdjustment(offsetAccountId, realBalance) {
+  const { diff, expected } = computeBankAdjustment(realBalance);
+  if (Math.abs(diff) < 0.01) { showToast('✅ Already matches your bank', 2500); return; }
+  const goal = _getAdjustGoal(offsetAccountId, true);
+  if (!state.savingsDeposits) state.savingsDeposits = [];
+  state.savingsDeposits.push({
+    id: uid(), catId: goal.id, targetId: goal.id,
+    amount: Math.abs(diff), date: todayStr(),
+    type: diff > 0 ? 'deposit' : 'withdrawal',
+    note: 'Adjust to match bank · ' + fmt(realBalance),
+    _bankAdjustment: true,
+  });
+  saveState();
+  if (typeof renderAccounts === 'function') renderAccounts();
+  if (typeof updateHeader === 'function') updateHeader();
+  showToast((diff > 0 ? '✅ Added ' : '✅ Removed ') + fmt(Math.abs(diff)) + ' — now matches your bank', 4000);
+}
+
+function showAdjustToBankModal(offsetAccountId) {
+  const { offset, pending, expected } = computeBankAdjustment(0);
+  const existing = document.getElementById('adjustBankModal');
+  if (existing) existing.remove();
+  const overlay = document.createElement('div');
+  overlay.id = 'adjustBankModal';
+  overlay.className = 'modal-overlay open';
+  overlay.style.alignItems = 'center';
+  overlay.innerHTML =
+    '<div class="modal-sheet" style="max-width:380px;box-sizing:border-box">' +
+      '<div style="font-size:16px;font-weight:700;margin-bottom:4px">⚖️ Adjust to match bank</div>' +
+      '<div style="font-size:12px;color:var(--muted);margin-bottom:14px;line-height:1.5">Enter what your bank actually shows. Anything still on the card is accounted for automatically.</div>' +
+      '<div style="background:var(--surface2);border-radius:10px;padding:12px;margin-bottom:14px;font-size:12px">' +
+        '<div style="display:flex;justify-content:space-between;margin-bottom:5px"><span style="color:var(--muted)">Spendly offset</span><span>' + fmt(offset) + '</span></div>' +
+        '<div style="display:flex;justify-content:space-between;margin-bottom:5px"><span style="color:var(--muted)">Still on the card</span><span>+' + fmt(pending) + '</span></div>' +
+        '<div style="display:flex;justify-content:space-between;padding-top:6px;border-top:1px solid var(--border);font-weight:700"><span>Your bank should show</span><span>' + fmt(expected) + '</span></div>' +
+      '</div>' +
+      '<input id="adjustBankInput" type="text" inputmode="decimal" placeholder="Actual bank balance" style="width:100%;box-sizing:border-box;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:13px;font-size:16px;color:var(--text);font-family:inherit;margin-bottom:8px">' +
+      '<div id="adjustBankPreview" style="font-size:12px;color:var(--muted);min-height:34px;line-height:1.45;margin-bottom:10px"></div>' +
+      '<div style="display:flex;gap:8px">' +
+        '<button onclick="document.getElementById(\'adjustBankModal\').remove()" style="flex:1;background:var(--surface2);color:var(--text);border:none;border-radius:10px;padding:12px;font-size:14px;font-weight:600;font-family:var(--font);cursor:pointer">Cancel</button>' +
+        '<button id="adjustBankConfirm" data-aid="' + offsetAccountId + '" style="flex:1;background:var(--accent);color:#fff;border:none;border-radius:10px;padding:12px;font-size:14px;font-weight:700;font-family:var(--font);cursor:pointer">Adjust</button>' +
+      '</div>' +
+    '</div>';
+  document.body.appendChild(overlay);
+  overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+  const input = document.getElementById('adjustBankInput');
+  const preview = document.getElementById('adjustBankPreview');
+  const update = () => {
+    const v = parseFloat((input.value||'').replace(/[^0-9.\-]/g, ''));
+    if (isNaN(v)) { preview.textContent = ''; return; }
+    const { diff } = computeBankAdjustment(v);
+    if (Math.abs(diff) < 0.01) { preview.style.color = '#34C759'; preview.textContent = '✓ Already matches — no adjustment needed.'; }
+    else { preview.style.color = 'var(--orange)'; preview.textContent = (diff > 0 ? 'Spendly is running ' + fmt(Math.abs(diff)) + ' low — this adds it.' : 'Spendly is running ' + fmt(Math.abs(diff)) + ' high — this removes it.') + ' Recorded as a labelled entry under "' + OFFSET_ADJUST_GOAL + '".'; }
+  };
+  input.addEventListener('input', update);
+  document.getElementById('adjustBankConfirm').addEventListener('click', () => {
+    const v = parseFloat((input.value||'').replace(/[^0-9.\-]/g, ''));
+    if (isNaN(v)) { showToast('Enter your bank balance first', 2000); return; }
+    applyBankAdjustment(document.getElementById('adjustBankConfirm').dataset.aid, v);
+    overlay.remove();
+  });
+  setTimeout(() => { try { input.focus(); } catch(e) {} }, 60);
+}
+
 function getPendingCardGoalDebits() {
   const settled = new Set((state.ccPayments||[]).flatMap(p => p.expenseIds||[]));
   const items = (state.expenses||[]).filter(e => {
@@ -19720,6 +19811,7 @@ function renderAccounts() {
             (_pc.items.length > 8 ? '<div style="font-size:11px;color:var(--muted);margin-top:4px">+ ' + (_pc.items.length - 8) + ' more</div>' : '') +
           '</div>';
         }
+        breakdown += '<button data-aid="' + acct.id + '" onclick="showAdjustToBankModal(this.dataset.aid)" style="width:100%;margin-top:12px;background:var(--surface2);color:var(--muted);border:none;border-radius:10px;padding:10px;font-size:12px;font-weight:600;font-family:var(--font);cursor:pointer">⚖️ Adjust to match bank</button>';
 
         breakdown += '</div>';
         return breakdown;

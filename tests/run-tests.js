@@ -3444,6 +3444,54 @@ await check("a charge deferred out of a cycle is excluded from that cycle's char
   assertEqual(inCycle.length, 1, 'and the deferred charge is not counted in the charge count either');
 });
 
+console.log('\n── Adjust offset to match bank ──');
+
+await check("computeBankAdjustment accounts for money still on the card before deciding there is any difference at all", () => {
+  ctx.state = buildMockState();
+  const st = ctx.state;
+  st.accounts.push({ id: 'ccB', name: 'ANZ', type: 'credit' });
+  st.savingsCategories.push({ id: 'gB', name: 'Servicios', status: 'active', linkedAccountId: 'offset1' });
+  st.savingsDeposits.push({ id: 'sB', catId: 'gB', targetId: 'gB', amount: 1000, date: '2026-07-01', type: 'deposit' });
+  st.expenses.push({ id: 'eB', amount: 68.24, name: 'Electricity', date: '2026-07-16', paymentAccountId: 'ccB', linkedGoalId: 'gB', goalCoveredAmount: 68.24 });
+
+  const offset = ctx.getTrueOffsetBalance();
+  // a bank balance that is exactly offset + pending is NOT a discrepancy
+  const a = ctx.computeBankAdjustment(offset + 68.24);
+  assertEqual(a.pending, 68.24, 'the card pending amount is included in the expectation');
+  assertEqual(a.diff, 0, 'no adjustment when the only difference is money still on the card');
+  // a genuine shortfall is detected
+  const b = ctx.computeBankAdjustment(offset + 68.24 - 73.9);
+  assertEqual(b.diff, -73.9, 'a real difference is reported, signed so it is clear which way it goes');
+});
+
+await check("applyBankAdjustment records one labelled entry in a dedicated goal, leaving real goals untouched", () => {
+  ctx.state = buildMockState();
+  const st = ctx.state;
+  st.savingsCategories.push({ id: 'gC', name: 'Servicios', status: 'active', linkedAccountId: 'offset1' });
+  st.savingsDeposits.push({ id: 'sC', catId: 'gC', targetId: 'gC', amount: 1000, date: '2026-07-01', type: 'deposit' });
+  const before = ctx.totalSavedForCat('gC');
+  const target = ctx.getTrueOffsetBalance() - 73.9;
+
+  ctx.applyBankAdjustment('offset1', target);
+  assertEqual(ctx.totalSavedForCat('gC'), before, 'a real goal must NOT be altered — it would inflate something you plan against');
+  const adj = (ctx.state.savingsCategories||[]).find(g => g.name === 'Reconciliation adjustments');
+  assertTrue(!!adj, 'the correction lands in its own clearly-named goal');
+  const entries = (ctx.state.savingsDeposits||[]).filter(d => d.catId === adj.id);
+  assertEqual(entries.length, 1, 'exactly one entry is written');
+  assertEqual(entries[0].type, 'withdrawal', 'a Spendly-too-high difference is recorded as a withdrawal');
+  assertEqual(entries[0].amount, 73.9, 'for the exact difference');
+  assertTrue(/Adjust to match bank/.test(entries[0].note||''), 'and it is labelled, not a mystery entry');
+  assertEqual(ctx.computeBankAdjustment(target).diff, 0, 'after adjusting, Spendly agrees with the bank');
+});
+
+await check("adjusting when already matching does nothing", () => {
+  ctx.state = buildMockState();
+  const target = ctx.getTrueOffsetBalance();
+  ctx.applyBankAdjustment('offset1', target);
+  const adj = (ctx.state.savingsCategories||[]).find(g => g.name === 'Reconciliation adjustments');
+  assertTrue(!adj || (ctx.state.savingsDeposits||[]).filter(d => d.catId === adj.id).length === 0, 'no entry is written when there is nothing to correct');
+});
+
 await check('no top-level function is declared more than once anywhere in the file (regression: silent shadowing caused both a data-loss bug and a broken legacy super-contribution modal)', () => {
   const fs = require('fs');
   const html = fs.readFileSync(APP_PATH, 'utf8');
