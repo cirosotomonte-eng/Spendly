@@ -3492,6 +3492,31 @@ await check("adjusting when already matching does nothing", () => {
   assertTrue(!adj || (ctx.state.savingsDeposits||[]).filter(d => d.catId === adj.id).length === 0, 'no entry is written when there is nothing to correct');
 });
 
+console.log('\n── Modal layout ──');
+
+await check("every modal style class used in the markup is actually defined, so no modal renders unstyled and flush to the screen edge", () => {
+  const fs = require('fs'); const html = fs.readFileSync(APP_PATH, 'utf8');
+  // .modal-sheet was used by several modals but never defined in CSS
+  assertTrue(/\.modal-sheet \{[^}]*margin: 0 auto/.test(html), 'modal-sheet must be centred, not left-aligned in the flex overlay');
+  assertTrue(/\.modal-sheet \{[^}]*width: calc\(100% - 32px\)/.test(html), 'and inset from both screen edges');
+  assertTrue(/\.modal-sheet \{[^}]*padding:/.test(html), 'and have internal padding so content is not against its border');
+  assertTrue(/\.modal-sheet \{[^}]*background:/.test(html), 'and a background, or it renders as bare text over the overlay');
+  // every class used on a modal container must exist in the stylesheet
+  const used = new Set();
+  const re = /class="(modal-sheet|modal)"/g; let m;
+  while ((m = re.exec(html))) used.add(m[1]);
+  used.forEach(cls => {
+    assertTrue(new RegExp('\\.' + cls + ' \\{').test(html), 'the ' + cls + ' class must be defined in CSS');
+  });
+});
+
+await check("bottom-sheet modals are horizontally centred rather than pinned to the left edge", () => {
+  const fs = require('fs'); const html = fs.readFileSync(APP_PATH, 'utf8');
+  const sheets = html.match(/border-radius:20px 20px 0 0;[^"]*max-width:480px[^"]*/g) || [];
+  assertTrue(sheets.length > 0, 'there are bottom-sheet modals to check');
+  sheets.forEach(s => assertTrue(/margin:0 auto/.test(s), 'each bottom sheet must centre itself: ' + s.slice(0, 60)));
+});
+
 await check('no top-level function is declared more than once anywhere in the file (regression: silent shadowing caused both a data-loss bug and a broken legacy super-contribution modal)', () => {
   const fs = require('fs');
   const html = fs.readFileSync(APP_PATH, 'utf8');

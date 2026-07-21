@@ -26,8 +26,8 @@ const SPENDLY_MODE = 'cloud';
 // derive its cache name and reported version from the SAME constants the app uses.
 // Previously the worker carried its own hardcoded version that was never bumped,
 // so its cache name never changed and its version never matched the running app.
-const APP_VERSION = '2.46.0';
-const BUILD_TIME = '21 Jul 2026 3:47 PM AEDT';
+const APP_VERSION = '2.47.0';
+const BUILD_TIME = '21 Jul 2026 6:00 PM AEDT';
 
 // Only load Supabase SDK in cloud mode
 if (SPENDLY_MODE === 'cloud') {
@@ -254,6 +254,11 @@ async function applyUpdate() {
   .modal-overlay.open { opacity: 1; pointer-events: all; }
   .modal { background: var(--surface); border-radius: 24px 24px 0 0; width: 100%; max-width: 600px; margin: 0 auto; transform: translateY(100%); transition: transform 0.3s cubic-bezier(0.32,0.72,0,1); max-height: 90vh; display: flex; flex-direction: column; overflow: hidden; }
   .modal-overlay.open .modal { transform: translateY(0); }
+  /* Centred card-style modals. This class was used by several modals but never
+     defined, so they rendered unstyled and flush against the left edge — the
+     overlay is a flex container and nothing centred or inset them. */
+  .modal-sheet { background: var(--surface); border-radius: 18px; padding: 20px; box-sizing: border-box;
+    width: calc(100% - 32px); max-width: 420px; margin: 0 auto; }
   .modal-handle-bar { padding: 14px 20px 0; flex-shrink: 0; cursor: grab; touch-action: none; background: var(--surface); border-radius: 24px 24px 0 0; }
   .modal-handle { width: 36px; height: 4px; background: var(--border); border-radius: 100px; margin: 0 auto 14px; }
   .modal-header { padding: 0 20px 4px; flex-shrink: 0; background: var(--surface); }
@@ -5276,7 +5281,7 @@ function openMoveExpensesDate() {
   overlay.id = 'expMoveDateModal';
   overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:flex-end;justify-content:center';
   overlay.innerHTML = `
-    <div style="background:var(--bg);border-radius:20px 20px 0 0;padding:24px 20px 36px;width:100%;max-width:480px;box-sizing:border-box">
+    <div style="background:var(--bg);border-radius:20px 20px 0 0;padding:24px 20px 36px;width:100%;max-width:480px;margin:0 auto;box-sizing:border-box">
       <div style="font-size:16px;font-weight:700;margin-bottom:6px">Move ${_expSelected.size} transaction${_expSelected.size!==1?'s':''}</div>
       <div style="font-size:12px;color:var(--muted);margin-bottom:18px">Goal coverage will be recalculated for the new date.</div>
       <div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:6px">New date</div>
@@ -13860,7 +13865,7 @@ function showGoalHistory(catId) {
   overlay.className = 'modal-overlay open';
   overlay.style.alignItems = 'flex-end';
   overlay.innerHTML =
-    '<div style="background:var(--bg);border-radius:20px 20px 0 0;width:100%;max-width:480px;box-sizing:border-box;max-height:88vh;display:flex;flex-direction:column">' +
+    '<div style="background:var(--bg);border-radius:20px 20px 0 0;width:100%;max-width:480px;margin:0 auto;box-sizing:border-box;max-height:88vh;display:flex;flex-direction:column">' +
       '<div style="padding:18px 16px 12px;border-bottom:1px solid var(--surface2)">' +
         '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">' +
           '<div><div style="font-size:16px;font-weight:800">' + (cat.icon||'') + ' ' + (cat.name||'Goal') + '</div>' +
@@ -17341,7 +17346,7 @@ function openEditSuperContrib(contribId) {
   overlay.id = 'superContribModal';
   overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:flex-end;justify-content:center';
   overlay.innerHTML = `
-    <div style="background:var(--bg);border-radius:20px 20px 0 0;padding:24px 20px 36px;width:100%;max-width:480px;box-sizing:border-box">
+    <div style="background:var(--bg);border-radius:20px 20px 0 0;padding:24px 20px 36px;width:100%;max-width:480px;margin:0 auto;box-sizing:border-box">
       <div style="font-size:16px;font-weight:700;margin-bottom:4px">Edit contribution</div>
       <div style="font-size:12px;color:var(--muted);margin-bottom:16px">${c.label}</div>
 
@@ -17428,7 +17433,7 @@ function openUpdateSuperBalance(acctId) {
   overlay.id = 'superBalModal';
   overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:flex-end;justify-content:center';
   overlay.innerHTML = `
-    <div style="background:var(--bg);border-radius:20px 20px 0 0;padding:24px 20px 36px;width:100%;max-width:480px;box-sizing:border-box">
+    <div style="background:var(--bg);border-radius:20px 20px 0 0;padding:24px 20px 36px;width:100%;max-width:480px;margin:0 auto;box-sizing:border-box">
       <div style="font-size:16px;font-weight:700;margin-bottom:6px">🏦 Update super balance</div>
       <div style="font-size:12px;color:var(--muted);margin-bottom:16px">Current: ${fmt(current)}</div>
       <div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:6px">New balance</div>
@@ -17815,7 +17820,7 @@ function showDuplicateSavingsRepairTool() {
   if (dupes.length > 8) rows += '<div style="font-size:11px;color:var(--muted);padding-top:6px">+' + (dupes.length-8) + ' more…</div>';
 
   overlay.innerHTML = `
-    <div style="background:var(--bg);border-radius:20px 20px 0 0;padding:24px 20px 36px;width:100%;max-width:480px;box-sizing:border-box;max-height:80vh;overflow-y:auto">
+    <div style="background:var(--bg);border-radius:20px 20px 0 0;padding:24px 20px 36px;width:100%;max-width:480px;margin:0 auto;box-sizing:border-box;max-height:80vh;overflow-y:auto">
       <div style="font-size:16px;font-weight:700;margin-bottom:4px">🔧 Duplicate savings deposits</div>
       <div style="font-size:12px;color:var(--muted);margin-bottom:14px">Found ${dupes.length} duplicate deposit${dupes.length!==1?'s':''} totalling <strong style="color:var(--red)">${fmt(total)}</strong> that double-debited your salary account.</div>
       <div style="background:var(--surface);border-radius:10px;padding:10px 12px;margin-bottom:16px">${rows}</div>
@@ -18725,7 +18730,7 @@ function openPayCCFromSalary(salaryAccountId, scopedCcId) {
   }));
 
   overlay.innerHTML = `
-    <div style="background:var(--bg);border-radius:20px 20px 0 0;padding:24px 20px 36px;width:100%;max-width:480px;box-sizing:border-box;max-height:85vh;overflow-y:auto">
+    <div style="background:var(--bg);border-radius:20px 20px 0 0;padding:24px 20px 36px;width:100%;max-width:480px;margin:0 auto;box-sizing:border-box;max-height:85vh;overflow-y:auto">
       <div style="font-size:16px;font-weight:700;margin-bottom:16px">💳 Pay credit card</div>
 
       ${cycleOwedPerCC.length > 1 ? `
