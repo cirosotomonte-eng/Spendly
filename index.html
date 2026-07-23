@@ -26,8 +26,8 @@ const SPENDLY_MODE = 'cloud';
 // derive its cache name and reported version from the SAME constants the app uses.
 // Previously the worker carried its own hardcoded version that was never bumped,
 // so its cache name never changed and its version never matched the running app.
-const APP_VERSION = '2.47.0';
-const BUILD_TIME = '21 Jul 2026 6:00 PM AEDT';
+const APP_VERSION = '2.48.0';
+const BUILD_TIME = '23 Jul 2026 8:18 PM AEDT';
 
 // Only load Supabase SDK in cloud mode
 if (SPENDLY_MODE === 'cloud') {
@@ -254,6 +254,7 @@ async function applyUpdate() {
   .modal-overlay.open { opacity: 1; pointer-events: all; }
   .modal { background: var(--surface); border-radius: 24px 24px 0 0; width: 100%; max-width: 600px; margin: 0 auto; transform: translateY(100%); transition: transform 0.3s cubic-bezier(0.32,0.72,0,1); max-height: 90vh; display: flex; flex-direction: column; overflow: hidden; }
   .modal-overlay.open .modal { transform: translateY(0); }
+  @keyframes confettiFall { to { transform: translateY(105vh) rotate(720deg); opacity: 0.15; } }
   /* Centred card-style modals. This class was used by several modals but never
      defined, so they rendered unstyled and flush against the left edge — the
      overlay is a flex container and nothing centred or inset them. */
@@ -17710,6 +17711,106 @@ function navigateSalaryCycle(delta) {
   renderAccounts();
 }
 
+// ── Savings celebration ──────────────────────────────────────────────────────
+// Measures what you actually put away against what you PLANNED to put away, using
+// each pending payment's originalAmount as the denominator. That matters: a cycle
+// where a shortfall trimmed the plan slightly still funded almost everything, so it
+// deserves the same recognition as one that landed exactly. Judging on surplus alone
+// would have celebrated a $2 leftover while ignoring $3,995 actually saved.
+function getCycleSavingsProgress(salaryAccountId, cycleOffset) {
+  const { cycleStart, cycleEnd } = getCycleRange(cycleOffset === undefined ? 0 : cycleOffset);
+  const scsStr = dateToStr(cycleStart), sceStr = dateToStr(cycleEnd);
+  const all = (state.pendingPayments||[]).filter(p =>
+    (!salaryAccountId || p.salaryAccountId === salaryAccountId) &&
+    p.status !== 'cancelled' && p.dueDate >= scsStr && p.dueDate <= sceStr);
+  const paid = all.filter(p => p.status === 'paid');
+  const stillPending = all.filter(p => p.status === 'pending');
+  // planned = what each contribution was BEFORE any shortfall trimmed it
+  const planned = Math.round(all.reduce((s,p) => s + (p.originalAmount || p.amount || 0), 0) * 100) / 100;
+  const saved = Math.round(paid.reduce((s,p) => s + (p.paidAmount || p.amount || 0), 0) * 100) / 100;
+  // Floored, not rounded: 3,995 of 4,000 must read 99%, not 100%. Claiming the full
+  // plan when it was not quite met would overstate the result.
+  const pct = planned > 0.01 ? Math.floor((saved / planned) * 100) : 0;
+  return { planned, saved, pct, count: paid.length, total: all.length,
+           allFunded: all.length > 0 && stillPending.length === 0, cycleKey: sceStr };
+}
+
+// Fires once per cycle, when the last pending saving is paid. Stored against the
+// cycle so re-renders, revisits and re-opens never replay it.
+function maybeCelebrateSavings(salaryAccountId) {
+  const prog = getCycleSavingsProgress(salaryAccountId, 0);
+  if (!prog.allFunded) return false;
+  if (!state.celebratedCycles) state.celebratedCycles = [];
+  if (state.celebratedCycles.includes(prog.cycleKey)) return false;
+  state.celebratedCycles.push(prog.cycleKey);
+  saveState();
+  showSavingsCelebration(prog);
+  return true;
+}
+
+function _celebrationTier(pct) {
+  if (pct >= 100) return { key: 'full', title: 'Every goal funded! 🎉', msg: 'You put away everything you planned this cycle. That is the whole plan, done.', confetti: 90, color: '#34C759' };
+  if (pct >= 80)  return { key: 'high', title: 'Nearly the whole plan! 🎉', msg: 'You funded most of what you set out to save this cycle — a strong result.', confetti: 60, color: '#34C759' };
+  if (pct >= 50)  return { key: 'mid',  title: 'Solid cycle 👏', msg: 'You saved a good chunk of the plan. Worth a look at where the rest went.', confetti: 30, color: 'var(--accent)' };
+  return { key: 'low', confetti: 0, color: 'var(--muted)' };
+}
+
+function showSavingsCelebration(prog) {
+  const tier = _celebrationTier(prog.pct);
+  // Under 50% gets a plain, non-judgemental summary — animation would land badly on
+  // a month that went poorly, and the money saved still deserves stating.
+  const isQuiet = tier.key === 'low';
+  const existing = document.getElementById('savingsCelebrationModal');
+  if (existing) existing.remove();
+  const overlay = document.createElement('div');
+  overlay.id = 'savingsCelebrationModal';
+  overlay.className = 'modal-overlay open';
+  overlay.style.alignItems = 'center';
+  overlay.innerHTML =
+    '<div class="modal-sheet" style="text-align:center">' +
+      '<div style="font-size:' + (isQuiet ? '30' : '42') + 'px;line-height:1;margin-bottom:10px">' + (isQuiet ? '💰' : '🎉') + '</div>' +
+      '<div style="font-size:18px;font-weight:800;margin-bottom:6px">' + (isQuiet ? 'Savings funded' : tier.title) + '</div>' +
+      '<div style="font-size:13px;color:var(--muted);line-height:1.5;margin-bottom:16px">' +
+        (isQuiet ? 'You moved ' + fmt(prog.saved) + ' into your goals this cycle.' : tier.msg) + '</div>' +
+      '<div style="background:var(--surface2);border-radius:12px;padding:14px;margin-bottom:14px">' +
+        '<div style="font-size:26px;font-weight:800;color:' + tier.color + '">' + fmt(prog.saved) + '</div>' +
+        '<div style="font-size:11px;color:var(--muted);margin-top:3px">saved of ' + fmt(prog.planned) + ' planned · ' + prog.pct + '%</div>' +
+        '<div style="height:6px;background:var(--surface);border-radius:100px;margin-top:10px;overflow:hidden">' +
+          '<div style="height:100%;width:' + Math.min(100, prog.pct) + '%;background:' + tier.color + ';border-radius:100px"></div>' +
+        '</div>' +
+      '</div>' +
+      '<div style="font-size:12px;color:var(--muted);line-height:1.5;margin-bottom:16px">📊 Head to <b>Insights</b> to see where your money went this cycle.</div>' +
+      '<button onclick="document.getElementById(\'savingsCelebrationModal\').remove()" style="width:100%;background:var(--accent);color:#fff;border:none;border-radius:10px;padding:13px;font-size:14px;font-weight:700;font-family:var(--font);cursor:pointer">Nice</button>' +
+    '</div>';
+  document.body.appendChild(overlay);
+  overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+  if (tier.confetti > 0) launchConfetti(tier.confetti);
+}
+
+function launchConfetti(count) {
+  try {
+    if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  } catch(e) {}
+  const layer = document.createElement('div');
+  layer.style.cssText = 'position:fixed;inset:0;pointer-events:none;z-index:100000;overflow:hidden';
+  const colors = ['#34C759','#4F8EF7','#f0a860','#ff5c5c','#c084fc','#fbbf24'];
+  let html = '';
+  for (let i = 0; i < count; i++) {
+    const left = Math.random() * 100;
+    const delay = Math.random() * 0.7;
+    const dur = 2.2 + Math.random() * 1.6;
+    const size = 6 + Math.random() * 7;
+    const col = colors[i % colors.length];
+    const rot = Math.random() * 360;
+    const round = Math.random() > 0.5 ? '50%' : '2px';
+    html += '<div style="position:absolute;top:-20px;left:' + left + '%;width:' + size + 'px;height:' + (size*1.4) + 'px;background:' + col +
+      ';border-radius:' + round + ';transform:rotate(' + rot + 'deg);animation:confettiFall ' + dur + 's linear ' + delay + 's forwards"></div>';
+  }
+  layer.innerHTML = html;
+  document.body.appendChild(layer);
+  setTimeout(() => { try { layer.remove(); } catch(e) {} }, 5200);
+}
+
 function payPendingItem(pendingId) {
   const p = (state.pendingPayments||[]).find(x => x.id === pendingId);
   if (!p) return;
@@ -17761,6 +17862,8 @@ function payPendingItem(pendingId) {
   saveState();
   renderAccounts();
   showToast('✅ Paid ' + fmt(p.amount) + ' to ' + name, 2000);
+  // If that was the last pending saving for the cycle, celebrate (once per cycle).
+  try { maybeCelebrateSavings(p.salaryAccountId); } catch(e) { console.error('celebration failed', e); }
 }
 
 // ── Repair orphaned savings deposits (catId: null) ────────────────────────────

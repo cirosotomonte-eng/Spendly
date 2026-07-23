@@ -3517,6 +3517,67 @@ await check("bottom-sheet modals are horizontally centred rather than pinned to 
   sheets.forEach(s => assertTrue(/margin:0 auto/.test(s), 'each bottom sheet must centre itself: ' + s.slice(0, 60)));
 });
 
+console.log('\n── Savings celebration ──');
+
+await check("savings progress measures what was saved against what was PLANNED, so a small shortfall still counts as a strong cycle", () => {
+  ctx.state = buildMockState();
+  const due = ctx.dateToStr(ctx.getCycleRange(0).cycleStart);
+  // planned 4000, a $5 shortfall trimmed the plan -> 3995 actually saved
+  ctx.state.pendingPayments = [
+    { id: 'c1', salaryAccountId: 'sal1', status: 'paid', dueDate: due, originalAmount: 4000, amount: 3995, paidAmount: 3995 },
+  ];
+  const p = ctx.getCycleSavingsProgress('sal1', 0);
+  assertEqual(p.planned, 4000, 'the denominator is the ORIGINAL planned amount, not the trimmed one');
+  assertEqual(p.saved, 3995, 'and the numerator is what was actually paid');
+  assertEqual(p.pct, 99, 'floored, so a near miss never reads as a full 100%');
+  assertTrue(p.allFunded, 'every contribution was paid, so the cycle counts as funded');
+  assertTrue(ctx._celebrationTier(p.pct).confetti > 0, 'a $5 shortfall on $4,000 still earns a celebration');
+});
+
+await check("celebration tiers scale with the proportion saved, and a poor cycle gets no animation", () => {
+  assertEqual(ctx._celebrationTier(100).key, 'full', '100% funded is the top tier');
+  assertEqual(ctx._celebrationTier(85).key, 'high', '80-99% is the high tier');
+  assertEqual(ctx._celebrationTier(50).key, 'mid', '50-79% is the middle tier');
+  assertEqual(ctx._celebrationTier(30).key, 'low', 'under 50% is the quiet tier');
+  assertEqual(ctx._celebrationTier(30).confetti, 0, 'a poor cycle must NOT get confetti — it would land badly');
+  assertTrue(ctx._celebrationTier(100).confetti > ctx._celebrationTier(50).confetti, 'a better cycle gets a bigger celebration');
+});
+
+await check("the celebration fires only when every contribution is paid, and only once per cycle", () => {
+  ctx.state = buildMockState();
+  const due = ctx.dateToStr(ctx.getCycleRange(0).cycleStart);
+  ctx.state.pendingPayments = [
+    { id: 'd1', salaryAccountId: 'sal1', status: 'paid', dueDate: due, originalAmount: 500, amount: 500, paidAmount: 500 },
+    { id: 'd2', salaryAccountId: 'sal1', status: 'pending', dueDate: due, originalAmount: 500, amount: 500 },
+  ];
+  assertTrue(!ctx.getCycleSavingsProgress('sal1', 0).allFunded, 'not funded while a contribution is still pending');
+  const keep = ctx.showSavingsCelebration; let shown = 0;
+  ctx.showSavingsCelebration = () => { shown++; };
+  try {
+    assertTrue(ctx.maybeCelebrateSavings('sal1') === false, 'no celebration while something is unpaid');
+    assertEqual(shown, 0, 'and nothing is shown');
+    ctx.state.pendingPayments[1].status = 'paid';
+    ctx.state.pendingPayments[1].paidAmount = 500;
+    assertTrue(ctx.maybeCelebrateSavings('sal1') === true, 'it fires when the last contribution is paid');
+    assertEqual(shown, 1, 'shown exactly once');
+    assertTrue(ctx.maybeCelebrateSavings('sal1') === false, 'and never replays for the same cycle');
+    assertEqual(shown, 1, 'still only once after a repeat call');
+  } finally { ctx.showSavingsCelebration = keep; }
+});
+
+await check("a cancelled contribution is excluded from the plan rather than counting as unfunded", () => {
+  ctx.state = buildMockState();
+  const due = ctx.dateToStr(ctx.getCycleRange(0).cycleStart);
+  ctx.state.pendingPayments = [
+    { id: 'e1', salaryAccountId: 'sal1', status: 'paid', dueDate: due, originalAmount: 300, amount: 300, paidAmount: 300 },
+    { id: 'e2', salaryAccountId: 'sal1', status: 'cancelled', dueDate: due, originalAmount: 700, amount: 700 },
+  ];
+  const p = ctx.getCycleSavingsProgress('sal1', 0);
+  assertEqual(p.planned, 300, 'a cancelled contribution is not part of the plan');
+  assertEqual(p.pct, 100, 'so paying the rest is a fully funded cycle');
+  assertTrue(p.allFunded, 'and it counts as funded');
+});
+
 await check('no top-level function is declared more than once anywhere in the file (regression: silent shadowing caused both a data-loss bug and a broken legacy super-contribution modal)', () => {
   const fs = require('fs');
   const html = fs.readFileSync(APP_PATH, 'utf8');
