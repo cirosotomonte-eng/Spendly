@@ -3611,12 +3611,14 @@ await check("an offset account reports goal deposits as money in and goal withdr
   assertEqual(Math.round(net * 100) / 100, 612.70, 'the cycle net (875 in, 262.30 out) is computed the same way the rows are signed');
 });
 
-await check("the savings icon matches the direction of the money, and those rows drop the tinted container", () => {
+await check("the savings icon matches the direction of the money, and history rows show bare emoji with no container", () => {
   const fs = require('fs'); const html = fs.readFileSync(APP_PATH, 'utf8');
   assertTrue(/t\.type === 'saving' \? \(isIn \? '\u{1F331}' : '\u{1F9FE}'\)/u.test(html),
     'growth icon for money into a goal, receipt for the goal paying for what it was saved for');
-  assertTrue(/isSaving \? 'font-size:22px;' : 'border-radius:10px;/.test(html),
-    'savings rows render the bare emoji with no rounded tinted container');
+  assertTrue(/width:36px;height:36px;font-size:22px;display:flex/.test(html),
+    'every transaction-history row renders the bare emoji with no tinted container');
+  assertTrue(!/height:36px;border-radius:10px;background:' \+ \(isIn\?'rgba\(52,199,89,0\.12\)'/.test(html),
+    'the old tinted icon container is gone');
   assertTrue(/width:36px;height:36px;/.test(html),
     'the icon column keeps its width so rows still line up');
 });
