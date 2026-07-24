@@ -3611,6 +3611,16 @@ await check("an offset account reports goal deposits as money in and goal withdr
   assertEqual(Math.round(net * 100) / 100, 612.70, 'the cycle net (875 in, 262.30 out) is computed the same way the rows are signed');
 });
 
+await check("the savings heart matches the direction of the money, and heart rows drop the tinted container", () => {
+  const fs = require('fs'); const html = fs.readFileSync(APP_PATH, 'utf8');
+  assertTrue(/t\.type === 'saving' \? \(isIn \? '\u{1F49A}' : '\u2764\ufe0f'\)/u.test(html),
+    'green heart for money into a goal, red heart for money leaving one');
+  assertTrue(/isSaving \? 'font-size:22px;' : 'border-radius:10px;/.test(html),
+    'heart rows render the bare emoji with no rounded tinted container');
+  assertTrue(/width:36px;height:36px;/.test(html),
+    'the icon column keeps its width so rows still line up');
+});
+
 await check('no top-level function is declared more than once anywhere in the file (regression: silent shadowing caused both a data-loss bug and a broken legacy super-contribution modal)', () => {
   const fs = require('fs');
   const html = fs.readFileSync(APP_PATH, 'utf8');

@@ -26,8 +26,8 @@ const SPENDLY_MODE = 'cloud';
 // derive its cache name and reported version from the SAME constants the app uses.
 // Previously the worker carried its own hardcoded version that was never bumped,
 // so its cache name never changed and its version never matched the running app.
-const APP_VERSION = '2.49.0';
-const BUILD_TIME = '24 Jul 2026 6:05 PM AEDT';
+const APP_VERSION = '2.50.0';
+const BUILD_TIME = '24 Jul 2026 6:09 PM AEDT';
 
 // Only load Supabase SDK in cloud mode
 if (SPENDLY_MODE === 'cloud') {
@@ -20061,11 +20061,13 @@ function renderAccounts() {
 
     function renderTxnRowHtml(t, i, withTopBorder) {
       const isIn = t.direction === 'in';
-      const typeIcon = t.type === 'income' ? '💵' : t.type === 'transfer' ? '⇄' : t.type === 'saving' ? '💚' : t.type === 'ccRefund' ? '↩' : t.type === 'ccPayment' ? '💳' : '💳';
+      const isSaving = t.type === 'saving';
+      // The heart follows the money: green into a goal, red leaving one.
+      const typeIcon = t.type === 'income' ? '💵' : t.type === 'transfer' ? '⇄' : t.type === 'saving' ? (isIn ? '💚' : '❤️') : t.type === 'ccRefund' ? '↩' : t.type === 'ccPayment' ? '💳' : '💳';
       const canDelete = t.type === 'ccPayment' || (t.type === 'transfer' && isIn);
       const rowOnClick = !canDelete ? (t.type === 'income' ? 'openEditIncome(\'' + t.id + '\')' : '') : '';
       return '<div style="display:flex;align-items:center;gap:12px;padding:11px 14px;' + (withTopBorder?'border-top:1px solid var(--surface2)':'') + '"' + (rowOnClick ? ' onclick="' + rowOnClick + '"' : '') + '>' +
-          '<div style="width:36px;height:36px;border-radius:10px;background:' + (isIn?'rgba(52,199,89,0.12)':'rgba(255,92,92,0.1)') + ';display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">' + typeIcon + '</div>' +
+          '<div style="width:36px;height:36px;' + (isSaving ? 'font-size:22px;' : 'border-radius:10px;font-size:18px;background:' + (isIn?'rgba(52,199,89,0.12)':'rgba(255,92,92,0.1)') + ';') + 'display:flex;align-items:center;justify-content:center;flex-shrink:0">' + typeIcon + '</div>' +
           '<div style="flex:1;min-width:0">' +
             '<div style="font-size:13px;font-weight:600">' + t.label + '</div>' +
             '<div style="font-size:11px;color:var(--muted)">' + new Date(t.date+'T00:00:00').toLocaleDateString('en-AU',{weekday:'short',day:'numeric',month:'short',year:'numeric'}) + '</div>' +
