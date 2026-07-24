@@ -26,8 +26,8 @@ const SPENDLY_MODE = 'cloud';
 // derive its cache name and reported version from the SAME constants the app uses.
 // Previously the worker carried its own hardcoded version that was never bumped,
 // so its cache name never changed and its version never matched the running app.
-const APP_VERSION = '2.48.0';
-const BUILD_TIME = '23 Jul 2026 8:18 PM AEDT';
+const APP_VERSION = '2.49.0';
+const BUILD_TIME = '24 Jul 2026 6:05 PM AEDT';
 
 // Only load Supabase SDK in cloud mode
 if (SPENDLY_MODE === 'cloud') {
@@ -20061,7 +20061,6 @@ function renderAccounts() {
 
     function renderTxnRowHtml(t, i, withTopBorder) {
       const isIn = t.direction === 'in';
-      const isSaving = t.type === 'saving';
       const typeIcon = t.type === 'income' ? '💵' : t.type === 'transfer' ? '⇄' : t.type === 'saving' ? '💚' : t.type === 'ccRefund' ? '↩' : t.type === 'ccPayment' ? '💳' : '💳';
       const canDelete = t.type === 'ccPayment' || (t.type === 'transfer' && isIn);
       const rowOnClick = !canDelete ? (t.type === 'income' ? 'openEditIncome(\'' + t.id + '\')' : '') : '';
@@ -20073,7 +20072,7 @@ function renderAccounts() {
           '</div>' +
           (canDelete
             ? '<button onclick="deleteCCTransaction(\'' + t.id + '\',\'' + acct.id + '\')" style="flex-shrink:0;background:rgba(255,59,48,0.1);color:var(--red);border:1px solid rgba(255,59,48,0.25);border-radius:8px;padding:5px 10px;font-size:11px;font-weight:600;font-family:var(--font);cursor:pointer">Delete</button>'
-            : '<div style="font-size:13px;font-weight:700;color:' + (isSaving?'rgba(52,199,89,0.8)':t.type==='ccRefund'?'#34C759':isIn?'#34C759':'var(--red)') + '">' + (isSaving?'-':isIn?'+':'-') + fmtB(t.amount) + '</div>') +
+            : '<div style="font-size:13px;font-weight:700;color:' + (t.type==='ccRefund'?'#34C759':isIn?'#34C759':'var(--red)') + '">' + (isIn?'+':'-') + fmtB(t.amount) + '</div>') +
         '</div>';
     }
 

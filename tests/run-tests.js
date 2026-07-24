@@ -3578,6 +3578,39 @@ await check("a cancelled contribution is excluded from the plan rather than coun
   assertTrue(p.allFunded, 'and it counts as funded');
 });
 
+console.log('\n── Transaction history signs ──');
+
+await check("savings rows take their sign and colour from direction, so funding a goal is not displayed as an outflow", () => {
+  const fs = require('fs'); const html = fs.readFileSync(APP_PATH, 'utf8');
+  assertTrue(!/isSaving\?'-':isIn\?'\+':'-'/.test(html),
+    "the renderer must not force a minus sign on every savings row — that showed money going INTO a goal as if it had left");
+  assertTrue(!/isSaving\?'rgba\(52,199,89,0\.8\)'/.test(html),
+    'and must not paint every savings row the same colour regardless of direction');
+  assertTrue(/\(isIn\?'\+':'-'\) \+ fmtB\(t\.amount\)/.test(html),
+    'the sign follows direction, like every other transaction type');
+  assertTrue(/isIn\?'#34C759':'var\(--red\)'\) \+ '">' \+ \(isIn\?'\+':'-'\)/.test(html),
+    'green for money in, red for money out');
+});
+
+await check("an offset account reports goal deposits as money in and goal withdrawals as money out", () => {
+  ctx.state = buildMockState();
+  const st = ctx.state;
+  st.savingsCategories.push({ id: 'gDir', name: 'Servicios', icon: '🛀', status: 'active', linkedAccountId: 'offset1' });
+  st.savingsDeposits.push({ id: 'dIn', catId: 'gDir', targetId: 'gDir', amount: 875, date: '2026-07-21', type: 'deposit', note: 'Mortgage' });
+  st.savingsDeposits.push({ id: 'dOut', catId: 'gDir', targetId: 'gDir', amount: 262.30, date: '2026-07-23', type: 'bill-payment', note: 'Water' });
+
+  const rows = ctx.getAccountTransactions('offset1');
+  const inRow = rows.find(r => (r.id||'').indexOf('dIn') === 0);
+  const outRow = rows.find(r => (r.id||'').indexOf('dOut') === 0);
+  assertTrue(!!inRow && !!outRow, 'both goal movements appear in the offset history');
+  assertEqual(inRow.direction, 'in', 'funding a goal is money IN — both sides sit inside the offset, so it must not read as a loss');
+  assertEqual(outRow.direction, 'out', 'a goal paying a bill is money OUT — that genuinely leaves the offset');
+  // the cycle header total and the row signs must agree
+  const net = rows.filter(r => r.date >= '2026-07-21' && r.date <= '2026-07-23')
+    .reduce((s,r) => s + (r.direction === 'in' ? r.amount : -r.amount), 0);
+  assertEqual(Math.round(net * 100) / 100, 612.70, 'the cycle net (875 in, 262.30 out) is computed the same way the rows are signed');
+});
+
 await check('no top-level function is declared more than once anywhere in the file (regression: silent shadowing caused both a data-loss bug and a broken legacy super-contribution modal)', () => {
   const fs = require('fs');
   const html = fs.readFileSync(APP_PATH, 'utf8');
