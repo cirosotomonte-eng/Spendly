@@ -3611,12 +3611,12 @@ await check("an offset account reports goal deposits as money in and goal withdr
   assertEqual(Math.round(net * 100) / 100, 612.70, 'the cycle net (875 in, 262.30 out) is computed the same way the rows are signed');
 });
 
-await check("the savings heart matches the direction of the money, and heart rows drop the tinted container", () => {
+await check("the savings icon matches the direction of the money, and those rows drop the tinted container", () => {
   const fs = require('fs'); const html = fs.readFileSync(APP_PATH, 'utf8');
-  assertTrue(/t\.type === 'saving' \? \(isIn \? '\u{1F49A}' : '\u2764\ufe0f'\)/u.test(html),
-    'green heart for money into a goal, red heart for money leaving one');
+  assertTrue(/t\.type === 'saving' \? \(isIn \? '\u{1F331}' : '\u{1F9FE}'\)/u.test(html),
+    'growth icon for money into a goal, receipt for the goal paying for what it was saved for');
   assertTrue(/isSaving \? 'font-size:22px;' : 'border-radius:10px;/.test(html),
-    'heart rows render the bare emoji with no rounded tinted container');
+    'savings rows render the bare emoji with no rounded tinted container');
   assertTrue(/width:36px;height:36px;/.test(html),
     'the icon column keeps its width so rows still line up');
 });
