@@ -26,8 +26,8 @@ const SPENDLY_MODE = 'cloud';
 // derive its cache name and reported version from the SAME constants the app uses.
 // Previously the worker carried its own hardcoded version that was never bumped,
 // so its cache name never changed and its version never matched the running app.
-const APP_VERSION = '2.52.0';
-const BUILD_TIME = '24 Jul 2026 6:15 PM AEDT';
+const APP_VERSION = '2.53.0';
+const BUILD_TIME = '29 Jul 2026 5:23 PM AEDT';
 
 // Only load Supabase SDK in cloud mode
 if (SPENDLY_MODE === 'cloud') {
@@ -1272,6 +1272,7 @@ async function applyUpdate() {
     <label>Link to savings goals (optional)</label>
     <div id="catLinkedGoalsWrap" style="background:var(--surface2);border-radius:10px;padding:10px 12px;margin-bottom:14px;max-height:160px;overflow-y:auto"></div>
     <button class="btn-primary" id="catSaveBtn" onclick="saveCategory()">Save category</button>
+    <button class="btn-secondary" id="catMergeBtn" onclick="openMergeCategory()" style="display:none">Merge into another category</button>
     <button class="btn-danger" id="catDeleteBtn" onclick="deleteCategory()" style="display:none">Delete category</button>
     <button class="btn-ghost" onclick="closeModal('catModal')">Cancel</button>
   </div>
@@ -7505,6 +7506,7 @@ function openAddCategory() {
   document.getElementById('catType').value = 'variable';
   document.getElementById('catBudget').value = '';
   document.getElementById('catDeleteBtn').style.display = 'none';
+  document.getElementById('catMergeBtn').style.display = 'none';
   document.getElementById('catSaveBtn').textContent = 'Save category';
   const randomColor = PALETTE[Math.floor(Math.random()*PALETTE.length)];
   buildColorGrid(randomColor);
@@ -7522,6 +7524,7 @@ function openEditCategory(id) {
   document.getElementById('catType').value = cat.type;
   document.getElementById('catBudget').value = cat.budgetLimit || '';
   document.getElementById('catDeleteBtn').style.display = 'block';
+  document.getElementById('catMergeBtn').style.display = (state.categories||[]).length > 1 ? 'block' : 'none';
   document.getElementById('catSaveBtn').textContent = 'Update category';
   buildColorGrid(cat.color);
   setEmojiPicker('cat', cat.icon || '');
@@ -7596,6 +7599,95 @@ function _getLinkedGoalIdsFromModal() {
   return Array.from(wrap.querySelectorAll('[id^="catGoalChk_"]'))
     .filter(el => el.textContent === '✓')
     .map(el => el.id.replace('catGoalChk_', ''));
+}
+
+// ── Merge one category into another ──────────────────────────────────────────
+// Relabels every reference from a source category to a target, then removes the
+// now-empty source. Purely a categorisation change — none of expense amounts, dates,
+// goal links or the offset balance move. Order matters: the recurring RULE must be
+// repointed too, or it re-fires next cycle and resurrects the "deleted" category.
+// The source is only removed after we've confirmed nothing still points at it.
+function getCategoryMergeImpact(sourceId, targetId) {
+  const exps = (state.expenses||[]).filter(e => e.categoryId === sourceId);
+  const recs = (state.recurringExpenses||[]).filter(r => r.categoryId === sourceId);
+  const src = catById(sourceId), tgt = catById(targetId);
+  // surface anything that would need care: goal links on the moving expenses/rules
+  const goalLinkedExp = exps.filter(e => e.linkedGoalId || (e.goalCoveredAmount||0) > 0).length;
+  const srcLinkedGoals = getLinkedGoalIds(src);
+  return { exps, recs, src, tgt, expCount: exps.length, recCount: recs.length,
+           goalLinkedExp, srcLinkedGoals };
+}
+
+function mergeCategory(sourceId, targetId) {
+  if (sourceId === targetId) return false;
+  const src = catById(sourceId), tgt = catById(targetId);
+  if (!src || !tgt) return false;
+  // 1 & 2: repoint every expense and every recurring rule to the target.
+  (state.expenses||[]).forEach(e => { if (e.categoryId === sourceId) e.categoryId = targetId; });
+  (state.recurringExpenses||[]).forEach(r => { if (r.categoryId === sourceId) r.categoryId = targetId; });
+  // 3: verify nothing still references the source before removing it. If anything
+  // does, abort the deletion rather than orphan a reference — the relabel above is
+  // already safe on its own.
+  const stillRefd = (state.expenses||[]).some(e => e.categoryId === sourceId) ||
+                    (state.recurringExpenses||[]).some(r => r.categoryId === sourceId);
+  if (!stillRefd) {
+    state.categories = (state.categories||[]).filter(c => c.id !== sourceId);
+  }
+  saveState();
+  return !stillRefd;
+}
+
+function openMergeCategory() {
+  const sourceId = state.editingCatId;
+  const src = catById(sourceId);
+  if (!src) return;
+  const others = (state.categories||[]).filter(c => c.id !== sourceId);
+  if (others.length === 0) { showToast('No other category to merge into', 2500); return; }
+  const existing = document.getElementById('mergeCatModal');
+  if (existing) existing.remove();
+  const overlay = document.createElement('div');
+  overlay.id = 'mergeCatModal';
+  overlay.className = 'modal-overlay open';
+  overlay.style.alignItems = 'center';
+  const opts = others.map(c => '<option value="' + c.id + '">' + (c.icon||'') + ' ' + c.name + '</option>').join('');
+  overlay.innerHTML =
+    '<div class="modal-sheet" style="max-width:380px;box-sizing:border-box">' +
+      '<div style="font-size:16px;font-weight:700;margin-bottom:4px">Merge "' + (src.icon||'') + ' ' + src.name + '" into…</div>' +
+      '<div style="font-size:12px;color:var(--muted);margin-bottom:14px;line-height:1.5">Every expense and recurring rule in "' + src.name + '" moves to the category you pick. Amounts and dates are unchanged — only the label. This can\u2019t be undone in one step.</div>' +
+      '<select id="mergeTargetSelect" style="width:100%;box-sizing:border-box;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:13px;font-size:15px;color:var(--text);font-family:inherit;margin-bottom:12px">' + opts + '</select>' +
+      '<div id="mergePreview" style="font-size:12px;color:var(--muted);background:var(--surface2);border-radius:10px;padding:12px;margin-bottom:14px;line-height:1.5"></div>' +
+      '<div style="display:flex;gap:8px">' +
+        '<button onclick="document.getElementById(\'mergeCatModal\').remove()" style="flex:1;background:var(--surface2);color:var(--text);border:none;border-radius:10px;padding:12px;font-size:14px;font-weight:600;font-family:var(--font);cursor:pointer">Cancel</button>' +
+        '<button id="mergeConfirmBtn" style="flex:1;background:var(--accent);color:#fff;border:none;border-radius:10px;padding:12px;font-size:14px;font-weight:700;font-family:var(--font);cursor:pointer">Merge</button>' +
+      '</div>' +
+    '</div>';
+  document.body.appendChild(overlay);
+  overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+  const sel = document.getElementById('mergeTargetSelect');
+  const preview = document.getElementById('mergePreview');
+  const refresh = () => {
+    const imp = getCategoryMergeImpact(sourceId, sel.value);
+    let msg = 'Moving ' + imp.expCount + ' expense' + (imp.expCount!==1?'s':'') +
+      (imp.recCount > 0 ? ' and ' + imp.recCount + ' recurring rule' + (imp.recCount!==1?'s':'') : '') +
+      ' into "' + (imp.tgt ? imp.tgt.name : '') + '". "' + src.name + '" is then removed.';
+    if (imp.goalLinkedExp > 0) msg += '\\n\\n⚠️ ' + imp.goalLinkedExp + ' of these are goal-covered — their goal links are preserved, only the category changes.';
+    if (imp.srcLinkedGoals.length > 0) msg += '\\n\\nNote: "' + src.name + '" is linked to a savings goal. That link is on the category and will not carry over — the target keeps its own links.';
+    preview.textContent = msg;
+  };
+  refresh();
+  sel.addEventListener('change', refresh);
+  document.getElementById('mergeConfirmBtn').addEventListener('click', () => {
+    const targetId = sel.value;
+    const imp = getCategoryMergeImpact(sourceId, targetId);
+    const tgt = catById(targetId);
+    if (!confirm('Merge "' + src.name + '" into "' + (tgt?tgt.name:'') + '"? ' + imp.expCount + ' expense' + (imp.expCount!==1?'s':'') + (imp.recCount>0?' and ' + imp.recCount + ' rule' + (imp.recCount!==1?'s':''):'') + ' will move, and "' + src.name + '" will be deleted.')) return;
+    const ok = mergeCategory(sourceId, targetId);
+    overlay.remove();
+    closeModal('catModal');
+    renderContent();
+    updateHeader();
+    showToast(ok ? '✅ Merged into ' + (tgt?tgt.name:'category') : '⚠️ Moved items, but the old category still had references and was kept', ok ? 3000 : 4500);
+  });
 }
 
 function saveCategory() {

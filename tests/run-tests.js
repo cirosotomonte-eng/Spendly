@@ -3623,6 +3623,61 @@ await check("the savings icon matches the direction of the money, and history ro
     'the icon column keeps its width so rows still line up');
 });
 
+console.log('\n── Merge category ──');
+
+await check("merging a category moves every expense AND recurring rule to the target, then removes the empty source", () => {
+  ctx.state = buildMockState();
+  const st = ctx.state;
+  st.categories.push({ id: 'cSrc', name: 'Haircut', type: 'variable' });
+  st.categories.push({ id: 'cTgt', name: 'Healthcare', type: 'variable' });
+  st.expenses.push({ id: 'x1', categoryId: 'cSrc', amount: 45, date: '2026-07-01', name: 'Barber' });
+  st.expenses.push({ id: 'x2', categoryId: 'cSrc', amount: 50, date: '2026-07-15', name: 'Barber' });
+  st.recurringExpenses.push({ id: 'r1', categoryId: 'cSrc', amount: 45, name: 'Haircut', frequency: 'monthly' });
+
+  const ok = ctx.mergeCategory('cSrc', 'cTgt');
+  assertTrue(ok, 'merge reports success');
+  assertEqual((ctx.state.expenses||[]).filter(e => e.categoryId === 'cSrc').length, 0, 'no expense still points at the source');
+  assertEqual((ctx.state.expenses||[]).filter(e => e.categoryId === 'cTgt').length, 2, 'both expenses now sit under the target');
+  assertEqual((ctx.state.recurringExpenses||[]).filter(r => r.categoryId === 'cSrc').length, 0, 'the recurring rule was repointed — critical, or it re-fires and resurrects the category');
+  assertEqual((ctx.state.recurringExpenses||[]).filter(r => r.categoryId === 'cTgt').length, 1, 'the rule now belongs to the target');
+  assertTrue(!(ctx.state.categories||[]).some(c => c.id === 'cSrc'), 'the empty source category is removed');
+  assertTrue((ctx.state.categories||[]).some(c => c.id === 'cTgt'), 'the target category remains');
+});
+
+await check("merging a category is offset-neutral and never touches amounts, dates, or goal links", () => {
+  ctx.state = buildMockState();
+  const st = ctx.state;
+  st.savingsCategories.push({ id: 'gM', name: 'Servicios', status: 'active', linkedAccountId: 'offset1' });
+  st.savingsDeposits.push({ id: 'sM', catId: 'gM', targetId: 'gM', amount: 500, date: '2026-07-01', type: 'deposit' });
+  st.categories.push({ id: 'mSrc', name: 'Health Insurance', type: 'variable' });
+  st.categories.push({ id: 'mTgt', name: 'Healthcare', type: 'variable' });
+  // a goal-covered expense in the source
+  st.expenses.push({ id: 'gx', categoryId: 'mSrc', amount: 120, date: '2026-07-10', name: 'Physio',
+    linkedGoalId: 'gM', linkedWithdrawalId: 'wgx', goalCoveredAmount: 120 });
+  st.savingsDeposits.push({ id: 'wgx', catId: 'gM', targetId: 'gM', amount: 120, date: '2026-07-10', type: 'bill-payment', linkedExpenseId: 'gx' });
+
+  const offBefore = ctx.getTrueOffsetBalance();
+  const goalBefore = ctx.totalSavedForCat('gM');
+  ctx.mergeCategory('mSrc', 'mTgt');
+  const moved = (ctx.state.expenses||[]).find(e => e.id === 'gx');
+  assertEqual(moved.categoryId, 'mTgt', 'the expense moved category');
+  assertEqual(moved.amount, 120, 'amount unchanged');
+  assertEqual(moved.linkedGoalId, 'gM', 'goal link preserved');
+  assertEqual(moved.goalCoveredAmount, 120, 'goal coverage preserved');
+  assertEqual(ctx.getTrueOffsetBalance(), offBefore, 'the offset balance does not move — a merge is only a relabel');
+  assertEqual(ctx.totalSavedForCat('gM'), goalBefore, 'and the goal balance is untouched');
+});
+
+await check("merging never deletes expenses (unlike deleting a category), so no spend history is lost", () => {
+  ctx.state = buildMockState();
+  ctx.state.categories.push({ id: 'kSrc', name: 'A', type: 'variable' });
+  ctx.state.categories.push({ id: 'kTgt', name: 'B', type: 'variable' });
+  ctx.state.expenses.push({ id: 'k1', categoryId: 'kSrc', amount: 10, date: '2026-07-01' });
+  const countBefore = (ctx.state.expenses||[]).length;
+  ctx.mergeCategory('kSrc', 'kTgt');
+  assertEqual((ctx.state.expenses||[]).length, countBefore, 'the expense count is unchanged — nothing is deleted, only relabelled');
+});
+
 await check('no top-level function is declared more than once anywhere in the file (regression: silent shadowing caused both a data-loss bug and a broken legacy super-contribution modal)', () => {
   const fs = require('fs');
   const html = fs.readFileSync(APP_PATH, 'utf8');
