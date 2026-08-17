@@ -26,8 +26,8 @@ const SPENDLY_MODE = 'cloud';
 // derive its cache name and reported version from the SAME constants the app uses.
 // Previously the worker carried its own hardcoded version that was never bumped,
 // so its cache name never changed and its version never matched the running app.
-const APP_VERSION = '2.53.0';
-const BUILD_TIME = '29 Jul 2026 5:23 PM AEDT';
+const APP_VERSION = '2.54.0';
+const BUILD_TIME = '18 Aug 2026 9:21 AM AEDT';
 
 // Only load Supabase SDK in cloud mode
 if (SPENDLY_MODE === 'cloud') {
@@ -18346,7 +18346,32 @@ function findGoalLinkIssues() {
   // 2. Dangling goal-withdrawal links.
   const brokenLinks = exps.filter(e => e.linkedWithdrawalId && !depById.has(e.linkedWithdrawalId));
 
-  return { refired, brokenLinks };
+  // 3. Orphaned goal withdrawals: a bill-payment/withdrawal that still points at an
+  // expense which no longer exists (deleting the expense didn't remove its goal
+  // withdrawal). The money is still pulled OUT of the goal for something that isn't
+  // there anymore, so the offset reads low until it's cleared.
+  const expById = new Set(exps.map(e => e.id));
+  const orphanWithdrawals = deps.filter(d =>
+    (d.type === 'withdrawal' || d.type === 'bill-payment') &&
+    d.linkedExpenseId && !expById.has(d.linkedExpenseId)
+  );
+
+  return { refired, brokenLinks, orphanWithdrawals };
+}
+
+// Remove an orphaned goal withdrawal, returning its amount to the goal. Only ever
+// applied to withdrawals whose linked expense is confirmed gone.
+function removeOrphanWithdrawal(depId) {
+  const d = (state.savingsDeposits||[]).find(x => x.id === depId);
+  if (!d) return;
+  if ((state.expenses||[]).some(e => e.id === d.linkedExpenseId)) { showToast('That charge still exists — not removing', 3000); return; }
+  const goal = savingsCatById(d.catId);
+  if (!confirm('Remove this ' + fmt(d.amount) + ' withdrawal? Its expense was deleted, so this returns ' + fmt(d.amount) + ' to ' + (goal?goal.name:'the goal') + '.')) return;
+  state.savingsDeposits = (state.savingsDeposits||[]).filter(x => x.id !== depId);
+  saveState();
+  if (typeof renderAccounts === 'function') renderAccounts();
+  if (typeof updateHeader === 'function') updateHeader();
+  showToast('✅ Returned ' + fmt(d.amount) + ' to ' + (goal?goal.name:'goal'), 3000);
 }
 
 // Remove a re-fired duplicate and hand its rule link back to the expense you kept,
@@ -19245,7 +19270,7 @@ function renderAccounts() {
 
       // ── Goal-link integrity: re-fired duplicates + dangling withdrawal links ──
       const _gl = findGoalLinkIssues();
-      if (_gl.refired.length > 0 || _gl.brokenLinks.length > 0) {
+      if (_gl.refired.length > 0 || _gl.brokenLinks.length > 0 || (_gl.orphanWithdrawals||[]).length > 0) {
         window._offsetGoalLinkBanner = true;
         const _glDay = (ds) => { try { return new Date(ds + 'T00:00:00').toLocaleDateString('en-AU',{day:'numeric',month:'short'}); } catch(e){ return ds; } };
         let _glRows = '';
@@ -19264,7 +19289,15 @@ function renderAccounts() {
             '<button data-eid="' + e.id + '" onclick="repairBrokenGoalLink(this.dataset.eid)" style="width:100%;margin-top:9px;background:var(--accent-dim);color:var(--accent);border:none;border-radius:8px;padding:8px;font-size:12px;font-weight:700;font-family:var(--font);cursor:pointer">Repair link</button>' +
           '</div>';
         });
-        const _glCount = _gl.refired.length + _gl.brokenLinks.length;
+        (_gl.orphanWithdrawals||[]).forEach(d => {
+          const g = savingsCatById(d.catId);
+          _glRows += '<div style="background:var(--surface2);border-radius:8px;padding:10px;margin-top:8px">' +
+            '<div style="font-size:12px;font-weight:700;color:var(--text)">' + (d.note || 'Withdrawal') + ' · ' + fmtB(d.amount) + ' · ' + _glDay(d.date) + '</div>' +
+            '<div style="font-size:11px;color:var(--muted);margin-top:5px">Taken from ' + (g?g.name:'a goal') + ' for an expense that was deleted. Removing it returns ' + fmtB(d.amount) + ' to the goal.</div>' +
+            '<button data-did="' + d.id + '" onclick="removeOrphanWithdrawal(this.dataset.did)" style="width:100%;margin-top:9px;background:var(--red-dim);color:var(--red);border:none;border-radius:8px;padding:8px;font-size:12px;font-weight:700;font-family:var(--font);cursor:pointer">Remove — return ' + fmtB(d.amount) + '</button>' +
+          '</div>';
+        });
+        const _glCount = _gl.refired.length + _gl.brokenLinks.length + (_gl.orphanWithdrawals||[]).length;
         window._offsetGoalLinkHTML = '<div style="background:rgba(240,168,96,0.08);border:1.5px solid rgba(240,168,96,0.3);border-radius:12px;padding:14px;margin-bottom:14px">' +
           '<div style="font-size:13px;font-weight:700;color:var(--orange);margin-bottom:4px">🔗 ' + _glCount + ' goal link issue' + (_glCount!==1?'s':'') + ' to review</div>' +
           '<div style="font-size:12px;color:var(--muted)">Check each before repairing — nothing is changed automatically.</div>' +

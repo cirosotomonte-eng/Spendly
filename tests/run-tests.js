@@ -3678,6 +3678,48 @@ await check("merging never deletes expenses (unlike deleting a category), so no 
   assertEqual((ctx.state.expenses||[]).length, countBefore, 'the expense count is unchanged — nothing is deleted, only relabelled');
 });
 
+console.log('\n── Orphaned goal withdrawals ──');
+
+await check("findGoalLinkIssues detects a goal withdrawal whose expense was deleted (offset reads low until cleared)", () => {
+  ctx.state = buildMockState();
+  const st = ctx.state;
+  st.savingsCategories.push({ id: 'gOrph', name: 'Holidays', status: 'active', linkedAccountId: 'offset1' });
+  st.savingsDeposits.push({ id: 'seedO', catId: 'gOrph', targetId: 'gOrph', amount: 800, date: '2026-07-01', type: 'deposit' });
+  // a withdrawal linked to an expense that does NOT exist
+  st.savingsDeposits.push({ id: 'wOrph', catId: 'gOrph', targetId: 'gOrph', amount: 469.34, date: '2026-07-26', type: 'bill-payment', note: 'Expense withdrawal', linkedExpenseId: 'goneExp' });
+
+  const iss = ctx.findGoalLinkIssues();
+  assertEqual(iss.orphanWithdrawals.length, 1, 'the orphaned withdrawal is detected');
+  assertEqual(iss.orphanWithdrawals[0].id, 'wOrph', 'it is the right one');
+  // a withdrawal whose expense DOES exist must not be flagged
+  st.expenses.push({ id: 'liveExp', amount: 50, date: '2026-07-10', categoryId: 'cat1' });
+  st.savingsDeposits.push({ id: 'wLive', catId: 'gOrph', targetId: 'gOrph', amount: 50, date: '2026-07-10', type: 'bill-payment', linkedExpenseId: 'liveExp' });
+  assertEqual(ctx.findGoalLinkIssues().orphanWithdrawals.length, 1, 'a withdrawal with a live expense is not flagged');
+});
+
+await check("removeOrphanWithdrawal returns the money to the goal and only touches a genuinely orphaned withdrawal", () => {
+  ctx.state = buildMockState();
+  const st = ctx.state;
+  st.savingsCategories.push({ id: 'gR', name: 'Holidays', status: 'active', linkedAccountId: 'offset1' });
+  st.savingsDeposits.push({ id: 'seedR', catId: 'gR', targetId: 'gR', amount: 800, date: '2026-07-01', type: 'deposit' });
+  st.savingsDeposits.push({ id: 'wR', catId: 'gR', targetId: 'gR', amount: 469.34, date: '2026-07-26', type: 'bill-payment', linkedExpenseId: 'goneR' });
+  assertEqual(ctx.totalSavedForCat('gR'), Math.round((800 - 469.34) * 100) / 100, 'the goal starts down by the orphaned amount');
+  const offBefore = ctx.getTrueOffsetBalance();
+
+  ctx.confirm = () => true;
+  ctx.removeOrphanWithdrawal('wR');
+  assertEqual(ctx.totalSavedForCat('gR'), 800, 'removing the orphan returns the money to the goal');
+  assertEqual(Math.round((ctx.getTrueOffsetBalance() - offBefore) * 100) / 100, 469.34, 'and the offset rises by the same amount');
+  assertEqual(ctx.findGoalLinkIssues().orphanWithdrawals.length, 0, 'no orphan remains');
+
+  // guard: it must refuse to remove a withdrawal whose expense still exists
+  st.expenses.push({ id: 'stillHere', amount: 20, date: '2026-07-11', categoryId: 'cat1' });
+  st.savingsDeposits.push({ id: 'wKeep', catId: 'gR', targetId: 'gR', amount: 20, date: '2026-07-11', type: 'bill-payment', linkedExpenseId: 'stillHere' });
+  const balBefore = ctx.totalSavedForCat('gR');
+  ctx.removeOrphanWithdrawal('wKeep');
+  assertEqual(ctx.totalSavedForCat('gR'), balBefore, 'a withdrawal with a live expense is left untouched');
+});
+
 await check('no top-level function is declared more than once anywhere in the file (regression: silent shadowing caused both a data-loss bug and a broken legacy super-contribution modal)', () => {
   const fs = require('fs');
   const html = fs.readFileSync(APP_PATH, 'utf8');
