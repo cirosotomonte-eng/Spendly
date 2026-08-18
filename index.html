@@ -26,8 +26,8 @@ const SPENDLY_MODE = 'cloud';
 // derive its cache name and reported version from the SAME constants the app uses.
 // Previously the worker carried its own hardcoded version that was never bumped,
 // so its cache name never changed and its version never matched the running app.
-const APP_VERSION = '2.55.0';
-const BUILD_TIME = '18 Aug 2026 5:32 PM AEDT';
+const APP_VERSION = '2.56.0';
+const BUILD_TIME = '18 Aug 2026 5:48 PM AEDT';
 
 // Only load Supabase SDK in cloud mode
 if (SPENDLY_MODE === 'cloud') {
@@ -8384,9 +8384,26 @@ function saveExpense() {
   }
 
   saveState();
+  // Capture the reconciliation-return BEFORE closeModal, which clears the flag on
+  // dismiss. Without this, closing the modal here would wipe the return trip.
+  const _recReturn = window._reconcileAddReturn;
   closeModal('expenseModal');
   updateHeader();
+  // If this expense was added from the reconciliation flow, resolve that line and
+  // return to the review instead of the normal tab re-render.
+  if (_recReturn) {
+    window._reconcileAddReturn = _recReturn;
+    if (typeof _reconcileAfterAdd === 'function' && _reconcileAfterAdd()) {
+      showToast('✅ Added to reconciliation', 2500);
+      return;
+    }
+  }
+  // Preserve the scroll position. renderContent rebuilds the tab, which resets the
+  // window to the top; when editing an expense partway down a long list that threw
+  // the user back to the top. Restore where they were after the DOM settles.
+  const _savedScrollY = window.scrollY;
   renderContent();
+  requestAnimationFrame(() => { try { window.scrollTo(0, _savedScrollY); } catch(e) {} });
 }
 function quickDeleteExpense(id) {
   const exp = state.expenses.find(e=>e.id===id);
@@ -8523,7 +8540,12 @@ function importData(evt) {
 }
 
 // ── Modals ────────────────────────────────────────────────────────────────────
-function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+function closeModal(id) {
+  document.getElementById(id).classList.remove('open');
+  // If the expense modal is dismissed without saving, drop any pending
+  // reconciliation-return so a later normal save doesn't wrongly bounce back.
+  if (id === 'expenseModal') window._reconcileAddReturn = null;
+}
 function openModal(id) {
   document.getElementById(id).classList.add('open');
   setTimeout(initModalSwipeDown, 50);
@@ -16775,17 +16797,35 @@ function reconcileAddExpense(index) {
   if (!item) return;
   const select = document.getElementById('missingCatSelect-' + index);
   const chosenCatId = select ? select.value : null;
-  const firstCat = (state.categories || [])[0];
-  state.expenses.push({
-    id: uid(), date: item.date, amount: item.amount,
-    categoryId: chosenCatId || (firstCat ? firstCat.id : null),
-    name: item.merchant || '', paymentAccountId: rc.ccAccountId,
-  });
-  saveState();
-  reconcileMarkResolved('missing-' + index);
+  // Open the SAME modal used for a manual expense, prefilled from the statement line,
+  // so the category, payment account and any goal coverage can be confirmed rather
+  // than guessed. On save we return to the reconciliation review and mark this line
+  // resolved. Previously this pushed a bare expense with the first category and a raw
+  // paymentAccountId, which the user then had to hunt down and fix.
+  openAddExpense();
+  const setVal = (id, v) => { const el = document.getElementById(id); if (el != null && v != null) el.value = v; };
+  setVal('expAmount', item.amount);
+  setVal('expName', item.merchant || '');
+  setVal('expDate', item.date);
+  if (chosenCatId) { setVal('expCat', chosenCatId); }
+  // default the payment to the card being reconciled
+  _expPaymentMethod = 'account';
+  _expPaymentAccountId = rc.ccAccountId;
+  try { populateExpPaymentSelect('account', rc.ccAccountId); } catch(e) {}
+  try { if (typeof _updateTxGoalInfo === 'function') _updateTxGoalInfo(); } catch(e) {}
+  // Arm the return trip: saveExpense checks this and, if set, comes back here.
+  window._reconcileAddReturn = { index };
+}
+
+// Called by saveExpense when an expense was added from reconciliation, to resolve the
+// line and reopen the review where the user left off.
+function _reconcileAfterAdd() {
+  const ret = window._reconcileAddReturn;
+  window._reconcileAddReturn = null;
+  if (!ret) return false;
+  reconcileMarkResolved('missing-' + ret.index);
   renderReconciliationReview();
-  const catName = chosenCatId ? (catById(chosenCatId)?.name || '') : '';
-  showToast('✅ Added' + (catName ? ' to ' + catName : ''), 2500);
+  return true;
 }
 
 function reconcileDeferExpense(index) {

@@ -1459,16 +1459,26 @@ await check('showStatementReconciliationResults() does not throw and creates a p
   assertTrue(!!ctx.window._reconciliation, 'should store the reconciliation state for later actions');
 });
 
-await check('reconcileAddExpense() adds a real expense and marks the item resolved WITHOUT removing it from view', () => {
+await check('reconcileAddExpense() opens the full expense modal prefilled and, on save, creates the expense and marks the item resolved WITHOUT removing it from view', () => {
   ctx.state = buildMockState();
   const result = { matched: [], missingFromSpendly: [{ date: '2026-06-01', merchant: 'Test Shop', amount: 42.50 }], missingFromStatement: [], splitSuggestions: [], creditsWithMatch: [], creditsUnmatched: [] };
   ctx.showStatementReconciliationResults('cc1', result, null);
   const beforeCount = ctx.state.expenses.length;
+  // opening the add flow must NOT create an expense yet — it opens the modal to confirm
   ctx.reconcileAddExpense(0);
-  assertEqual(ctx.state.expenses.length, beforeCount + 1, 'a real expense must be created');
-  assertEqual(ctx.state.expenses[ctx.state.expenses.length-1].amount, 42.50);
-  assertTrue(ctx.window._reconciliation.resolved['missing-0'], 'item must be marked resolved');
-  assertTrue(ctx.window._reconciliation.result.missingFromSpendly.length === 1, 'the item must STILL be in the result list — resolved items stay visible, they do not disappear');
+  assertEqual(ctx.state.expenses.length, beforeCount, 'no expense is created just by opening the confirm modal');
+  assertTrue(!!ctx.window._reconcileAddReturn, 'the return trip back to reconciliation is armed');
+  assertEqual(String(ctx.document.getElementById('expAmount').value), '42.5', 'the modal is prefilled with the statement amount');
+  if (!ctx.document.getElementById('expCat').value) ctx.document.getElementById('expCat').value = 'cat1';
+  // now the user confirms -> saveExpense creates it and returns to reconciliation
+  const keep = { rc: ctx.renderContent, uh: ctx.updateHeader, rr: ctx.renderReconciliationReview };
+  ctx.hydrated = true; ctx.renderContent = () => {}; ctx.updateHeader = () => {}; ctx.renderReconciliationReview = () => {};
+  try { ctx.saveExpense(); } finally { Object.assign(ctx, { renderContent: keep.rc, updateHeader: keep.uh, renderReconciliationReview: keep.rr }); }
+  assertEqual(ctx.state.expenses.length, beforeCount + 1, 'a real expense is created on save');
+  assertEqual(ctx.state.expenses[ctx.state.expenses.length-1].amount, 42.50, 'with the confirmed amount');
+  assertTrue(ctx.window._reconciliation.resolved['missing-0'], 'the item is marked resolved after saving');
+  assertTrue(ctx.window._reconciliation.result.missingFromSpendly.length === 1, 'and stays visible in the list');
+  assertTrue(!ctx.window._reconcileAddReturn, 'the return flag is cleared after use');
 });
 
 await check('reconcileDeferExpense() sets deferToNextCycle on the REAL expense object in state, not a copy', () => {
@@ -1513,6 +1523,10 @@ await check('acting on one item never affects unrelated items in other sections'
   };
   ctx.showStatementReconciliationResults('cc1', result, null);
   ctx.reconcileAddExpense(0);
+  if (!ctx.document.getElementById('expCat').value) ctx.document.getElementById('expCat').value = 'cat1';
+  const keep = { rc: ctx.renderContent, uh: ctx.updateHeader, rr: ctx.renderReconciliationReview };
+  ctx.hydrated = true; ctx.renderContent = () => {}; ctx.updateHeader = () => {}; ctx.renderReconciliationReview = () => {};
+  try { ctx.saveExpense(); } finally { Object.assign(ctx, { renderContent: keep.rc, updateHeader: keep.uh, renderReconciliationReview: keep.rr }); }
   assertTrue(ctx.window._reconciliation.resolved['missing-0'], 'first item should be resolved');
   assertTrue(!ctx.window._reconciliation.resolved['missing-1'], 'second item must remain unresolved — resolving one item must not affect others');
 });
@@ -2041,7 +2055,7 @@ await check('renderPayCreditCardsFlow() does not throw for any of the four step 
   });
 });
 
-await check('reconcileAddExpense() uses the category the user actually selected, not always the first one', () => {
+await check('reconcileAddExpense() carries the category the user selected into the confirm modal', () => {
   ctx.state = buildMockState();
   ctx.state.categories = [
     { id: 'catFirst', name: 'First Category', icon: '📦' },
@@ -2051,20 +2065,28 @@ await check('reconcileAddExpense() uses the category the user actually selected,
   ctx.showStatementReconciliationResults('cc1', result, null);
   ctx.document.getElementById('missingCatSelect-0').value = 'catChosen';
   ctx.reconcileAddExpense(0);
+  assertEqual(ctx.document.getElementById('expCat').value, 'catChosen', 'the chosen category is prefilled in the modal so the user confirms it rather than re-picking');
+  const _k = { rc: ctx.renderContent, uh: ctx.updateHeader, rr: ctx.renderReconciliationReview };
+  ctx.hydrated = true; ctx.renderContent = () => {}; ctx.updateHeader = () => {}; ctx.renderReconciliationReview = () => {};
+  try { ctx.saveExpense(); } finally { Object.assign(ctx, { renderContent: _k.rc, updateHeader: _k.uh, renderReconciliationReview: _k.rr }); }
   const added = ctx.state.expenses[ctx.state.expenses.length - 1];
-  assertEqual(added.categoryId, 'catChosen', 'must use whatever category was actually selected in the dropdown, not silently default to the first category in the list');
+  assertEqual(added.categoryId, 'catChosen', 'and the saved expense uses it');
 });
 
-await check('reconcileAddExpense() falls back to the first category only when nothing was explicitly selected', () => {
+await check('reconcileAddExpense() lets the modal default the category when nothing was explicitly selected', () => {
   ctx.state = buildMockState();
   ctx.state.categories = [{ id: 'catOnly', name: 'Only Category', icon: '📦' }];
   const result = { matched: [], missingFromSpendly: [{ date: '2026-06-01', merchant: 'Test Shop', amount: 30 }], missingFromStatement: [], splitSuggestions: [], creditsWithMatch: [], creditsUnmatched: [] };
   ctx.showStatementReconciliationResults('cc1', result, null);
-  // No selection made — dropdown defaults to empty in this environment
   ctx.document.getElementById('missingCatSelect-0').value = '';
   ctx.reconcileAddExpense(0);
+  // the modal opened; ensure a category is set before saving (single category is auto-usable)
+  if (!ctx.document.getElementById('expCat').value) ctx.document.getElementById('expCat').value = 'catOnly';
+  const _k = { rc: ctx.renderContent, uh: ctx.updateHeader, rr: ctx.renderReconciliationReview };
+  ctx.hydrated = true; ctx.renderContent = () => {}; ctx.updateHeader = () => {}; ctx.renderReconciliationReview = () => {};
+  try { ctx.saveExpense(); } finally { Object.assign(ctx, { renderContent: _k.rc, updateHeader: _k.uh, renderReconciliationReview: _k.rr }); }
   const added = ctx.state.expenses[ctx.state.expenses.length - 1];
-  assertEqual(added.categoryId, 'catOnly', 'with no explicit selection, falling back to the first category is still a sensible default');
+  assertEqual(added.categoryId, 'catOnly', 'the confirmed expense lands in the only available category');
 });
 
 await check('the missing-from-Spendly row renders a category dropdown listing every real category, not a hardcoded list', () => {
@@ -2082,9 +2104,15 @@ await check('the missing-from-Spendly row renders a category dropdown listing ev
 
 await check('a resolved (already-added) missing item no longer shows its category dropdown or Add button', () => {
   ctx.state = buildMockState();
+  ctx.state.categories = [{ id: 'catOnly', name: 'Only', icon: '📦' }];
   const result = { matched: [], missingFromSpendly: [{ date: '2026-06-01', merchant: 'Test', amount: 10 }], missingFromStatement: [], splitSuggestions: [], creditsWithMatch: [], creditsUnmatched: [] };
   ctx.showStatementReconciliationResults('cc1', result, null);
   ctx.reconcileAddExpense(0);
+  if (!ctx.document.getElementById('expCat').value) ctx.document.getElementById('expCat').value = 'catOnly';
+  const _k = { rc: ctx.renderContent, uh: ctx.updateHeader };
+  ctx.hydrated = true; ctx.renderContent = () => {}; ctx.updateHeader = () => {};
+  try { ctx.saveExpense(); } finally { Object.assign(ctx, { renderContent: _k.rc, updateHeader: _k.uh }); }
+  assertTrue(ctx.window._reconciliation.resolved['missing-0'], 'the item is marked resolved, which is what drives its picker to disappear');
   const html = ctx.document.getElementById('reconcileReviewScreen').innerHTML;
   assertTrue(!html.includes('missingCatSelect-0'), 'once added, the picker should disappear along with the Add button — nothing left to act on');
 });
@@ -3755,6 +3783,44 @@ await check("applyRecurringExpenses fires only the genuinely-due occurrences, le
   assertEqual((ctx.state.expenses||[]).filter(e => e.id === 'old1').length, 1, 'old catch-up #1 not duplicated');
   assertEqual((ctx.state.expenses||[]).filter(e => e.id === 'old2').length, 1, 'old catch-up #2 not duplicated');
   assertTrue(after >= before, 'existing catch-up history is preserved, not wiped');
+});
+
+console.log('\n── Expense edit: scroll + reconciliation return ──');
+
+await check("saveExpense preserves the window scroll position instead of snapping to the top", () => {
+  const fs = require('fs'); const html = fs.readFileSync(APP_PATH, 'utf8');
+  assertTrue(/const _savedScrollY = window\.scrollY;/.test(html), 'the scroll position is captured before re-render');
+  assertTrue(/window\.scrollTo\(0, _savedScrollY\)/.test(html), 'and restored after the DOM settles, so editing an item mid-list does not jump to the top');
+});
+
+await check("an expense added from reconciliation returns to the review; the return flag survives closeModal", () => {
+  const fs = require('fs'); const html = fs.readFileSync(APP_PATH, 'utf8');
+  // the flag must be captured BEFORE closeModal (which clears it on dismiss)
+  assertTrue(/const _recReturn = window\._reconcileAddReturn;\s*\n\s*closeModal\('expenseModal'\)/.test(html),
+    'the reconciliation-return is captured before closeModal, or dismissing the modal would wipe it');
+  assertTrue(/if \(id === 'expenseModal'\) window\._reconcileAddReturn = null;/.test(html),
+    'closeModal clears the flag on a genuine dismiss, so a later normal save does not wrongly bounce to reconciliation');
+});
+
+await check("dismissing the expense modal clears the reconciliation-return, so a later normal save does not wrongly bounce back", () => {
+  ctx.state = buildMockState();
+  const result = { matched: [], missingFromSpendly: [{ date: '2026-06-01', merchant: 'Test', amount: 10 }], missingFromStatement: [], splitSuggestions: [], creditsWithMatch: [], creditsUnmatched: [] };
+  ctx.showStatementReconciliationResults('cc1', result, null);
+  ctx.reconcileAddExpense(0);
+  assertTrue(!!ctx.window._reconcileAddReturn, 'return trip is armed while the modal is open');
+  ctx.closeModal('expenseModal'); // user cancels instead of saving
+  assertTrue(!ctx.window._reconcileAddReturn, 'cancelling clears the return so it cannot fire on an unrelated later save');
+});
+
+await check("saveExpense captures the reconciliation-return BEFORE closeModal wipes it, so the add still routes back", () => {
+  const fs = require('fs'); const html = fs.readFileSync(APP_PATH, 'utf8');
+  const start = html.indexOf('function saveExpense(');
+  const end = html.indexOf('function quickDeleteExpense(');
+  const body = html.slice(start, end);
+  assertTrue(/const _recReturn = window\._reconcileAddReturn;\s*\n\s*closeModal\('expenseModal'\)/.test(body),
+    'the return is captured before closeModal, which clears the flag on dismiss');
+  assertTrue(body.indexOf('const _recReturn') < body.indexOf("closeModal('expenseModal')"),
+    'capture must precede the close');
 });
 
 await check('no top-level function is declared more than once anywhere in the file (regression: silent shadowing caused both a data-loss bug and a broken legacy super-contribution modal)', () => {
