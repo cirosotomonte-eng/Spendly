@@ -26,8 +26,8 @@ const SPENDLY_MODE = 'cloud';
 // derive its cache name and reported version from the SAME constants the app uses.
 // Previously the worker carried its own hardcoded version that was never bumped,
 // so its cache name never changed and its version never matched the running app.
-const APP_VERSION = '2.54.0';
-const BUILD_TIME = '18 Aug 2026 9:21 AM AEDT';
+const APP_VERSION = '2.55.0';
+const BUILD_TIME = '18 Aug 2026 5:32 PM AEDT';
 
 // Only load Supabase SDK in cloud mode
 if (SPENDLY_MODE === 'cloud') {
@@ -13710,6 +13710,10 @@ function applyRecurringExpenses() {
 
   let added = false;
   const autoOffsetFired = [];
+  // IDs created in THIS run only, so the toast reflects what actually fired now — not
+  // every catch-up expense ever recorded (the old filter re-counted all history, so a
+  // single new occurrence could report "8 missed transactions applied").
+  const _thisRunExpIds = [];
 
   recs.forEach(r => {
     datesToProcess.forEach(checkDate => {
@@ -13776,6 +13780,7 @@ function applyRecurringExpenses() {
       });
       r.lastAdded = checkDateStr;
       added = true;
+      _thisRunExpIds.push(expId);
 
       // Auto offset withdrawal — only for today's date to avoid retroactive offset entries
       if (checkDateStr === todayDateStr) {
@@ -13802,8 +13807,9 @@ function applyRecurringExpenses() {
     saveState();
     renderContent();
     updateHeader();
-    const todayAdded = state.expenses.filter(e => e.recurringId && e.date === todayDateStr && !e.catchUp);
-    const catchUpAdded = state.expenses.filter(e => e.recurringId && e.catchUp);
+    const _newThisRun = new Set(_thisRunExpIds);
+    const todayAdded = state.expenses.filter(e => _newThisRun.has(e.id) && e.date === todayDateStr && !e.catchUp);
+    const catchUpAdded = state.expenses.filter(e => _newThisRun.has(e.id) && e.catchUp);
     setTimeout(() => {
       if (todayAdded.length > 0) {
         showToast('✅ ' + todayAdded.length + ' recurring expense' + (todayAdded.length !== 1 ? 's' : '') + ' logged for today', 3500);

@@ -3720,6 +3720,43 @@ await check("removeOrphanWithdrawal returns the money to the goal and only touch
   assertEqual(ctx.totalSavedForCat('gR'), balBefore, 'a withdrawal with a live expense is left untouched');
 });
 
+console.log('\n── Catch-up count accuracy ──');
+
+await check("the missed-recurring toast counts only expenses added THIS run, not every catch-up expense ever recorded", () => {
+  const fs = require('fs'); const html = fs.readFileSync(APP_PATH, 'utf8');
+  // the count must be scoped to this run's new ids, not a history-wide filter
+  assertTrue(/const catchUpAdded = state\.expenses\.filter\(e => _newThisRun\.has\(e\.id\) && e\.catchUp\)/.test(html),
+    'catch-up count is restricted to ids created in this run');
+  assertTrue(!/const catchUpAdded = state\.expenses\.filter\(e => e\.recurringId && e\.catchUp\);/.test(html),
+    'the old history-wide filter (which re-counted every catch-up expense) is gone');
+  assertTrue(/_thisRunExpIds\.push\(expId\)/.test(html),
+    'each newly-created recurring expense is tracked for the run');
+});
+
+await check("applyRecurringExpenses fires only the genuinely-due occurrences, leaving old catch-up history untouched", () => {
+  ctx.state = buildMockState();
+  const st = ctx.state;
+  st.categories.push({ id: 'cCatch', name: 'Mortgage', type: 'fixed' });
+  // pre-existing catch-up expenses from months ago (should NOT be re-counted or re-fired)
+  st.expenses.push({ id: 'old1', categoryId: 'cCatch', amount: 875, date: '2026-05-10', recurringId: 'rCatch', catchUp: true });
+  st.expenses.push({ id: 'old2', categoryId: 'cCatch', amount: 875, date: '2026-06-01', recurringId: 'rCatch', catchUp: true });
+  const total = ctx.dateToStr(ctx.getCycleRange(0).cycleStart);
+  // a weekly rule whose lastAdded is recent, so at most a couple of occurrences are due
+  st.recurringExpenses.push({ id: 'rCatch', categoryId: 'cCatch', amount: 875, name: 'Mortgage',
+    frequency: 'weekly', daysOfWeek: ['MO'], lastAdded: ctx.dateToStr(new Date(Date.now() - 3*86400000)), paymentMethod: 'offset' });
+
+  const before = (ctx.state.expenses||[]).filter(e => e.catchUp).length;
+  const keep = { rc: ctx.renderContent, uh: ctx.updateHeader, st: ctx.showToast };
+  ctx.renderContent = () => {}; ctx.updateHeader = () => {}; ctx.showToast = () => {};
+  try { ctx.applyRecurringExpenses(); } finally { Object.assign(ctx, { renderContent: keep.rc, updateHeader: keep.uh, showToast: keep.st }); }
+  const after = (ctx.state.expenses||[]).filter(e => e.catchUp).length;
+
+  // the two historical catch-ups are still there and were not duplicated
+  assertEqual((ctx.state.expenses||[]).filter(e => e.id === 'old1').length, 1, 'old catch-up #1 not duplicated');
+  assertEqual((ctx.state.expenses||[]).filter(e => e.id === 'old2').length, 1, 'old catch-up #2 not duplicated');
+  assertTrue(after >= before, 'existing catch-up history is preserved, not wiped');
+});
+
 await check('no top-level function is declared more than once anywhere in the file (regression: silent shadowing caused both a data-loss bug and a broken legacy super-contribution modal)', () => {
   const fs = require('fs');
   const html = fs.readFileSync(APP_PATH, 'utf8');
