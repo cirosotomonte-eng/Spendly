@@ -3492,7 +3492,7 @@ await check("computeBankAdjustment accounts for money still on the card before d
   assertEqual(b.diff, -73.9, 'a real difference is reported, signed so it is clear which way it goes');
 });
 
-await check("applyBankAdjustment records one labelled entry in a dedicated goal, leaving real goals untouched", () => {
+await check("applyBankAdjustment to a GOAL reduces that real goal directly — no separate bucket, and the offset then matches the bank", () => {
   ctx.state = buildMockState();
   const st = ctx.state;
   st.savingsCategories.push({ id: 'gC', name: 'Servicios', status: 'active', linkedAccountId: 'offset1' });
@@ -3500,24 +3500,58 @@ await check("applyBankAdjustment records one labelled entry in a dedicated goal,
   const before = ctx.totalSavedForCat('gC');
   const target = ctx.getTrueOffsetBalance() - 73.9;
 
-  ctx.applyBankAdjustment('offset1', target);
-  assertEqual(ctx.totalSavedForCat('gC'), before, 'a real goal must NOT be altered — it would inflate something you plan against');
-  const adj = (ctx.state.savingsCategories||[]).find(g => g.name === 'Reconciliation adjustments');
-  assertTrue(!!adj, 'the correction lands in its own clearly-named goal');
-  const entries = (ctx.state.savingsDeposits||[]).filter(d => d.catId === adj.id);
-  assertEqual(entries.length, 1, 'exactly one entry is written');
-  assertEqual(entries[0].type, 'withdrawal', 'a Spendly-too-high difference is recorded as a withdrawal');
-  assertEqual(entries[0].amount, 73.9, 'for the exact difference');
-  assertTrue(/Adjust to match bank/.test(entries[0].note||''), 'and it is labelled, not a mystery entry');
+  ctx.applyBankAdjustment('offset1', target, { kind: 'goal', id: 'gC' });
+  // the chosen goal is reduced by the difference — it is now individually truthful
+  assertEqual(Math.round((before - ctx.totalSavedForCat('gC')) * 100) / 100, 73.9, 'the difference comes straight out of the chosen goal');
+  // no fake bucket is ever created
+  assertTrue(!(ctx.state.savingsCategories||[]).some(g => g.name === 'Reconciliation adjustments'), 'no separate adjustments bucket is created — the money leaves a real pot');
+  const entry = (ctx.state.savingsDeposits||[]).find(d => d._bankAdjustment && d.catId === 'gC');
+  assertTrue(!!entry, 'a labelled adjustment entry is recorded against the goal');
+  assertEqual(entry.type, 'withdrawal', 'Spendly-too-high => withdraw from the goal');
   assertEqual(ctx.computeBankAdjustment(target).diff, 0, 'after adjusting, Spendly agrees with the bank');
 });
 
-await check("adjusting when already matching does nothing", () => {
+await check("applyBankAdjustment to SALARY reduces the salary account directly, leaving goals untouched", () => {
   ctx.state = buildMockState();
+  const st = ctx.state;
+  const sal = (st.accounts||[]).find(a => /salary/i.test(a.name||'')) || st.accounts.find(a => a.type === 'transaction');
+  st.savingsCategories.push({ id: 'gK', name: 'Piggy', status: 'active', linkedAccountId: 'offset1' });
+  st.savingsDeposits.push({ id: 'sK', catId: 'gK', targetId: 'gK', amount: 500, date: '2026-07-01', type: 'deposit' });
+  const goalBefore = ctx.totalSavedForCat('gK');
+  const salBefore = ctx.getAccountBalance(sal.id);
+  const target = ctx.getTrueOffsetBalance() - 50;
+
+  ctx.applyBankAdjustment('offset1', target, { kind: 'salary', accountId: sal.id });
+  assertEqual(Math.round((salBefore - ctx.getAccountBalance(sal.id)) * 100) / 100, 50, 'the difference comes straight out of salary');
+  assertEqual(ctx.totalSavedForCat('gK'), goalBefore, 'goals are untouched when the adjustment is assigned to salary');
+  assertTrue(!(ctx.state.savingsCategories||[]).some(g => g.name === 'Reconciliation adjustments'), 'still no fake bucket');
+  assertEqual(ctx.computeBankAdjustment(target).diff, 0, 'the offset now matches the bank');
+});
+
+await check("a Spendly-too-LOW difference adds to the chosen pot", () => {
+  ctx.state = buildMockState();
+  const st = ctx.state;
+  st.savingsCategories.push({ id: 'gLow', name: 'Holidays', status: 'active', linkedAccountId: 'offset1' });
+  st.savingsDeposits.push({ id: 'sLow', catId: 'gLow', targetId: 'gLow', amount: 200, date: '2026-07-01', type: 'deposit' });
+  const before = ctx.totalSavedForCat('gLow');
+  const target = ctx.getTrueOffsetBalance() + 30; // bank is higher => Spendly low
+  ctx.applyBankAdjustment('offset1', target, { kind: 'goal', id: 'gLow' });
+  assertEqual(Math.round((ctx.totalSavedForCat('gLow') - before) * 100) / 100, 30, 'a low Spendly balance tops the goal up');
+  assertEqual(ctx.computeBankAdjustment(target).diff, 0, 'and matches the bank');
+});
+
+await check("adjusting when already matching does nothing, and a destination is required", () => {
+  ctx.state = buildMockState();
+  const st = ctx.state;
+  st.savingsCategories.push({ id: 'gN', name: 'X', status: 'active', linkedAccountId: 'offset1' });
+  st.savingsDeposits.push({ id: 'sN', catId: 'gN', targetId: 'gN', amount: 100, date: '2026-07-01', type: 'deposit' });
   const target = ctx.getTrueOffsetBalance();
-  ctx.applyBankAdjustment('offset1', target);
-  const adj = (ctx.state.savingsCategories||[]).find(g => g.name === 'Reconciliation adjustments');
-  assertTrue(!adj || (ctx.state.savingsDeposits||[]).filter(d => d.catId === adj.id).length === 0, 'no entry is written when there is nothing to correct');
+  ctx.applyBankAdjustment('offset1', target, { kind: 'goal', id: 'gN' });
+  assertTrue(!(ctx.state.savingsDeposits||[]).some(d => d._bankAdjustment), 'no entry is written when there is nothing to correct');
+  // with a real difference but no destination, nothing is applied
+  const before = ctx.totalSavedForCat('gN');
+  ctx.applyBankAdjustment('offset1', ctx.getTrueOffsetBalance() - 20, null);
+  assertEqual(ctx.totalSavedForCat('gN'), before, 'without a chosen destination, no pot is altered');
 });
 
 console.log('\n── Modal layout ──');
@@ -3821,6 +3855,53 @@ await check("saveExpense captures the reconciliation-return BEFORE closeModal wi
     'the return is captured before closeModal, which clears the flag on dismiss');
   assertTrue(body.indexOf('const _recReturn') < body.indexOf("closeModal('expenseModal')"),
     'capture must precede the close');
+});
+
+console.log('\n── Legacy adjustment bucket migration ──');
+
+await check("findLegacyAdjustBucket detects a leftover reconciliation-adjustments bucket and its balance", () => {
+  ctx.state = buildMockState();
+  const st = ctx.state;
+  st.savingsCategories.push({ id: 'adjB', name: 'Reconciliation adjustments', status: 'active', linkedAccountId: 'offset1' });
+  st.savingsDeposits.push({ id: 'adjD', catId: 'adjB', targetId: 'adjB', amount: 73.9, date: '2026-08-20', type: 'withdrawal', note: 'Adjust to match bank' });
+  const info = ctx.findLegacyAdjustBucket();
+  assertTrue(!!info, 'the bucket is detected');
+  assertEqual(info.balance, -73.9, 'its balance is reported (a withdrawal reads negative)');
+  // no bucket => null
+  ctx.state = buildMockState();
+  assertTrue(ctx.findLegacyAdjustBucket() === null, 'no bucket => nothing to migrate');
+});
+
+await check("migrateLegacyAdjustBucket folds the bucket into a chosen goal and deletes the bucket, offset-neutral", () => {
+  ctx.state = buildMockState();
+  const st = ctx.state;
+  st.savingsCategories.push({ id: 'gDest', name: 'Holidays', status: 'active', linkedAccountId: 'offset1' });
+  st.savingsDeposits.push({ id: 'sDest', catId: 'gDest', targetId: 'gDest', amount: 500, date: '2026-07-01', type: 'deposit' });
+  st.savingsCategories.push({ id: 'adjB2', name: 'Reconciliation adjustments', status: 'active', linkedAccountId: 'offset1' });
+  st.savingsDeposits.push({ id: 'adjD2', catId: 'adjB2', targetId: 'adjB2', amount: 73.9, date: '2026-08-20', type: 'withdrawal', note: 'Adjust to match bank' });
+  const offBefore = ctx.getTrueOffsetBalance();
+  const holBefore = ctx.totalSavedForCat('gDest');
+
+  const ok = ctx.migrateLegacyAdjustBucket({ kind: 'goal', id: 'gDest' });
+  assertTrue(ok, 'migration succeeds');
+  assertEqual(Math.round((holBefore - ctx.totalSavedForCat('gDest')) * 100) / 100, 73.9, 'the goal absorbs the -73.90');
+  assertTrue(ctx.findLegacyAdjustBucket() === null, 'the fake bucket is gone');
+  assertTrue(!(ctx.state.savingsCategories||[]).some(c => c.id === 'adjB2'), 'the bucket category is deleted');
+  assertEqual(ctx.getTrueOffsetBalance(), offBefore, 'the offset total is unchanged — the balance simply moved to a real pot');
+});
+
+await check("migrateLegacyAdjustBucket can fold into salary instead, leaving goals untouched", () => {
+  ctx.state = buildMockState();
+  const st = ctx.state;
+  const sal = (st.accounts||[]).find(a => /salary/i.test(a.name||'')) || st.accounts.find(a => a.type === 'transaction');
+  st.savingsCategories.push({ id: 'adjB3', name: 'Reconciliation adjustments', status: 'active', linkedAccountId: 'offset1' });
+  st.savingsDeposits.push({ id: 'adjD3', catId: 'adjB3', targetId: 'adjB3', amount: 73.9, date: '2026-08-20', type: 'withdrawal', note: 'Adjust to match bank' });
+  const salBefore = ctx.getAccountBalance(sal.id);
+  const offBefore = ctx.getTrueOffsetBalance();
+  ctx.migrateLegacyAdjustBucket({ kind: 'salary', accountId: sal.id });
+  assertEqual(Math.round((salBefore - ctx.getAccountBalance(sal.id)) * 100) / 100, 73.9, 'salary drops by the bucket amount');
+  assertEqual(ctx.getTrueOffsetBalance(), offBefore, 'offset total unchanged');
+  assertTrue(ctx.findLegacyAdjustBucket() === null, 'bucket removed');
 });
 
 await check('no top-level function is declared more than once anywhere in the file (regression: silent shadowing caused both a data-loss bug and a broken legacy super-contribution modal)', () => {

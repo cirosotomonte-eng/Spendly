@@ -26,8 +26,8 @@ const SPENDLY_MODE = 'cloud';
 // derive its cache name and reported version from the SAME constants the app uses.
 // Previously the worker carried its own hardcoded version that was never bumped,
 // so its cache name never changed and its version never matched the running app.
-const APP_VERSION = '2.56.0';
-const BUILD_TIME = '18 Aug 2026 5:48 PM AEDT';
+const APP_VERSION = '2.57.0';
+const BUILD_TIME = '21 Aug 2026 7:55 AM AEDT';
 
 // Only load Supabase SDK in cloud mode
 if (SPENDLY_MODE === 'cloud') {
@@ -15518,6 +15518,11 @@ function getAccountBalance(accountId) {
 
   txns.forEach(t => {
     if (t.type === 'income' && t.accountId === accountId) bal += t.amount;
+    // Bank reconciliation adjustment applied directly to this account: signed by
+    // direction ('out' reduces the account, 'in' adds to it).
+    if (t.type === 'adjustment' && t.accountId === accountId) {
+      bal += (t.direction === 'out' ? -t.amount : t.amount);
+    }
     if (t.type === 'transfer') {
       if (t.fromAccountId === accountId) bal -= t.amount;
       if (t.toAccountId && t.toAccountId === accountId) bal += t.amount;
@@ -18272,6 +18277,68 @@ function unmarkBilledPrevCycle(expId) {
 // and never silently inflates a goal you are planning against.
 const OFFSET_ADJUST_GOAL = 'Reconciliation adjustments';
 
+// Legacy: earlier builds parked bank-adjustments in a separate "Reconciliation
+// adjustments" goal. That was wrong — the offset is (goals + salary), so a
+// correction has to reduce a real pot, not sit in a 13th bucket that leaves every
+// real pot individually inaccurate. This finds any leftover bucket so it can be
+// folded into a real pot the user chooses.
+function findLegacyAdjustBucket() {
+  const g = (state.savingsCategories||[]).find(x => x.name === OFFSET_ADJUST_GOAL);
+  if (!g) return null;
+  const deps = (state.savingsDeposits||[]).filter(d => d.catId === g.id);
+  const bal = deps.reduce((s,d) => s + ((d.type==='withdrawal'||d.type==='bill-payment') ? -d.amount : d.amount), 0);
+  return { goal: g, balance: Math.round(bal * 100) / 100, entryCount: deps.length };
+}
+
+// Move the leftover bucket's balance onto a real pot, then delete the bucket. The
+// offset total is unchanged (the bucket balance simply moves), but now a real pot
+// carries it instead of a fake one.
+// Handler for the migration banner button: reads the chosen destination and applies.
+function _doMigrateLegacyBucket() {
+  const sel = document.getElementById('legacyBucketDest');
+  if (!sel || !sel.value) { showToast('Pick where it should go', 2500); return; }
+  const [kind, id] = sel.value.split(':');
+  const dest = kind === 'salary' ? { kind: 'salary', accountId: id } : { kind: 'goal', id };
+  if (migrateLegacyAdjustBucket(dest)) {
+    showToast('✅ Moved into your chosen pot', 3000);
+    if (typeof renderContent === 'function') renderContent();
+  }
+}
+
+function migrateLegacyAdjustBucket(destination) {
+  const info = findLegacyAdjustBucket();
+  if (!info || !destination || !destination.kind) return false;
+  const bal = info.balance;
+  if (Math.abs(bal) > 0.005) {
+    if (destination.kind === 'goal') {
+      const goal = savingsCatById(destination.id);
+      if (!goal || goal.id === info.goal.id) { showToast('Pick a different goal', 2500); return false; }
+      state.savingsDeposits.push({
+        id: uid(), catId: goal.id, targetId: goal.id, amount: Math.abs(bal), date: todayStr(),
+        type: bal < 0 ? 'withdrawal' : 'deposit',
+        note: 'Moved reconciliation adjustment from bucket', _bankAdjustment: true,
+      });
+    } else if (destination.kind === 'salary') {
+      const acct = accountById(destination.accountId);
+      if (!acct) return false;
+      if (!state.accountTransactions) state.accountTransactions = [];
+      state.accountTransactions.push({
+        id: uid(), accountId: acct.id, date: todayStr(),
+        type: bal < 0 ? 'adjustment' : 'income',
+        amount: Math.abs(bal), direction: bal < 0 ? 'out' : 'in',
+        note: 'Moved reconciliation adjustment from bucket', _bankAdjustment: true,
+      });
+    }
+  }
+  // remove the bucket's own entries and the bucket itself
+  state.savingsDeposits = (state.savingsDeposits||[]).filter(d => d.catId !== info.goal.id);
+  state.savingsCategories = (state.savingsCategories||[]).filter(c => c.id !== info.goal.id);
+  saveState();
+  if (typeof renderAccounts === 'function') renderAccounts();
+  if (typeof updateHeader === 'function') updateHeader();
+  return true;
+}
+
 function _getAdjustGoal(offsetAccountId, create) {
   let g = (state.savingsCategories||[]).find(x => x.name === OFFSET_ADJUST_GOAL);
   if (!g && create) {
@@ -18292,28 +18359,66 @@ function computeBankAdjustment(realBalance) {
   return { offset, pending, expected, diff };
 }
 
-function applyBankAdjustment(offsetAccountId, realBalance) {
-  const { diff, expected } = computeBankAdjustment(realBalance);
+// Apply the bank adjustment to a REAL pot the user chooses. The offset is by
+// definition (goals + linked salary), so a discrepancy means one of those actually
+// holds a different amount than Spendly thinks — the correction must reduce (or add
+// to) a real pot, not sit in a separate bucket that leaves every real pot
+// individually wrong. destination is either { kind:'goal', id } or { kind:'salary',
+// accountId }.
+function applyBankAdjustment(offsetAccountId, realBalance, destination) {
+  const { diff } = computeBankAdjustment(realBalance);
   if (Math.abs(diff) < 0.01) { showToast('✅ Already matches your bank', 2500); return; }
-  const goal = _getAdjustGoal(offsetAccountId, true);
-  if (!state.savingsDeposits) state.savingsDeposits = [];
-  state.savingsDeposits.push({
-    id: uid(), catId: goal.id, targetId: goal.id,
-    amount: Math.abs(diff), date: todayStr(),
-    type: diff > 0 ? 'deposit' : 'withdrawal',
-    note: 'Adjust to match bank · ' + fmt(realBalance),
-    _bankAdjustment: true,
-  });
+  if (!destination || !destination.kind) { showToast('Choose where the adjustment comes from', 3000); return; }
+  const amt = Math.abs(diff);
+  const label = 'Bank reconciliation adjustment · matched to ' + fmt(realBalance);
+  if (destination.kind === 'goal') {
+    const goal = savingsCatById(destination.id);
+    if (!goal) { showToast('Goal not found', 2500); return; }
+    if (!state.savingsDeposits) state.savingsDeposits = [];
+    // diff < 0 => Spendly too high => withdraw from the goal; diff > 0 => deposit.
+    state.savingsDeposits.push({
+      id: uid(), catId: goal.id, targetId: goal.id,
+      amount: amt, date: todayStr(),
+      type: diff > 0 ? 'deposit' : 'withdrawal',
+      note: label, _bankAdjustment: true,
+    });
+  } else if (destination.kind === 'salary') {
+    const acct = accountById(destination.accountId);
+    if (!acct) { showToast('Salary account not found', 2500); return; }
+    if (!state.accountTransactions) state.accountTransactions = [];
+    // diff < 0 => reduce salary (money out); diff > 0 => add to salary (money in).
+    state.accountTransactions.push({
+      id: uid(), accountId: acct.id, date: todayStr(),
+      type: diff > 0 ? 'income' : 'adjustment',
+      amount: amt, direction: diff > 0 ? 'in' : 'out',
+      note: label, _bankAdjustment: true,
+    });
+  } else {
+    showToast('Unknown destination', 2500); return;
+  }
   saveState();
   if (typeof renderAccounts === 'function') renderAccounts();
   if (typeof updateHeader === 'function') updateHeader();
-  showToast((diff > 0 ? '✅ Added ' : '✅ Removed ') + fmt(Math.abs(diff)) + ' — now matches your bank', 4000);
+  const where = destination.kind === 'goal' ? (savingsCatById(destination.id)||{}).name : 'Salary';
+  showToast((diff > 0 ? '✅ Added ' : '✅ Removed ') + fmt(amt) + ' ' + (diff > 0 ? 'to ' : 'from ') + where + ' — now matches your bank', 4000);
 }
 
 function showAdjustToBankModal(offsetAccountId) {
   const { offset, pending, expected } = computeBankAdjustment(0);
   const existing = document.getElementById('adjustBankModal');
   if (existing) existing.remove();
+  // Build the destination options: every linked salary/transaction account, plus
+  // every goal counted in this offset. The adjustment must land on a REAL pot.
+  const salaryAccts = (state.accounts||[]).filter(a =>
+    a.type === 'transaction' && (a.linkedOffsetId === offsetAccountId || a.isSalaryAccount || /salary/i.test(a.name||'')));
+  const goals = (state.savingsCategories||[]).filter(g => {
+    const linked = g.linkedAccountId || g.accountId;
+    return (!linked || linked === offsetAccountId) && g.status !== 'archived';
+  });
+  let destOpts = '';
+  salaryAccts.forEach(a => { destOpts += '<option value="salary:' + a.id + '">💰 ' + a.name + ' (salary)</option>'; });
+  goals.forEach(g => { destOpts += '<option value="goal:' + g.id + '">' + (g.icon||'🎯') + ' ' + g.name + '</option>'; });
+
   const overlay = document.createElement('div');
   overlay.id = 'adjustBankModal';
   overlay.className = 'modal-overlay open';
@@ -18321,13 +18426,15 @@ function showAdjustToBankModal(offsetAccountId) {
   overlay.innerHTML =
     '<div class="modal-sheet" style="max-width:380px;box-sizing:border-box">' +
       '<div style="font-size:16px;font-weight:700;margin-bottom:4px">⚖️ Adjust to match bank</div>' +
-      '<div style="font-size:12px;color:var(--muted);margin-bottom:14px;line-height:1.5">Enter what your bank actually shows. Anything still on the card is accounted for automatically.</div>' +
+      '<div style="font-size:12px;color:var(--muted);margin-bottom:14px;line-height:1.5">Enter what your bank actually shows. Anything still on the card is accounted for automatically. The difference is applied to the pot you choose — because your offset is just your goals plus salary, the money has to come from one of them.</div>' +
       '<div style="background:var(--surface2);border-radius:10px;padding:12px;margin-bottom:14px;font-size:12px">' +
         '<div style="display:flex;justify-content:space-between;margin-bottom:5px"><span style="color:var(--muted)">Spendly offset</span><span>' + fmt(offset) + '</span></div>' +
         '<div style="display:flex;justify-content:space-between;margin-bottom:5px"><span style="color:var(--muted)">Still on the card</span><span>+' + fmt(pending) + '</span></div>' +
         '<div style="display:flex;justify-content:space-between;padding-top:6px;border-top:1px solid var(--border);font-weight:700"><span>Your bank should show</span><span>' + fmt(expected) + '</span></div>' +
       '</div>' +
-      '<input id="adjustBankInput" type="text" inputmode="decimal" placeholder="Actual bank balance" style="width:100%;box-sizing:border-box;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:13px;font-size:16px;color:var(--text);font-family:inherit;margin-bottom:8px">' +
+      '<input id="adjustBankInput" type="text" inputmode="decimal" placeholder="Actual bank balance" style="width:100%;box-sizing:border-box;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:13px;font-size:16px;color:var(--text);font-family:inherit;margin-bottom:10px">' +
+      '<div style="font-size:11px;font-weight:600;color:var(--muted);margin-bottom:5px">Apply the difference to</div>' +
+      '<select id="adjustBankDest" style="width:100%;box-sizing:border-box;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:13px;font-size:15px;color:var(--text);font-family:inherit;margin-bottom:10px">' + destOpts + '</select>' +
       '<div id="adjustBankPreview" style="font-size:12px;color:var(--muted);min-height:34px;line-height:1.45;margin-bottom:10px"></div>' +
       '<div style="display:flex;gap:8px">' +
         '<button onclick="document.getElementById(\'adjustBankModal\').remove()" style="flex:1;background:var(--surface2);color:var(--text);border:none;border-radius:10px;padding:12px;font-size:14px;font-weight:600;font-family:var(--font);cursor:pointer">Cancel</button>' +
@@ -18338,18 +18445,26 @@ function showAdjustToBankModal(offsetAccountId) {
   overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
   const input = document.getElementById('adjustBankInput');
   const preview = document.getElementById('adjustBankPreview');
+  const destSel = document.getElementById('adjustBankDest');
   const update = () => {
     const v = parseFloat((input.value||'').replace(/[^0-9.\-]/g, ''));
     if (isNaN(v)) { preview.textContent = ''; return; }
     const { diff } = computeBankAdjustment(v);
+    const destLabel = destSel.options[destSel.selectedIndex] ? destSel.options[destSel.selectedIndex].text.replace(/^.\s*/, '') : 'the chosen pot';
     if (Math.abs(diff) < 0.01) { preview.style.color = '#34C759'; preview.textContent = '✓ Already matches — no adjustment needed.'; }
-    else { preview.style.color = 'var(--orange)'; preview.textContent = (diff > 0 ? 'Spendly is running ' + fmt(Math.abs(diff)) + ' low — this adds it.' : 'Spendly is running ' + fmt(Math.abs(diff)) + ' high — this removes it.') + ' Recorded as a labelled entry under "' + OFFSET_ADJUST_GOAL + '".'; }
+    else { preview.style.color = 'var(--orange)'; preview.textContent = (diff > 0
+      ? 'Spendly is running ' + fmt(Math.abs(diff)) + ' low — this adds ' + fmt(Math.abs(diff)) + ' to ' + destLabel + '.'
+      : 'Spendly is running ' + fmt(Math.abs(diff)) + ' high — this removes ' + fmt(Math.abs(diff)) + ' from ' + destLabel + '.'); }
   };
   input.addEventListener('input', update);
+  destSel.addEventListener('change', update);
   document.getElementById('adjustBankConfirm').addEventListener('click', () => {
     const v = parseFloat((input.value||'').replace(/[^0-9.\-]/g, ''));
     if (isNaN(v)) { showToast('Enter your bank balance first', 2000); return; }
-    applyBankAdjustment(document.getElementById('adjustBankConfirm').dataset.aid, v);
+    if (!destSel.value) { showToast('Choose where the adjustment comes from', 2500); return; }
+    const [kind, id] = destSel.value.split(':');
+    const destination = kind === 'salary' ? { kind: 'salary', accountId: id } : { kind: 'goal', id };
+    applyBankAdjustment(document.getElementById('adjustBankConfirm').dataset.aid, v, destination);
     overlay.remove();
   });
   setTimeout(() => { try { input.focus(); } catch(e) {} }, 60);
@@ -19314,6 +19429,25 @@ function renderAccounts() {
         window._offsetOrphanPaidHTML = '';
       }
 
+      // ── Legacy reconciliation-adjustment bucket (fold into a real pot) ──
+      const _lb = findLegacyAdjustBucket();
+      if (_lb) {
+        window._offsetLegacyBucketBanner = true;
+        const salOpts = (state.accounts||[]).filter(a => a.type === 'transaction' && (a.linkedOffsetId === acct.id || /salary/i.test(a.name||'')))
+          .map(a => '<option value="salary:' + a.id + '">💰 ' + a.name + ' (salary)</option>').join('');
+        const goalOpts = (state.savingsCategories||[]).filter(g => g.id !== _lb.goal.id && g.status !== 'archived' && ((g.linkedAccountId||g.accountId||acct.id) === acct.id))
+          .map(g => '<option value="goal:' + g.id + '">' + (g.icon||'🎯') + ' ' + g.name + '</option>').join('');
+        window._offsetLegacyBucketHTML = '<div style="background:rgba(240,168,96,0.08);border:1.5px solid rgba(240,168,96,0.3);border-radius:12px;padding:14px;margin-bottom:14px">' +
+          '<div style="font-size:13px;font-weight:700;color:var(--orange);margin-bottom:4px">⚖️ Move reconciliation adjustment into a real pot</div>' +
+          '<div style="font-size:12px;color:var(--muted);line-height:1.5">A ' + fmtB(_lb.balance) + ' adjustment is sitting in a separate bucket. Your offset is your goals plus salary, so this should live in one of them — otherwise that pot reads as more than you really have. Pick where it belongs:</div>' +
+          '<select id="legacyBucketDest" style="width:100%;box-sizing:border-box;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:11px;font-size:14px;color:var(--text);font-family:inherit;margin-top:10px">' + salOpts + goalOpts + '</select>' +
+          '<button onclick=\"_doMigrateLegacyBucket()\" style="width:100%;margin-top:9px;background:var(--accent);color:#fff;border:none;border-radius:8px;padding:10px;font-size:13px;font-weight:700;font-family:var(--font);cursor:pointer">Move ' + fmtB(_lb.balance) + '</button>' +
+        '</div>';
+      } else {
+        window._offsetLegacyBucketBanner = false;
+        window._offsetLegacyBucketHTML = '';
+      }
+
       // ── Goal-link integrity: re-fired duplicates + dangling withdrawal links ──
       const _gl = findGoalLinkIssues();
       if (_gl.refired.length > 0 || _gl.brokenLinks.length > 0 || (_gl.orphanWithdrawals||[]).length > 0) {
@@ -20110,6 +20244,10 @@ function renderAccounts() {
     // Orphaned paid-payment banner for offset accounts
     if (acct.type === 'offset' && window._offsetOrphanPaidBanner) {
       html += window._offsetOrphanPaidHTML;
+    }
+    // Legacy adjustment-bucket migration banner for offset accounts
+    if (acct.type === 'offset' && window._offsetLegacyBucketBanner) {
+      html += window._offsetLegacyBucketHTML;
     }
     // Goal link integrity banner for offset accounts
     if (acct.type === 'offset' && window._offsetGoalLinkBanner) {
