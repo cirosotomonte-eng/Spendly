@@ -3904,6 +3904,23 @@ await check("migrateLegacyAdjustBucket can fold into salary instead, leaving goa
   assertTrue(ctx.findLegacyAdjustBucket() === null, 'bucket removed');
 });
 
+await check("pending-on-card sums goal-covered charges across ALL credit cards, not just one", () => {
+  ctx.state = buildMockState();
+  const st = ctx.state;
+  st.accounts.push({ id: 'anzC', name: 'ANZ CC', type: 'credit' });
+  st.accounts.push({ id: 'amexC', name: 'Amex', type: 'credit' });
+  st.savingsCategories.push({ id: 'gMC', name: 'Holidays', status: 'active', linkedAccountId: 'offset1' });
+  st.savingsDeposits.push({ id: 'seedMC', catId: 'gMC', targetId: 'gMC', amount: 1000, date: '2026-08-01', type: 'deposit' });
+  st.expenses.push({ id: 'mc1', amount: 150, name: 'Flights', date: '2026-08-10', paymentAccountId: 'anzC', linkedGoalId: 'gMC', goalCoveredAmount: 150 });
+  st.expenses.push({ id: 'mc2', amount: 200, name: 'Hotel', date: '2026-08-15', paymentAccountId: 'amexC', linkedGoalId: 'gMC', goalCoveredAmount: 200 });
+  st.expenses.push({ id: 'mc3', amount: 80, name: 'Dinner', date: '2026-08-16', paymentAccountId: 'amexC' }); // plain, no goal
+
+  const pc = ctx.getPendingCardGoalDebits();
+  assertEqual(pc.total, 350, 'both cards contribute their goal-covered charges (150 ANZ + 200 Amex)');
+  assertTrue(pc.items.some(e => e.id === 'mc1') && pc.items.some(e => e.id === 'mc2'), 'charges from each card are listed');
+  assertTrue(!pc.items.some(e => e.id === 'mc3'), 'a plain non-goal card charge never counts as pending-on-card');
+});
+
 await check('no top-level function is declared more than once anywhere in the file (regression: silent shadowing caused both a data-loss bug and a broken legacy super-contribution modal)', () => {
   const fs = require('fs');
   const html = fs.readFileSync(APP_PATH, 'utf8');
