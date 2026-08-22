@@ -3921,6 +3921,49 @@ await check("pending-on-card sums goal-covered charges across ALL credit cards, 
   assertTrue(!pc.items.some(e => e.id === 'mc3'), 'a plain non-goal card charge never counts as pending-on-card');
 });
 
+console.log('\n── Coverage shortfall detection ──');
+
+await check("findGoalLinkIssues flags a goal whose UNSETTLED card charges claim more coverage than it holds", () => {
+  ctx.state = buildMockState();
+  const st = ctx.state;
+  st.accounts.push({ id: 'ccCov', name: 'ANZ', type: 'credit' });
+  st.savingsCategories.push({ id: 'gCov', name: 'Holidays', icon: '✈️', status: 'active', linkedAccountId: 'offset1' });
+  // goal holds 300
+  st.savingsDeposits.push({ id: 'sCov', catId: 'gCov', targetId: 'gCov', amount: 300, date: '2026-07-01', type: 'deposit' });
+  // but two unpaid card charges claim 500 of coverage
+  st.expenses.push({ id: 'xc1', amount: 250, name: 'Flights', date: '2026-08-10', paymentAccountId: 'ccCov', linkedGoalId: 'gCov', goalCoveredAmount: 250 });
+  st.expenses.push({ id: 'xc2', amount: 250, name: 'Hotel', date: '2026-08-12', paymentAccountId: 'ccCov', linkedGoalId: 'gCov', goalCoveredAmount: 250 });
+
+  const cs = ctx.findGoalLinkIssues().coverageShortfalls;
+  assertEqual(cs.length, 1, 'the short goal is flagged');
+  assertEqual(cs[0].goalId, 'gCov', 'it is the right goal');
+  assertEqual(cs[0].claimed, 500, 'claimed coverage is summed across its unpaid charges');
+  assertEqual(cs[0].balance, 300, 'against the goal balance');
+  assertEqual(cs[0].shortfall, 200, 'and the shortfall (what will fall to salary) is reported');
+});
+
+await check("a settled charge does not count toward a coverage shortfall (it can no longer distort a payment)", () => {
+  ctx.state = buildMockState();
+  const st = ctx.state;
+  st.accounts.push({ id: 'ccS', name: 'ANZ', type: 'credit' });
+  st.savingsCategories.push({ id: 'gS', name: 'Holidays', status: 'active', linkedAccountId: 'offset1' });
+  st.savingsDeposits.push({ id: 'sS', catId: 'gS', targetId: 'gS', amount: 300, date: '2026-07-01', type: 'deposit' });
+  st.expenses.push({ id: 'paidC', amount: 500, name: 'Flights', date: '2026-08-10', paymentAccountId: 'ccS', linkedGoalId: 'gS', goalCoveredAmount: 500 });
+  st.ccPayments = [{ id: 'payS', date: '2026-08-20', amount: 500, expenseIds: ['paidC'] }];
+  const cs = ctx.findGoalLinkIssues().coverageShortfalls;
+  assertTrue(!cs.some(x => x.goalId === 'gS'), 'a settled charge is excluded — only unpaid charges can still spill to salary');
+});
+
+await check("a goal that fully covers its charges is NOT flagged", () => {
+  ctx.state = buildMockState();
+  const st = ctx.state;
+  st.accounts.push({ id: 'ccOk', name: 'ANZ', type: 'credit' });
+  st.savingsCategories.push({ id: 'gOk', name: 'Holidays', status: 'active', linkedAccountId: 'offset1' });
+  st.savingsDeposits.push({ id: 'sOk', catId: 'gOk', targetId: 'gOk', amount: 1000, date: '2026-07-01', type: 'deposit' });
+  st.expenses.push({ id: 'okC', amount: 250, name: 'Flights', date: '2026-08-10', paymentAccountId: 'ccOk', linkedGoalId: 'gOk', goalCoveredAmount: 250 });
+  assertTrue(!ctx.findGoalLinkIssues().coverageShortfalls.some(x => x.goalId === 'gOk'), 'no shortfall when the goal covers its charges');
+});
+
 await check('no top-level function is declared more than once anywhere in the file (regression: silent shadowing caused both a data-loss bug and a broken legacy super-contribution modal)', () => {
   const fs = require('fs');
   const html = fs.readFileSync(APP_PATH, 'utf8');

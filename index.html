@@ -26,8 +26,8 @@ const SPENDLY_MODE = 'cloud';
 // derive its cache name and reported version from the SAME constants the app uses.
 // Previously the worker carried its own hardcoded version that was never bumped,
 // so its cache name never changed and its version never matched the running app.
-const APP_VERSION = '2.58.0';
-const BUILD_TIME = '21 Aug 2026 6:21 PM AEDT';
+const APP_VERSION = '2.59.0';
+const BUILD_TIME = '22 Aug 2026 10:49 AM AEDT';
 
 // Only load Supabase SDK in cloud mode
 if (SPENDLY_MODE === 'cloud') {
@@ -18517,7 +18517,40 @@ function findGoalLinkIssues() {
     d.linkedExpenseId && !expById.has(d.linkedExpenseId)
   );
 
-  return { refired, brokenLinks, orphanWithdrawals };
+  // 4. Coverage shortfall: unsettled goal-covered charges that, per goal, claim more
+  // coverage than the goal actually holds. When such a charge is paid, the payment
+  // can only pull the goal's real balance and silently spills the rest onto salary —
+  // over-debiting it. This surfaces the mismatch so it can be resolved (top up the
+  // goal, or correct the charges) BEFORE it distorts a payment. Read-only.
+  const _settledIds = new Set((state.ccPayments||[]).flatMap(p => p.expenseIds||[]));
+  const _coverByGoal = {};
+  exps.forEach(e => {
+    const cov = e.goalCoveredAmount || 0;
+    if (cov <= 0.005 || !e.linkedGoalId) return;
+    if (_settledIds.has(e.id)) return; // only unsettled charges can still distort a payment
+    const acct = accountById(e.paymentAccountId);
+    if (!acct || acct.type !== 'credit') return; // only card charges get split at payment
+    (_coverByGoal[e.linkedGoalId] = _coverByGoal[e.linkedGoalId] || { claimed: 0, charges: [] });
+    _coverByGoal[e.linkedGoalId].claimed = Math.round((_coverByGoal[e.linkedGoalId].claimed + cov) * 100) / 100;
+    _coverByGoal[e.linkedGoalId].charges.push(e);
+  });
+  const coverageShortfalls = [];
+  Object.keys(_coverByGoal).forEach(gid => {
+    const bal = Math.round(totalSavedForCat(gid) * 100) / 100;
+    const claimed = _coverByGoal[gid].claimed;
+    if (claimed - bal > 0.01) {
+      const g = savingsCatById(gid);
+      coverageShortfalls.push({
+        goalId: gid, goalName: g ? g.name : 'Goal', goalIcon: g ? (g.icon||'🎯') : '🎯',
+        claimed, balance: bal,
+        shortfall: Math.round((claimed - bal) * 100) / 100,
+        chargeCount: _coverByGoal[gid].charges.length,
+      });
+    }
+  });
+  coverageShortfalls.sort((a,b) => b.shortfall - a.shortfall);
+
+  return { refired, brokenLinks, orphanWithdrawals, coverageShortfalls };
 }
 
 // Remove an orphaned goal withdrawal, returning its amount to the goal. Only ever
@@ -19084,6 +19117,22 @@ function openPayCCFromSalary(salaryAccountId, scopedCcId) {
       html += '<div style="border-top:1px solid rgba(52,199,89,0.2);margin-top:6px;padding-top:6px;display:flex;justify-content:space-between;font-size:12px"><span style="color:var(--muted)">Total from goals</span><span style="font-weight:700;color:#34C759">-'+fmt(breakdown.goalTotal)+'</span></div>';
       html += '</div>';
     }
+    // Coverage shortfall warning: if goal-covered charges in this payment claim more
+    // than their goals actually hold, the difference is silently being paid FROM
+    // SALARY instead. Surface it here, before committing, so an over-debit isn't a
+    // mystery after the fact. (breakdown.contributions already caps at goal balance,
+    // so we compare the raw claimed coverage on the unsettled charges to what was
+    // actually attributed to goals.)
+    let _claimedCov = 0;
+    (breakdown.unsettled||[]).forEach(e => { if ((e.goalCoveredAmount||0) > 0 && e.linkedGoalId) _claimedCov += e.goalCoveredAmount; });
+    _claimedCov = Math.round(_claimedCov * 100) / 100;
+    const _spill = Math.round((_claimedCov - breakdown.goalTotal) * 100) / 100;
+    if (_spill > 0.01) {
+      html += '<div style="margin:8px 0;padding:8px 10px;border-radius:8px;background:rgba(255,149,0,0.1)">' +
+        '<div style="font-size:11px;font-weight:700;color:var(--orange)">⚠️ ' + fmt(_spill) + ' of goal coverage is coming from salary</div>' +
+        '<div style="font-size:11px;color:var(--muted);margin-top:3px;line-height:1.45">Some charges are set to be covered by goals that don\u2019t hold enough right now, so that ' + fmt(_spill) + ' falls to salary instead. Top up those goals first if you\u2019d rather they cover it.</div>' +
+      '</div>';
+    }
     // Salary row
     html += '<div style="display:flex;justify-content:space-between;font-size:13px;padding:5px 0;border-top:1px solid var(--surface2);margin-top:4px"><span style="font-weight:700">💰 From salary</span><span style="font-weight:700;color:var(--red)">'+fmt(breakdown.salaryTotal)+'</span></div>';
     return html;
@@ -19486,6 +19535,29 @@ function renderAccounts() {
       } else {
         window._offsetGoalLinkBanner = false;
         window._offsetGoalLinkHTML = '';
+      }
+
+      // ── Coverage shortfall: goals whose unsettled card charges claim more than the
+      // goal holds. Read-only heads-up — at payment time the excess falls to salary. ──
+      const _cs = (_gl.coverageShortfalls||[]);
+      if (_cs.length > 0) {
+        window._offsetCoverageBanner = true;
+        const _csTotal = Math.round(_cs.reduce((s,x)=>s+x.shortfall,0) * 100) / 100;
+        let _csRows = '';
+        _cs.forEach(s => {
+          _csRows += '<div style="background:var(--surface2);border-radius:8px;padding:10px;margin-top:8px">' +
+            '<div style="font-size:12px;font-weight:700;color:var(--text)">' + s.goalIcon + ' ' + s.goalName + ' — short ' + fmtB(s.shortfall) + '</div>' +
+            '<div style="font-size:11px;color:var(--muted);margin-top:5px;line-height:1.45">Its unpaid card charges are set to be covered by ' + fmtB(s.claimed) + ', but the goal holds ' + fmtB(s.balance) + '. When you pay, the ' + fmtB(s.shortfall) + ' difference will come from salary instead. Top up the goal, or lower the goal-covered amount on those charges, to fix it.</div>' +
+          '</div>';
+        });
+        window._offsetCoverageHTML = '<div style="background:rgba(240,168,96,0.08);border:1.5px solid rgba(240,168,96,0.3);border-radius:12px;padding:14px;margin-bottom:14px">' +
+          '<div style="font-size:13px;font-weight:700;color:var(--orange);margin-bottom:4px">⚠️ ' + fmtB(_csTotal) + ' of goal coverage will fall to salary</div>' +
+          '<div style="font-size:12px;color:var(--muted)">These goals are set to cover more than they currently hold. Nothing is changed automatically.</div>' +
+          _csRows +
+        '</div>';
+      } else {
+        window._offsetCoverageBanner = false;
+        window._offsetCoverageHTML = '';
       }
 
       // ── Possible duplicate goal outflows: REVIEW, never auto-fix ──
@@ -20248,6 +20320,10 @@ function renderAccounts() {
     // Legacy adjustment-bucket migration banner for offset accounts
     if (acct.type === 'offset' && window._offsetLegacyBucketBanner) {
       html += window._offsetLegacyBucketHTML;
+    }
+    // Coverage shortfall banner for offset accounts
+    if (acct.type === 'offset' && window._offsetCoverageBanner) {
+      html += window._offsetCoverageHTML;
     }
     // Goal link integrity banner for offset accounts
     if (acct.type === 'offset' && window._offsetGoalLinkBanner) {
