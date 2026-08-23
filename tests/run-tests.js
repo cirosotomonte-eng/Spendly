@@ -4029,6 +4029,16 @@ await check("a deleted CC payment does not keep charges settled anywhere (getCCG
   assertTrue(info.unsettled.some(e => e.id === 'plainR'), 'a charge under a reversed payment is owed again, not treated as paid');
 });
 
+await check("a deletable payment row shows its amount alongside the Delete button, not one instead of the other", () => {
+  const fs = require('fs'); const html = fs.readFileSync(APP_PATH, 'utf8');
+  // the canDelete branch must render BOTH the amount and the Delete button
+  const m = html.match(/canDelete[\s\S]{0,400}?deleteCCTransaction/);
+  assertTrue(!!m, 'the deletable branch exists');
+  const seg = m[0];
+  assertTrue(/fmtB\(t\.amount\)/.test(seg), 'the amount is rendered in the deletable branch, so you can confirm the figure before reversing');
+  assertTrue(/deleteCCTransaction/.test(seg), 'and the Delete button is still there');
+});
+
 await check('no top-level function is declared more than once anywhere in the file (regression: silent shadowing caused both a data-loss bug and a broken legacy super-contribution modal)', () => {
   const fs = require('fs');
   const html = fs.readFileSync(APP_PATH, 'utf8');
