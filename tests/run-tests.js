@@ -4039,18 +4039,18 @@ await check("a deletable payment row shows its amount alongside the Delete butto
   assertTrue(/deleteCCTransaction/.test(seg), 'and the Delete button is still there');
 });
 
-await check("the payment Delete button is touch-safe (fires on iOS) and reverses exactly once even if touchend + click both fire", () => {
+await check("reversing a CC payment uses an in-app confirmation (not native confirm) and reverses exactly once", () => {
   const fs = require('fs'); const html = fs.readFileSync(APP_PATH, 'utf8');
-  // the CC payment Delete button must have BOTH an onclick and an ontouchend that
-  // stops propagation, or a plain onclick alone silently fails to fire inside iOS
-  // gesture areas (this was the "tapping does nothing" bug)
-  const anchorIdx = html.lastIndexOf('deleteCCTransaction', html.indexOf('>Delete</button>', html.indexOf('ontouchend="event.preventDefault();event.stopPropagation();deleteCCTransaction')));
-  const tIdx = html.indexOf('ontouchend="event.preventDefault();event.stopPropagation();deleteCCTransaction');
-  assertTrue(tIdx > -1, 'the CC Delete button has an ontouchend handler so it fires on iOS touch');
-  const seg = html.slice(tIdx - 200, tIdx + 200);
-  assertTrue(/stopPropagation/.test(seg), 'and stops propagation so the row/scroll handler does not swallow the tap');
+  // deleteCCTransaction must open an in-app modal rather than call native confirm(),
+  // which is silently suppressed inside the installed iOS PWA (the "tapping does
+  // nothing" bug). The actual reversal lives in _applyCCReversal.
+  const fnIdx = html.indexOf('function deleteCCTransaction');
+  const fnEnd = html.indexOf('function _applyCCReversal');
+  const body = html.slice(fnIdx, fnEnd);
+  assertTrue(/reverseCCModal/.test(body), 'delete opens an in-app confirmation modal');
+  assertTrue(!/if \(!confirm\(/.test(body) && !/= confirm\(/.test(body), 'it does NOT rely on native confirm(), which fails silently in the iOS PWA');
 
-  // and the handler is idempotent: a second call (touchend + click) is a no-op
+  // _applyCCReversal is idempotent and does the actual work
   ctx.state = buildMockState();
   const st = ctx.state;
   st.accounts.push({ id: 'ccT', name: 'ANZ', type: 'credit' });
@@ -4059,19 +4059,17 @@ await check("the payment Delete button is touch-safe (fires on iOS) and reverses
   const payId = 'payT';
   st.ccPayments = [{ id: payId, date: '2026-08-20', amount: 400, expenseIds: ['cT'], deleted: false, fromAccountId: sal.id, toCCAccountIds: ['ccT'] }];
   st.accountTransactions.push({ id: 'txnT', type: 'ccPayment', fromAccountId: sal.id, toAccountId: 'ccT', amount: 400, date: '2026-08-20', ccPaymentId: payId });
-  ctx.confirm = () => true;
   if (typeof ctx.fmtB !== 'function') ctx.fmtB = (n) => '$' + Number(n).toFixed(2);
   const _keepRA = ctx.renderAccounts, _keepST = ctx.showToast;
   ctx.renderAccounts = () => {}; ctx.showToast = () => {};
   try {
-    ctx.deleteCCTransaction('txnT', 'ccT');
-    ctx.deleteCCTransaction('txnT', 'ccT'); // simulate the second fire
+    ctx._applyCCReversal('txnT', 'ccT');
+    ctx._applyCCReversal('txnT', 'ccT'); // second call must be a no-op
     const deleted = (ctx.state.accountTransactions||[]).filter(t => t.id === 'txnT' && t.deleted).length;
     assertEqual(deleted, 1, 'the payment is reversed exactly once, not twice');
     assertEqual((ctx.state.ccPayments||[]).find(p => p.id === payId).deleted, true, 'the payment record is un-settled');
   } finally {
     ctx.renderAccounts = _keepRA; ctx.showToast = _keepST;
-    if (ctx.window) ctx.window._deletingCCTxn = null;
   }
 });
 
