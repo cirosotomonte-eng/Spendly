@@ -26,8 +26,8 @@ const SPENDLY_MODE = 'cloud';
 // derive its cache name and reported version from the SAME constants the app uses.
 // Previously the worker carried its own hardcoded version that was never bumped,
 // so its cache name never changed and its version never matched the running app.
-const APP_VERSION = '2.62.0';
-const BUILD_TIME = '24 Aug 2026 8:58 AM AEDT';
+const APP_VERSION = '2.63.0';
+const BUILD_TIME = '24 Aug 2026 9:10 AM AEDT';
 
 // Only load Supabase SDK in cloud mode
 if (SPENDLY_MODE === 'cloud') {
@@ -19361,6 +19361,10 @@ function markCCCycleSettled(idsStr, ccIdsStr, cycleEndStr) {
 function deleteCCTransaction(txnId, ccAccountId) {
   const txn = (state.accountTransactions||[]).find(t => t.id === txnId);
   if (!txn) return;
+  if (txn.deleted) return; // already reversed (e.g. touchend + click both fired)
+  if (window._deletingCCTxn === txnId) return; // re-entrancy guard within one gesture
+  window._deletingCCTxn = txnId;
+  setTimeout(() => { if (window._deletingCCTxn === txnId) window._deletingCCTxn = null; }, 800);
 
   const fromAcct = accountById(txn.fromAccountId);
   const isPayment = txn.type === 'ccPayment' || txn.type === 'transfer';
@@ -20477,7 +20481,7 @@ function renderAccounts() {
             '<div style="font-size:11px;color:var(--muted)">' + new Date(t.date+'T00:00:00').toLocaleDateString('en-AU',{weekday:'short',day:'numeric',month:'short',year:'numeric'}) + '</div>' +
           '</div>' +
           (canDelete
-            ? '<div style="display:flex;align-items:center;gap:10px;flex-shrink:0"><div style="font-size:13px;font-weight:700;color:' + (isIn?'#34C759':'var(--red)') + '">' + (isIn?'+':'-') + fmtB(t.amount) + '</div><button onclick="deleteCCTransaction(\'' + t.id + '\',\'' + acct.id + '\')" style="background:rgba(255,59,48,0.1);color:var(--red);border:1px solid rgba(255,59,48,0.25);border-radius:8px;padding:5px 10px;font-size:11px;font-weight:600;font-family:var(--font);cursor:pointer">Delete</button></div>'
+            ? '<div style="display:flex;align-items:center;gap:10px;flex-shrink:0"><div style="font-size:13px;font-weight:700;color:' + (isIn?'#34C759':'var(--red)') + '">' + (isIn?'+':'-') + fmtB(t.amount) + '</div><button onclick="event.stopPropagation();deleteCCTransaction(\'' + t.id + '\',\'' + acct.id + '\')" ontouchend="event.preventDefault();event.stopPropagation();deleteCCTransaction(\'' + t.id + '\',\'' + acct.id + '\')" style="background:rgba(255,59,48,0.1);color:var(--red);border:1px solid rgba(255,59,48,0.25);border-radius:8px;padding:5px 10px;font-size:11px;font-weight:600;font-family:var(--font);cursor:pointer;-webkit-tap-highlight-color:rgba(255,59,48,0.3);touch-action:manipulation">Delete</button></div>'
             : '<div style="font-size:13px;font-weight:700;color:' + (t.type==='ccRefund'?'#34C759':isIn?'#34C759':'var(--red)') + '">' + (isIn?'+':'-') + fmtB(t.amount) + '</div>') +
         '</div>';
     }

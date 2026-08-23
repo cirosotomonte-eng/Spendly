@@ -4039,6 +4039,42 @@ await check("a deletable payment row shows its amount alongside the Delete butto
   assertTrue(/deleteCCTransaction/.test(seg), 'and the Delete button is still there');
 });
 
+await check("the payment Delete button is touch-safe (fires on iOS) and reverses exactly once even if touchend + click both fire", () => {
+  const fs = require('fs'); const html = fs.readFileSync(APP_PATH, 'utf8');
+  // the CC payment Delete button must have BOTH an onclick and an ontouchend that
+  // stops propagation, or a plain onclick alone silently fails to fire inside iOS
+  // gesture areas (this was the "tapping does nothing" bug)
+  const anchorIdx = html.lastIndexOf('deleteCCTransaction', html.indexOf('>Delete</button>', html.indexOf('ontouchend="event.preventDefault();event.stopPropagation();deleteCCTransaction')));
+  const tIdx = html.indexOf('ontouchend="event.preventDefault();event.stopPropagation();deleteCCTransaction');
+  assertTrue(tIdx > -1, 'the CC Delete button has an ontouchend handler so it fires on iOS touch');
+  const seg = html.slice(tIdx - 200, tIdx + 200);
+  assertTrue(/stopPropagation/.test(seg), 'and stops propagation so the row/scroll handler does not swallow the tap');
+
+  // and the handler is idempotent: a second call (touchend + click) is a no-op
+  ctx.state = buildMockState();
+  const st = ctx.state;
+  st.accounts.push({ id: 'ccT', name: 'ANZ', type: 'credit' });
+  const sal = st.accounts.find(a => a.type === 'transaction');
+  st.expenses.push({ id: 'cT', amount: 400, name: 'Thing', date: ctx.dateToStr(ctx.getCycleRange(0).cycleStart), paymentAccountId: 'ccT' });
+  const payId = 'payT';
+  st.ccPayments = [{ id: payId, date: '2026-08-20', amount: 400, expenseIds: ['cT'], deleted: false, fromAccountId: sal.id, toCCAccountIds: ['ccT'] }];
+  st.accountTransactions.push({ id: 'txnT', type: 'ccPayment', fromAccountId: sal.id, toAccountId: 'ccT', amount: 400, date: '2026-08-20', ccPaymentId: payId });
+  ctx.confirm = () => true;
+  if (typeof ctx.fmtB !== 'function') ctx.fmtB = (n) => '$' + Number(n).toFixed(2);
+  const _keepRA = ctx.renderAccounts, _keepST = ctx.showToast;
+  ctx.renderAccounts = () => {}; ctx.showToast = () => {};
+  try {
+    ctx.deleteCCTransaction('txnT', 'ccT');
+    ctx.deleteCCTransaction('txnT', 'ccT'); // simulate the second fire
+    const deleted = (ctx.state.accountTransactions||[]).filter(t => t.id === 'txnT' && t.deleted).length;
+    assertEqual(deleted, 1, 'the payment is reversed exactly once, not twice');
+    assertEqual((ctx.state.ccPayments||[]).find(p => p.id === payId).deleted, true, 'the payment record is un-settled');
+  } finally {
+    ctx.renderAccounts = _keepRA; ctx.showToast = _keepST;
+    if (ctx.window) ctx.window._deletingCCTxn = null;
+  }
+});
+
 await check('no top-level function is declared more than once anywhere in the file (regression: silent shadowing caused both a data-loss bug and a broken legacy super-contribution modal)', () => {
   const fs = require('fs');
   const html = fs.readFileSync(APP_PATH, 'utf8');
