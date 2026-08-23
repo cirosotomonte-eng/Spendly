@@ -3999,6 +3999,36 @@ await check("an un-withdrawn goal-covered charge is still capped at the goal bal
   assertEqual(info.salaryTotal, 300, 'the uncovered 300 correctly falls to salary');
 });
 
+console.log('\n── Reversing a CC payment un-settles its charges ──');
+
+await check("a deleted (reversed) CC payment no longer counts its charges as settled — they return to pending-on-card", () => {
+  ctx.state = buildMockState();
+  const st = ctx.state;
+  st.accounts.push({ id: 'ccR', name: 'ANZ', type: 'credit' });
+  st.savingsCategories.push({ id: 'gRv', name: 'Holidays', status: 'active', linkedAccountId: 'offset1' });
+  st.savingsDeposits.push({ id: 'gRvSeed', catId: 'gRv', targetId: 'gRv', amount: 500, date: '2026-07-01', type: 'deposit' });
+  st.savingsDeposits.push({ id: 'gRvW', catId: 'gRv', targetId: 'gRv', amount: 200, date: '2026-08-05', type: 'bill-payment', linkedExpenseId: 'cR' });
+  st.expenses.push({ id: 'cR', amount: 200, name: 'Flights', date: '2026-08-05', paymentAccountId: 'ccR', linkedGoalId: 'gRv', goalCoveredAmount: 200, linkedWithdrawalId: 'gRvW' });
+  // an active payment settling that charge
+  st.ccPayments = [{ id: 'payR', date: '2026-08-20', amount: 200, expenseIds: ['cR'], deleted: false }];
+
+  // while the payment is active, the charge is settled -> not pending
+  assertEqual(ctx.getPendingCardGoalDebits().total, 0, 'settled charge is not pending while the payment stands');
+  // reverse it
+  ctx.state.ccPayments[0].deleted = true;
+  assertEqual(ctx.getPendingCardGoalDebits().total, 200, 'once the payment is reversed, the goal-covered charge returns to pending-on-card');
+});
+
+await check("a deleted CC payment does not keep charges settled anywhere (getCCGoalContributions sees them as owed again)", () => {
+  ctx.state = buildMockState();
+  const st = ctx.state;
+  st.accounts.push({ id: 'ccR2', name: 'ANZ', type: 'credit' });
+  st.expenses.push({ id: 'plainR', amount: 300, name: 'Dinner', date: ctx.dateToStr(ctx.getCycleRange(0).cycleStart), paymentAccountId: 'ccR2' });
+  st.ccPayments = [{ id: 'payR2', date: '2026-08-20', amount: 300, expenseIds: ['plainR'], deleted: true }];
+  const info = ctx.getCCGoalContributions('ccR2', 0);
+  assertTrue(info.unsettled.some(e => e.id === 'plainR'), 'a charge under a reversed payment is owed again, not treated as paid');
+});
+
 await check('no top-level function is declared more than once anywhere in the file (regression: silent shadowing caused both a data-loss bug and a broken legacy super-contribution modal)', () => {
   const fs = require('fs');
   const html = fs.readFileSync(APP_PATH, 'utf8');

@@ -26,8 +26,8 @@ const SPENDLY_MODE = 'cloud';
 // derive its cache name and reported version from the SAME constants the app uses.
 // Previously the worker carried its own hardcoded version that was never bumped,
 // so its cache name never changed and its version never matched the running app.
-const APP_VERSION = '2.60.0';
-const BUILD_TIME = '24 Aug 2026 7:49 AM AEDT';
+const APP_VERSION = '2.61.0';
+const BUILD_TIME = '24 Aug 2026 8:47 AM AEDT';
 
 // Only load Supabase SDK in cloud mode
 if (SPENDLY_MODE === 'cloud') {
@@ -16699,7 +16699,7 @@ function runStatementReconciliation(ccAccountId, statementTxns, cycleOffset, sum
 
   // Is this cycle already paid/settled? If every CC charge in it is covered by a
   // ccPayment, re-running the statement must be REVIEW-ONLY: never re-arm payment.
-  const _settledIds = new Set((state.ccPayments||[]).flatMap(p => p.expenseIds||[]));
+  const _settledIds = new Set((state.ccPayments||[]).filter(p => !p.deleted).flatMap(p => p.expenseIds||[]));
   const cycleSettled = cycleExp.length > 0 && cycleExp.every(e => _settledIds.has(e.id));
 
   // If the AI extracted a closing balance from this statement, save it onto
@@ -18471,7 +18471,7 @@ function showAdjustToBankModal(offsetAccountId) {
 }
 
 function getPendingCardGoalDebits() {
-  const settled = new Set((state.ccPayments||[]).flatMap(p => p.expenseIds||[]));
+  const settled = new Set((state.ccPayments||[]).filter(p => !p.deleted).flatMap(p => p.expenseIds||[]));
   const items = (state.expenses||[]).filter(e => {
     if (!e.goalCoveredAmount || e.goalCoveredAmount <= 0.01) return false;
     if (settled.has(e.id)) return false;
@@ -18522,7 +18522,7 @@ function findGoalLinkIssues() {
   // can only pull the goal's real balance and silently spills the rest onto salary —
   // over-debiting it. This surfaces the mismatch so it can be resolved (top up the
   // goal, or correct the charges) BEFORE it distorts a payment. Read-only.
-  const _settledIds = new Set((state.ccPayments||[]).flatMap(p => p.expenseIds||[]));
+  const _settledIds = new Set((state.ccPayments||[]).filter(p => !p.deleted).flatMap(p => p.expenseIds||[]));
   const _depIdSet = new Set(deps.map(d => d.id));
   const _coverByGoal = {};
   exps.forEach(e => {
@@ -18957,7 +18957,7 @@ function getCCGoalContributions(ccAcctId, cycleOffset) {
   const { cycleStart: _pcs, cycleEnd: _pce } = getCycleRange(cycleOffset);
   const _pcsStr = dateToStr(_pcs);
   const _pceStr = dateToStr(_pce);
-  const _sIds = new Set((state.ccPayments||[]).flatMap(p => p.expenseIds||[]));
+  const _sIds = new Set((state.ccPayments||[]).filter(p => !p.deleted).flatMap(p => p.expenseIds||[]));
 
   const unsettled = (state.expenses||[]).filter(e =>
     e.paymentAccountId === ccAcctId && !_sIds.has(e.id) &&
@@ -19241,7 +19241,7 @@ function confirmPayCCFromSalary(salaryAccountId) {
   const { cycleStart: _pcs, cycleEnd: _pce } = getCycleRange(_salaryCycleOffset);
   const _pcsStr = dateToStr(_pcs);
   const _pceStr = dateToStr(_pce);
-  const _sIds = new Set((state.ccPayments||[]).flatMap(p => p.expenseIds||[]));
+  const _sIds = new Set((state.ccPayments||[]).filter(p => !p.deleted).flatMap(p => p.expenseIds||[]));
 
   if (!state.accountTransactions) state.accountTransactions = [];
   if (!state.ccPayments) state.ccPayments = [];
@@ -19989,7 +19989,7 @@ function renderAccounts() {
 
       // ── CC charges (cycle-scoped) ─────────────────────────────────────────
       if (ccAccts.length > 0) {
-        const _settledIds = new Set((state.ccPayments||[]).flatMap(p => p.expenseIds||[]));
+        const _settledIds = new Set((state.ccPayments||[]).filter(p => !p.deleted).flatMap(p => p.expenseIds||[]));
         // By EFFECTIVE billing cycle, not raw date: a charge deferred to the next
         // cycle was not part of this statement and was not covered by its payment,
         // so counting it here made the settled figure disagree with what was actually
@@ -20166,7 +20166,7 @@ function renderAccounts() {
             // Compute total owed: ALL unsettled expenses on this CC, regardless of cycle.
             // Credit card debt doesn't reset when the budget cycle rolls over — only an
             // actual payment (recorded in ccPayments) settles a charge.
-            const _sIds = new Set((state.ccPayments||[]).flatMap(p => p.expenseIds||[]));
+            const _sIds = new Set((state.ccPayments||[]).filter(p => !p.deleted).flatMap(p => p.expenseIds||[]));
             const _currExp = (state.expenses||[]).filter(e =>
               e.paymentAccountId === acct.id && !_sIds.has(e.id)
             );
@@ -20174,7 +20174,7 @@ function renderAccounts() {
             // Also check for wrongly-settled current cycle expenses (data fix needed)
             const { cycleStart: _ccs } = getCycleRange(0);
             const _ccsStr = dateToStr(_ccs);
-            const _wronglySettled = (state.ccPayments||[]).flatMap(p => p.expenseIds||[]).filter(id => {
+            const _wronglySettled = (state.ccPayments||[]).filter(p => !p.deleted).flatMap(p => p.expenseIds||[]).filter(id => {
               const e = (state.expenses||[]).find(x => x.id === id);
               return e && e.paymentAccountId === acct.id && e.date >= _ccsStr;
             });
@@ -20588,7 +20588,7 @@ function renderAccounts() {
           (acct.type === 'credit'
             ? (() => {
                 // ALL unsettled charges, regardless of cycle — debt doesn't reset on cycle rollover
-                const _tSIds = new Set((state.ccPayments||[]).flatMap(p => p.expenseIds||[]));
+                const _tSIds = new Set((state.ccPayments||[]).filter(p => !p.deleted).flatMap(p => p.expenseIds||[]));
                 const _tOwed = Math.round((state.expenses||[]).filter(e => e.paymentAccountId===acct.id && !_tSIds.has(e.id)).reduce((s,e)=>s+e.amount,0)*100)/100;
                 return _tOwed > 0
                   ? '<div style="font-size:13px;font-weight:700;color:var(--red)">' + fmtB(_tOwed) + ' owed</div>'
