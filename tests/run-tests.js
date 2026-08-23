@@ -3964,6 +3964,41 @@ await check("a goal that fully covers its charges is NOT flagged", () => {
   assertTrue(!ctx.findGoalLinkIssues().coverageShortfalls.some(x => x.goalId === 'gOk'), 'no shortfall when the goal covers its charges');
 });
 
+console.log('\n── CC payment: already-withdrawn coverage credited in full ──');
+
+await check("a goal-covered charge whose withdrawal already happened is credited in FULL at payment, even if the goal was since spent below it (salary not over-debited)", () => {
+  ctx.state = buildMockState();
+  const st = ctx.state;
+  st.accounts.push({ id: 'ccX', name: 'ANZ', type: 'credit' });
+  st.savingsCategories.push({ id: 'gX', name: 'Holidays', icon: '✈️', status: 'active', linkedAccountId: 'offset1' });
+  // goal had money, funded a 500 charge (withdrawal exists), then was spent down to 100
+  st.savingsDeposits.push({ id: 'gxSeed', catId: 'gX', targetId: 'gX', amount: 600, date: '2026-07-01', type: 'deposit' });
+  st.savingsDeposits.push({ id: 'gxW', catId: 'gX', targetId: 'gX', amount: 500, date: '2026-08-05', type: 'bill-payment', linkedExpenseId: 'cX', note: 'Flights' });
+  st.savingsDeposits.push({ id: 'gxSpend', catId: 'gX', targetId: 'gX', amount: 0, date: '2026-08-06', type: 'deposit' }); // no-op to keep ledger explicit
+  // the unpaid card charge, goal-covered 500, withdrawal already linked
+  st.expenses.push({ id: 'cX', amount: 500, name: 'Flights', date: '2026-08-05', paymentAccountId: 'ccX', linkedGoalId: 'gX', goalCoveredAmount: 500, linkedWithdrawalId: 'gxW' });
+
+  // goal now holds 100, but the charge's 500 already left it at log time
+  assertEqual(ctx.totalSavedForCat('gX'), 100, 'goal holds only 100 now');
+  const info = ctx.getCCGoalContributions('ccX', 0);
+  assertEqual(info.grossTotal, 500, 'the full charge is owed');
+  assertEqual(info.goalTotal, 500, 'the goal is credited the FULL 500 it already withdrew, not capped at its 100 balance');
+  assertEqual(info.salaryTotal, 0, 'salary owes nothing — the money already left the goal, so it must not be re-charged to salary');
+});
+
+await check("an un-withdrawn goal-covered charge is still capped at the goal balance (the cap only lifts once the withdrawal exists)", () => {
+  ctx.state = buildMockState();
+  const st = ctx.state;
+  st.accounts.push({ id: 'ccY', name: 'ANZ', type: 'credit' });
+  st.savingsCategories.push({ id: 'gY', name: 'Holidays', status: 'active', linkedAccountId: 'offset1' });
+  st.savingsDeposits.push({ id: 'gySeed', catId: 'gY', targetId: 'gY', amount: 200, date: '2026-07-01', type: 'deposit' });
+  // charge claims 500 coverage but NO withdrawal has happened yet (linkedWithdrawalId absent)
+  st.expenses.push({ id: 'cY', amount: 500, name: 'Hotel', date: '2026-08-10', paymentAccountId: 'ccY', linkedGoalId: 'gY', goalCoveredAmount: 500 });
+  const info = ctx.getCCGoalContributions('ccY', 0);
+  assertEqual(info.goalTotal, 200, 'with no prior withdrawal, the goal can only contribute its actual 200 balance');
+  assertEqual(info.salaryTotal, 300, 'the uncovered 300 correctly falls to salary');
+});
+
 await check('no top-level function is declared more than once anywhere in the file (regression: silent shadowing caused both a data-loss bug and a broken legacy super-contribution modal)', () => {
   const fs = require('fs');
   const html = fs.readFileSync(APP_PATH, 'utf8');

@@ -26,8 +26,8 @@ const SPENDLY_MODE = 'cloud';
 // derive its cache name and reported version from the SAME constants the app uses.
 // Previously the worker carried its own hardcoded version that was never bumped,
 // so its cache name never changed and its version never matched the running app.
-const APP_VERSION = '2.59.0';
-const BUILD_TIME = '22 Aug 2026 10:49 AM AEDT';
+const APP_VERSION = '2.60.0';
+const BUILD_TIME = '24 Aug 2026 7:49 AM AEDT';
 
 // Only load Supabase SDK in cloud mode
 if (SPENDLY_MODE === 'cloud') {
@@ -18523,6 +18523,7 @@ function findGoalLinkIssues() {
   // over-debiting it. This surfaces the mismatch so it can be resolved (top up the
   // goal, or correct the charges) BEFORE it distorts a payment. Read-only.
   const _settledIds = new Set((state.ccPayments||[]).flatMap(p => p.expenseIds||[]));
+  const _depIdSet = new Set(deps.map(d => d.id));
   const _coverByGoal = {};
   exps.forEach(e => {
     const cov = e.goalCoveredAmount || 0;
@@ -18530,6 +18531,10 @@ function findGoalLinkIssues() {
     if (_settledIds.has(e.id)) return; // only unsettled charges can still distort a payment
     const acct = accountById(e.paymentAccountId);
     if (!acct || acct.type !== 'credit') return; // only card charges get split at payment
+    // A charge whose goal withdrawal already happened is fully funded — paying the
+    // card credits it in full and never spills to salary, so it is NOT a shortfall.
+    // Only charges still awaiting their withdrawal can fall short at payment time.
+    if (e.linkedWithdrawalId && _depIdSet.has(e.linkedWithdrawalId)) return;
     (_coverByGoal[e.linkedGoalId] = _coverByGoal[e.linkedGoalId] || { claimed: 0, charges: [] });
     _coverByGoal[e.linkedGoalId].claimed = Math.round((_coverByGoal[e.linkedGoalId].claimed + cov) * 100) / 100;
     _coverByGoal[e.linkedGoalId].charges.push(e);
@@ -18975,18 +18980,32 @@ function getCCGoalContributions(ccAcctId, cycleOffset) {
   const goalBalances = {};
   const contributions = []; // { goalId, goalName, amount }
   let salaryTotal = 0;
+  const _depIds = new Set((state.savingsDeposits||[]).map(d => d.id));
   unsettled.forEach(e => {
     const covered = e.goalCoveredAmount || 0;
     if (covered <= 0) { salaryTotal += e.amount; return; }
     const goalId = e.linkedGoalId;
     if (!goalId) { salaryTotal += e.amount; return; }
-    if (goalBalances[goalId] === undefined) {
-      goalBalances[goalId] = totalSavedForCat(goalId);
+    // If this charge's goal withdrawal ALREADY happened at log time (the money has
+    // already left the goal), the payment must credit the full covered amount — it
+    // must NOT re-check the goal's *current* balance and cap against it. The goal may
+    // since have been spent down below this charge's coverage; capping here would
+    // wrongly push already-funded money onto salary, over-debiting it. The running
+    // balance is only relevant for coverage that has NOT yet been withdrawn.
+    const alreadyWithdrawn = e.linkedWithdrawalId && _depIds.has(e.linkedWithdrawalId);
+    let fromGoal;
+    if (alreadyWithdrawn) {
+      fromGoal = Math.min(covered, e.amount);
+      // do not decrement goalBalances — that money already left the goal previously
+    } else {
+      if (goalBalances[goalId] === undefined) {
+        goalBalances[goalId] = totalSavedForCat(goalId);
+      }
+      const avail = goalBalances[goalId];
+      fromGoal = Math.min(covered, avail, e.amount);
+      goalBalances[goalId] = Math.round((avail - fromGoal) * 100) / 100;
     }
-    const avail = goalBalances[goalId];
-    const fromGoal = Math.min(covered, avail, e.amount);
     const fromSalary = Math.round((e.amount - fromGoal) * 100) / 100;
-    goalBalances[goalId] = Math.round((avail - fromGoal) * 100) / 100;
     salaryTotal += fromSalary;
     if (fromGoal > 0.005) {
       const existing = contributions.find(c => c.goalId === goalId);
