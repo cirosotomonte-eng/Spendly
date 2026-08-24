@@ -4039,6 +4039,38 @@ await check("a deletable payment row shows its amount alongside the Delete butto
   assertTrue(/deleteCCTransaction/.test(seg), 'and the Delete button is still there');
 });
 
+await check("deleteCCTransaction builds its modal without depending on a global fmtB (regression: fmtB is function-local, referencing it undeclared threw 'can't find variable: fmtB' and silently aborted the reversal on device)", () => {
+  ctx.state = buildMockState();
+  const st = ctx.state;
+  st.accounts.push({ id: 'ccF', name: 'ANZ', type: 'credit' });
+  const salF = st.accounts.find(a => a.type === 'transaction');
+  const payIdF = 'payF';
+  st.ccPayments = [{ id: payIdF, date: '2026-08-20', amount: 321.5, expenseIds: [], deleted: false, fromAccountId: salF.id, toCCAccountIds: ['ccF'] }];
+  st.accountTransactions.push({ id: 'txnF', type: 'ccPayment', fromAccountId: salF.id, toAccountId: 'ccF', amount: 321.5, date: '2026-08-20', ccPaymentId: payIdF });
+
+  // Critically: ensure there is NO global fmtB, so if the function relied on one it
+  // would throw exactly as it did on the device.
+  const hadFmtB = Object.prototype.hasOwnProperty.call(ctx, 'fmtB');
+  const savedFmtB = ctx.fmtB;
+  try { delete ctx.fmtB; } catch (e) {}
+  const _keepRA = ctx.renderAccounts, _keepST = ctx.showToast;
+  ctx.renderAccounts = () => {}; ctx.showToast = () => {};
+  let threw = null;
+  try {
+    ctx.deleteCCTransaction('txnF', 'ccF');
+    // the modal element must have been created
+    const modal = ctx.document.getElementById('reverseCCModal');
+    assertTrue(!!modal, 'the reverse-confirmation modal is created (no fmtB error aborted it)');
+  } catch (e) {
+    threw = e;
+  } finally {
+    ctx.renderAccounts = _keepRA; ctx.showToast = _keepST;
+    if (hadFmtB) ctx.fmtB = savedFmtB;
+    const m = ctx.document.getElementById('reverseCCModal'); if (m) m.remove();
+  }
+  assertTrue(!threw, 'deleteCCTransaction does not throw without a global fmtB' + (threw ? ' (threw: ' + threw.message + ')' : ''));
+});
+
 await check("reversing a CC payment uses an in-app confirmation (not native confirm) and reverses exactly once", () => {
   const fs = require('fs'); const html = fs.readFileSync(APP_PATH, 'utf8');
   // deleteCCTransaction must open an in-app modal rather than call native confirm(),
