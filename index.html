@@ -26,8 +26,8 @@ const SPENDLY_MODE = 'cloud';
 // derive its cache name and reported version from the SAME constants the app uses.
 // Previously the worker carried its own hardcoded version that was never bumped,
 // so its cache name never changed and its version never matched the running app.
-const APP_VERSION = '2.65.0';
-const BUILD_TIME = '24 Aug 2026 5:33 PM AEDT';
+const APP_VERSION = '2.66.0-diag';
+const BUILD_TIME = '24 Aug 2026 5:37 PM AEDT';
 
 // Only load Supabase SDK in cloud mode
 if (SPENDLY_MODE === 'cloud') {
@@ -19359,44 +19359,50 @@ function markCCCycleSettled(idsStr, ccIdsStr, cycleEndStr) {
 }
 
 function deleteCCTransaction(txnId, ccAccountId) {
-  const txn = (state.accountTransactions||[]).find(t => t.id === txnId);
-  if (!txn) return;
-  if (txn.deleted) return;
-  const fromAcct = accountById(txn.fromAccountId);
-  const isPayment = txn.type === 'ccPayment' || txn.type === 'transfer';
-  if (!isPayment) { showToast('This transaction cannot be deleted here', 2000); return; }
-  const fromName = fromAcct ? fromAcct.name : 'source account';
+  try {
+    showToast('① tapped: ' + String(txnId).slice(-6), 4000);
+    const txn = (state.accountTransactions||[]).find(t => t.id === txnId);
+    if (!txn) { showToast('✗ no txn found for id ' + txnId, 5000); return; }
+    if (txn.deleted) { showToast('✗ already deleted', 4000); return; }
+    const fromAcct = accountById(txn.fromAccountId);
+    const isPayment = txn.type === 'ccPayment' || txn.type === 'transfer';
+    if (!isPayment) { showToast('✗ not a payment (type=' + txn.type + ')', 5000); return; }
+    const fromName = fromAcct ? fromAcct.name : 'source account';
+    showToast('② building modal…', 3000);
 
-  // In-app confirmation. Native confirm() is unreliable inside the installed iOS PWA
-  // (it can be silently suppressed), which made the Delete button appear to do
-  // nothing. This modal always works and reads the same regardless of platform.
-  const existing = document.getElementById('reverseCCModal');
-  if (existing) existing.remove();
-  const overlay = document.createElement('div');
-  overlay.id = 'reverseCCModal';
-  overlay.className = 'modal-overlay open';
-  overlay.style.alignItems = 'center';
-  overlay.innerHTML =
-    '<div class="modal-sheet" style="max-width:360px;box-sizing:border-box">' +
-      '<div style="font-size:16px;font-weight:700;margin-bottom:6px">Reverse this payment?</div>' +
-      '<div style="font-size:13px;color:var(--muted);line-height:1.5;margin-bottom:16px">' +
-        fmtB(txn.amount) + ' · ' + txn.date + '<br>' +
-        fmtB(txn.amount) + ' returns to ' + fromName + ', and any charges settled by this payment become unpaid again.' +
-      '</div>' +
-      '<div style="display:flex;gap:8px">' +
-        '<button onclick="document.getElementById(\'reverseCCModal\').remove()" style="flex:1;background:var(--surface2);color:var(--text);border:none;border-radius:10px;padding:12px;font-size:14px;font-weight:600;font-family:var(--font);cursor:pointer">Cancel</button>' +
-        '<button id="reverseCCConfirmBtn" style="flex:1;background:var(--red);color:#fff;border:none;border-radius:10px;padding:12px;font-size:14px;font-weight:700;font-family:var(--font);cursor:pointer">Reverse</button>' +
-      '</div>' +
-    '</div>';
-  document.body.appendChild(overlay);
-  overlay.style.opacity = '1';
-  overlay.style.pointerEvents = 'all';
-  overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
-  document.getElementById('reverseCCConfirmBtn').addEventListener('click', () => {
-    overlay.remove();
-    _applyCCReversal(txnId, ccAccountId);
-  });
+    const existing = document.getElementById('reverseCCModal');
+    if (existing) existing.remove();
+    const overlay = document.createElement('div');
+    overlay.id = 'reverseCCModal';
+    overlay.className = 'modal-overlay open';
+    overlay.style.alignItems = 'center';
+    overlay.style.zIndex = '99999';
+    overlay.innerHTML =
+      '<div class="modal-sheet" style="max-width:360px;box-sizing:border-box">' +
+        '<div style="font-size:16px;font-weight:700;margin-bottom:6px">Reverse this payment?</div>' +
+        '<div style="font-size:13px;color:var(--muted);line-height:1.5;margin-bottom:16px">' +
+          fmtB(txn.amount) + ' · ' + txn.date + '<br>' +
+          fmtB(txn.amount) + ' returns to ' + fromName + ', and any charges settled by this payment become unpaid again.' +
+        '</div>' +
+        '<div style="display:flex;gap:8px">' +
+          '<button onclick="document.getElementById(\'reverseCCModal\').remove()" style="flex:1;background:var(--surface2);color:var(--text);border:none;border-radius:10px;padding:12px;font-size:14px;font-weight:600;font-family:var(--font);cursor:pointer">Cancel</button>' +
+          '<button id="reverseCCConfirmBtn" style="flex:1;background:var(--red);color:#fff;border:none;border-radius:10px;padding:12px;font-size:14px;font-weight:700;font-family:var(--font);cursor:pointer">Reverse</button>' +
+        '</div>' +
+      '</div>';
+    document.body.appendChild(overlay);
+    overlay.style.opacity = '1';
+    overlay.style.pointerEvents = 'all';
+    showToast('③ modal appended', 3000);
+    overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+    document.getElementById('reverseCCConfirmBtn').addEventListener('click', () => {
+      overlay.remove();
+      _applyCCReversal(txnId, ccAccountId);
+    });
+  } catch (err) {
+    showToast('✗ ERROR: ' + (err && err.message ? err.message : String(err)), 8000);
+  }
 }
+
 
 function _applyCCReversal(txnId, ccAccountId) {
   const txn = (state.accountTransactions||[]).find(t => t.id === txnId);
