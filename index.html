@@ -26,8 +26,8 @@ const SPENDLY_MODE = 'cloud';
 // derive its cache name and reported version from the SAME constants the app uses.
 // Previously the worker carried its own hardcoded version that was never bumped,
 // so its cache name never changed and its version never matched the running app.
-const APP_VERSION = '2.67.0';
-const BUILD_TIME = '24 Aug 2026 5:51 PM AEDT';
+const APP_VERSION = '2.68.0';
+const BUILD_TIME = '24 Aug 2026 10:16 PM AEDT';
 
 // Only load Supabase SDK in cloud mode
 if (SPENDLY_MODE === 'cloud') {
@@ -13784,6 +13784,19 @@ function applyRecurringExpenses() {
         }
       }
 
+      // Resolve the payment account. If the rule is a card charge ('cc') but no card
+      // was set, fall back to the single card if there's exactly one, otherwise the
+      // default/first credit account. A cc charge with NO card silently leaks: its
+      // goal withdrawal happens but it never shows in pending-on-card. Never leave it
+      // null for a cc charge.
+      let _payAcct = r.paymentAccountId || undefined;
+      const _payMethod = r.paymentMethod || 'cc';
+      if (_payMethod === 'cc' && !accountById(_payAcct)) {
+        const _cards = (state.accounts||[]).filter(a => a.type === 'credit');
+        const _def = _cards.find(a => a.isDefault) || (_cards.length === 1 ? _cards[0] : _cards[0]);
+        if (_def) _payAcct = _def.id;
+      }
+
       state.expenses.push({
         id: expId,
         amount: r.amount,
@@ -13795,8 +13808,8 @@ function applyRecurringExpenses() {
         linkedDepositId,
         linkedWithdrawalId,
         goalCoveredAmount,
-        paymentMethod: r.paymentMethod || 'cc',
-        paymentAccountId: r.paymentAccountId || undefined,
+        paymentMethod: _payMethod,
+        paymentAccountId: _payAcct,
         recurringId: r.id,
         ...(checkDateStr !== todayDateStr ? { catchUp: true } : {}),
       });
@@ -18482,6 +18495,36 @@ function getPendingCardGoalDebits() {
   return { total, items };
 }
 
+// Assign a credit card to a charge that was logged as 'cc' but has no card account
+// (the leak: its goal withdrawal happened but it never showed in pending-on-card).
+// Setting the card makes it appear in pending-on-card so the offset message is right.
+function assignCardToCharge(expId, cardAccountId) {
+  const e = (state.expenses||[]).find(x => x.id === expId);
+  if (!e) return;
+  const card = accountById(cardAccountId);
+  if (!card || card.type !== 'credit') { showToast('Pick a credit card', 2500); return; }
+  e.paymentAccountId = cardAccountId;
+  e.paymentMethod = 'cc';
+  // If this came from a recurring rule that also lacks a card, fix the rule too so it
+  // stops firing account-less charges (root-cause prevention).
+  if (e.recurringId) {
+    const rule = (state.recurringExpenses||[]).find(r => r.id === e.recurringId);
+    if (rule && (rule.paymentMethod === 'cc' || !rule.paymentMethod) && !rule.paymentAccountId) {
+      rule.paymentAccountId = cardAccountId;
+      rule.paymentMethod = 'cc';
+    }
+  }
+  saveState();
+  if (typeof renderContent === 'function') renderContent();
+  showToast('✅ Assigned to ' + card.name, 3000);
+}
+
+function _doAssignCard(expId) {
+  const sel = document.getElementById('assignCard_' + expId);
+  if (!sel || !sel.value) { showToast('Pick a card first', 2500); return; }
+  assignCardToCharge(expId, sel.value);
+}
+
 function findGoalLinkIssues() {
   const exps = state.expenses || [];
   const deps = state.savingsDeposits || [];
@@ -18555,7 +18598,30 @@ function findGoalLinkIssues() {
   });
   coverageShortfalls.sort((a,b) => b.shortfall - a.shortfall);
 
-  return { refired, brokenLinks, orphanWithdrawals, coverageShortfalls };
+  // 5. Goal-covered (or cc-method) charges with NO valid payment account. The goal
+  // withdrawal happens (money leaves the goal, offset drops), but because the charge
+  // isn't on a real credit account it never appears in pending-on-card — so the
+  // amount is silently missing from "your real offset should read…". This is a data
+  // fault (usually a recurring rule saved without a card) that must be surfaced and
+  // assigned to the right card, not left to leak.
+  const missingAccountCharges = [];
+  exps.forEach(e => {
+    if (_settledIds.has(e.id)) return; // once paid it no longer matters here
+    // The only genuine fault is a charge explicitly marked as paid by credit card
+    // (paymentMethod 'cc') that has no actual credit account. Charges paid from a
+    // bank/offset/other method legitimately have no card and must NOT be flagged.
+    if (e.paymentMethod !== 'cc') return;
+    const acct = accountById(e.paymentAccountId);
+    if (acct && acct.type === 'credit') return; // correctly on a card
+    // paymentMethod is 'cc' but the account is missing or not a credit account
+    missingAccountCharges.push({
+      id: e.id, name: e.name || 'Charge', amount: e.amount,
+      date: e.date, goalCoveredAmount: e.goalCoveredAmount || 0,
+      recurringId: e.recurringId || null,
+    });
+  });
+
+  return { refired, brokenLinks, orphanWithdrawals, coverageShortfalls, missingAccountCharges };
 }
 
 // Remove an orphaned goal withdrawal, returning its amount to the goal. Only ever
@@ -19610,6 +19676,36 @@ function renderAccounts() {
         window._offsetCoverageHTML = '';
       }
 
+      // ── Charges marked 'cc' but with no card: their goal money left but they never
+      // show in pending-on-card, so the offset message reads low. Let the user assign
+      // the right card. ──
+      const _ma = (_gl.missingAccountCharges||[]);
+      if (_ma.length > 0) {
+        const _cards = (state.accounts||[]).filter(a => a.type === 'credit');
+        const _maTotal = Math.round(_ma.reduce((s,c)=>s+(c.goalCoveredAmount||c.amount),0) * 100) / 100;
+        window._offsetMissingCardBanner = true;
+        let _maRows = '';
+        _ma.forEach(c => {
+          const opts = _cards.map(a => '<option value="' + a.id + '">' + a.name + '</option>').join('');
+          _maRows += '<div style="background:var(--surface2);border-radius:8px;padding:10px;margin-top:8px">' +
+            '<div style="font-size:12px;font-weight:700;color:var(--text)">' + c.name + ' · ' + fmtB(c.amount) + '<span style="color:var(--muted);font-weight:400"> · ' + c.date + '</span></div>' +
+            '<div style="font-size:11px;color:var(--muted);margin-top:4px;line-height:1.45">Marked as card payment but no card is set, so it\u2019s missing from pending-on-card. Assign the card it\u2019s really on:</div>' +
+            '<div style="display:flex;gap:6px;margin-top:8px">' +
+              '<select id="assignCard_' + c.id + '" style="flex:1;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:9px;font-size:13px;color:var(--text);font-family:inherit">' + opts + '</select>' +
+              '<button onclick="_doAssignCard(\'' + c.id + '\')" style="background:var(--accent);color:#fff;border:none;border-radius:8px;padding:9px 14px;font-size:13px;font-weight:700;font-family:var(--font);cursor:pointer">Assign</button>' +
+            '</div>' +
+          '</div>';
+        });
+        window._offsetMissingCardHTML = '<div style="background:rgba(255,59,48,0.06);border:1.5px solid rgba(255,59,48,0.25);border-radius:12px;padding:14px;margin-bottom:14px">' +
+          '<div style="font-size:13px;font-weight:700;color:var(--red);margin-bottom:4px">⚠️ ' + fmtB(_maTotal) + ' on a card with no card assigned</div>' +
+          '<div style="font-size:12px;color:var(--muted)">These charges left their goal but aren\u2019t counted as sitting on a card, so your real-offset figure reads low by this much.</div>' +
+          _maRows +
+        '</div>';
+      } else {
+        window._offsetMissingCardBanner = false;
+        window._offsetMissingCardHTML = '';
+      }
+
       // ── Possible duplicate goal outflows: REVIEW, never auto-fix ──
       const _dupOut = findDuplicateGoalOutflows();
       if (_dupOut.length > 0) {
@@ -20370,6 +20466,10 @@ function renderAccounts() {
     // Legacy adjustment-bucket migration banner for offset accounts
     if (acct.type === 'offset' && window._offsetLegacyBucketBanner) {
       html += window._offsetLegacyBucketHTML;
+    }
+    // Missing-card banner for offset accounts
+    if (acct.type === 'offset' && window._offsetMissingCardBanner) {
+      html += window._offsetMissingCardHTML;
     }
     // Coverage shortfall banner for offset accounts
     if (acct.type === 'offset' && window._offsetCoverageBanner) {

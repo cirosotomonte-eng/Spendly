@@ -4105,6 +4105,55 @@ await check("reversing a CC payment uses an in-app confirmation (not native conf
   }
 });
 
+console.log('\n── cc charge with no card (offset leak) ──');
+
+await check("findGoalLinkIssues flags a cc-method charge that has no credit account (its goal money left but it is missing from pending-on-card)", () => {
+  ctx.state = buildMockState();
+  const st = ctx.state;
+  st.accounts.push({ id: 'ccMiss', name: 'ANZ', type: 'credit' });
+  st.savingsCategories.push({ id: 'gMiss', name: 'Servicios', status: 'active', linkedAccountId: 'offset1' });
+  st.savingsDeposits.push({ id: 'gMissSeed', catId: 'gMiss', targetId: 'gMiss', amount: 500, date: '2026-07-01', type: 'deposit' });
+  // a cc charge with NO paymentAccountId, goal-covered, withdrawal made
+  st.savingsDeposits.push({ id: 'gMissW', catId: 'gMiss', targetId: 'gMiss', amount: 150, date: '2026-08-24', type: 'bill-payment', linkedExpenseId: 'gasX' });
+  st.expenses.push({ id: 'gasX', amount: 150, name: 'Gas', date: '2026-08-24', paymentMethod: 'cc', linkedGoalId: 'gMiss', goalCoveredAmount: 150, linkedWithdrawalId: 'gMissW' });
+
+  const ma = ctx.findGoalLinkIssues().missingAccountCharges;
+  assertEqual(ma.length, 1, 'the account-less cc charge is flagged');
+  assertEqual(ma[0].id, 'gasX', 'it is the Gas charge');
+  // and it is NOT currently in pending-on-card (that is the leak)
+  assertTrue(!ctx.getPendingCardGoalDebits().items.some(e => e.id === 'gasX'), 'while account-less it is missing from pending-on-card');
+});
+
+await check("a bank/offset-paid charge is NOT flagged as missing a card (only paymentMethod 'cc' counts)", () => {
+  ctx.state = buildMockState();
+  const st = ctx.state;
+  st.savingsCategories.push({ id: 'gBank', name: 'Mortgage', status: 'active', linkedAccountId: 'offset1' });
+  st.savingsDeposits.push({ id: 'gBankSeed', catId: 'gBank', targetId: 'gBank', amount: 2000, date: '2026-07-01', type: 'deposit' });
+  st.expenses.push({ id: 'mtg', amount: 875, name: 'Mortgage', date: '2026-08-01', paymentMethod: 'bank', linkedGoalId: 'gBank', goalCoveredAmount: 875 });
+  assertTrue(!ctx.findGoalLinkIssues().missingAccountCharges.some(c => c.id === 'mtg'), 'a bank-paid charge is legitimately card-less and not flagged');
+});
+
+await check("assignCardToCharge puts the charge on a card, into pending-on-card, and repairs the source recurring rule", () => {
+  ctx.state = buildMockState();
+  const st = ctx.state;
+  st.accounts.push({ id: 'ccA', name: 'ANZ', type: 'credit' });
+  st.savingsCategories.push({ id: 'gA', name: 'Servicios', status: 'active', linkedAccountId: 'offset1' });
+  st.savingsDeposits.push({ id: 'gASeed', catId: 'gA', targetId: 'gA', amount: 500, date: '2026-07-01', type: 'deposit' });
+  st.savingsDeposits.push({ id: 'gAW', catId: 'gA', targetId: 'gA', amount: 150, date: '2026-08-24', type: 'bill-payment', linkedExpenseId: 'gasA' });
+  st.expenses.push({ id: 'gasA', amount: 150, name: 'Gas', date: '2026-08-24', paymentMethod: 'cc', linkedGoalId: 'gA', goalCoveredAmount: 150, linkedWithdrawalId: 'gAW', recurringId: 'ruleA' });
+  st.recurringExpenses = [{ id: 'ruleA', name: 'Gas', amount: 150, paymentMethod: 'cc' }];
+  const _keepST = ctx.showToast, _keepRC = ctx.renderContent;
+  ctx.showToast = () => {}; ctx.renderContent = () => {};
+  try {
+    ctx.assignCardToCharge('gasA', 'ccA');
+    assertEqual((ctx.state.expenses||[]).find(e => e.id === 'gasA').paymentAccountId, 'ccA', 'the charge is now on the card');
+    assertTrue(ctx.getPendingCardGoalDebits().items.some(e => e.id === 'gasA'), 'and now appears in pending-on-card');
+    assertEqual((ctx.state.recurringExpenses||[]).find(r => r.id === 'ruleA').paymentAccountId, 'ccA', 'the source recurring rule is repaired so it will not leak again');
+  } finally {
+    ctx.showToast = _keepST; ctx.renderContent = _keepRC;
+  }
+});
+
 await check('no top-level function is declared more than once anywhere in the file (regression: silent shadowing caused both a data-loss bug and a broken legacy super-contribution modal)', () => {
   const fs = require('fs');
   const html = fs.readFileSync(APP_PATH, 'utf8');
