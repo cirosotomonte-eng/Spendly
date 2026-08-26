@@ -26,8 +26,8 @@ const SPENDLY_MODE = 'cloud';
 // derive its cache name and reported version from the SAME constants the app uses.
 // Previously the worker carried its own hardcoded version that was never bumped,
 // so its cache name never changed and its version never matched the running app.
-const APP_VERSION = '2.68.0';
-const BUILD_TIME = '24 Aug 2026 10:16 PM AEDT';
+const APP_VERSION = '2.69.0';
+const BUILD_TIME = '26 Aug 2026 5:58 PM AEDT';
 
 // Only load Supabase SDK in cloud mode
 if (SPENDLY_MODE === 'cloud') {
@@ -5881,6 +5881,19 @@ function renderDashboard() {
         '<div style="font-size:10px;color:var(--muted);margin-top:2px">of ' + fmt0(prevBudget) + ' budget</div>' +
       '</div>' +
     '</div>' +
+    // Committed-to-savings visibility. This amount is already subtracted from Left to
+    // Spend but was previously invisible — showing it explains why Left to Spend is
+    // lower than budget minus expenses alone. firedSav = already put aside this cycle;
+    // upcomingSav = scheduled recurring savings still to come this cycle.
+    (_viewOffset === 0 && (firedSav + upcomingSav) > 0.005
+      ? '<div style="display:flex;align-items:center;justify-content:space-between;margin-top:12px;padding-top:12px;border-top:1px solid var(--surface2)">' +
+          '<div style="font-size:12px;color:var(--muted);display:flex;align-items:center;gap:4px">🌱 Committed to savings' +
+            '<span class="spendly-tip" style="display:inline-flex;align-items:center"><i class="spendly-tip-icon" onclick="event.stopPropagation();showTip(\'tip-committedsav\')">i</i>' +
+            '<div class="spendly-tip-box" id="tip-committedsav" style="left:0;transform:none;width:230px">Recurring savings for this cycle — ' + fmt(firedSav) + ' already set aside' + (upcomingSav > 0.005 ? ' plus ' + fmt(upcomingSav) + ' still scheduled' : '') + '. This is already taken out of your Left to Spend.</div></span>' +
+          '</div>' +
+          '<div style="font-size:13px;font-weight:700;color:var(--text)">' + fmt(firedSav + upcomingSav) + '</div>' +
+        '</div>'
+      : '') +
   '</div>';
 
   // ── 3. NEXT 7 DAYS ────────────────────────────────────────────────────

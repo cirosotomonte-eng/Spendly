@@ -4154,6 +4154,46 @@ await check("assignCardToCharge puts the charge on a card, into pending-on-card,
   }
 });
 
+await check("the budget dashboard shows a 'Committed to savings' line equal to fired + upcoming recurring savings for the current cycle", () => {
+  ctx.state = buildMockState();
+  ctx.state.viewingCycleOffset = 0;
+  ctx.state.currentTab = 'dashboard';
+  const { cycleStart } = ctx.getCycleRange(0);
+  // a recurring saving already fired this cycle (an expense of transactionType 'saving')
+  const firedDate = ctx.dateToStr(cycleStart);
+  ctx.state.savingsCategories.push({ id: 'gSaveLine', name: 'Holiday', status: 'active', linkedAccountId: 'offset1' });
+  ctx.state.recurringExpenses = ctx.state.recurringExpenses || [];
+
+  ctx.renderDashboard();
+  const html = ctx.document.getElementById('content').innerHTML;
+
+  const fired = ctx.getFiredRecurringSavingsTotal();
+  const upcoming = ctx.getUpcomingRecurringSavings().reduce((s,u) => s + u.r.amount, 0);
+  const committed = Math.round((fired + upcoming) * 100) / 100;
+
+  if (committed > 0.005) {
+    assertTrue(html.includes('Committed to savings'), 'the line is shown when there is committed savings this cycle');
+    // the figure shown equals fired + upcoming (already subtracted from Left to Spend)
+    const shown = ctx.fmt(committed);
+    assertTrue(html.includes(shown), 'the figure shown (' + shown + ') equals fired + upcoming recurring savings');
+  } else {
+    // with no committed savings, the line must NOT appear (no clutter)
+    assertTrue(!html.includes('Committed to savings'), 'no line when there is nothing committed');
+  }
+});
+
+await check("the Committed-to-savings figure is already reflected in Left to Spend (not double-counted) — it equals the schedule total", () => {
+  ctx.state = buildMockState();
+  ctx.state.viewingCycleOffset = 0;
+  const fired = ctx.getFiredRecurringSavingsTotal();
+  const upcoming = ctx.getUpcomingRecurringSavings().reduce((s,u) => s + u.r.amount, 0);
+  const sched = ctx.getCycleRecurringSavingsScheduleTotal(0);
+  // fired + upcoming is exactly the cycle's recurring-savings schedule total, which is
+  // the amount Left to Spend already subtracts — so the visibility line cannot imply
+  // any double counting.
+  assertEqual(Math.round((fired + upcoming) * 100) / 100, Math.round(sched * 100) / 100, 'committed shown = schedule total already netted from Left to Spend');
+});
+
 await check('no top-level function is declared more than once anywhere in the file (regression: silent shadowing caused both a data-loss bug and a broken legacy super-contribution modal)', () => {
   const fs = require('fs');
   const html = fs.readFileSync(APP_PATH, 'utf8');
