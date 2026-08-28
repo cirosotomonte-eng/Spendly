@@ -4194,6 +4194,48 @@ await check("the Committed-to-savings figure is already reflected in Left to Spe
   assertEqual(Math.round((fired + upcoming) * 100) / 100, Math.round(sched * 100) / 100, 'committed shown = schedule total already netted from Left to Spend');
 });
 
+console.log('\n── card refunds netted from payment ──');
+
+await check("income logged directly on a credit card (a refund) is netted from the CC payment, not just ccRefund-type transactions", () => {
+  ctx.state = buildMockState();
+  const st = ctx.state;
+  st.accounts.push({ id: 'ccRf', name: 'ANZ', type: 'credit' });
+  const { cycleStart } = ctx.getCycleRange(0);
+  const inCycle = ctx.dateToStr(cycleStart);
+  // a plain card charge of 200
+  st.expenses.push({ id: 'chg200', amount: 200, name: 'Thing', date: inCycle, paymentAccountId: 'ccRf', paymentMethod: 'cc' });
+  // a 46.20 refund logged as INCOME on the card (not a ccRefund)
+  st.accountTransactions.push({ id: 'rf1', type: 'income', accountId: 'ccRf', amount: 46.20, date: inCycle });
+
+  const info = ctx.getCCGoalContributions('ccRf', 0);
+  assertEqual(info.refundsTotal, 46.20, 'the income-style card refund is recognised as a refund');
+  // gross owed is charges minus the refund
+  assertEqual(info.grossTotal, Math.round((200 - 46.20) * 100) / 100, 'the payment is reduced by the refund');
+});
+
+await check("a ccRefund-type transaction is STILL netted (the fix adds income refunds without dropping the original behaviour)", () => {
+  ctx.state = buildMockState();
+  const st = ctx.state;
+  st.accounts.push({ id: 'ccRf2', name: 'ANZ', type: 'credit' });
+  const { cycleStart } = ctx.getCycleRange(0);
+  const inCycle = ctx.dateToStr(cycleStart);
+  st.expenses.push({ id: 'chgB', amount: 100, name: 'Thing', date: inCycle, paymentAccountId: 'ccRf2', paymentMethod: 'cc' });
+  st.accountTransactions.push({ id: 'rf2', type: 'ccRefund', toAccountId: 'ccRf2', amount: 30, date: inCycle });
+  const info = ctx.getCCGoalContributions('ccRf2', 0);
+  assertEqual(info.refundsTotal, 30, 'ccRefund transactions remain netted');
+});
+
+await check("a deleted card refund is NOT netted", () => {
+  ctx.state = buildMockState();
+  const st = ctx.state;
+  st.accounts.push({ id: 'ccRf3', name: 'ANZ', type: 'credit' });
+  const { cycleStart } = ctx.getCycleRange(0);
+  const inCycle = ctx.dateToStr(cycleStart);
+  st.expenses.push({ id: 'chgC', amount: 100, name: 'Thing', date: inCycle, paymentAccountId: 'ccRf3', paymentMethod: 'cc' });
+  st.accountTransactions.push({ id: 'rf3', type: 'income', accountId: 'ccRf3', amount: 20, date: inCycle, deleted: true });
+  assertEqual(ctx.getCCGoalContributions('ccRf3', 0).refundsTotal, 0, 'a deleted refund does not reduce the payment');
+});
+
 await check('no top-level function is declared more than once anywhere in the file (regression: silent shadowing caused both a data-loss bug and a broken legacy super-contribution modal)', () => {
   const fs = require('fs');
   const html = fs.readFileSync(APP_PATH, 'utf8');

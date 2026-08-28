@@ -26,8 +26,8 @@ const SPENDLY_MODE = 'cloud';
 // derive its cache name and reported version from the SAME constants the app uses.
 // Previously the worker carried its own hardcoded version that was never bumped,
 // so its cache name never changed and its version never matched the running app.
-const APP_VERSION = '2.69.0';
-const BUILD_TIME = '26 Aug 2026 5:58 PM AEDT';
+const APP_VERSION = '2.70.0';
+const BUILD_TIME = '28 Aug 2026 1:43 PM AEDT';
 
 // Only load Supabase SDK in cloud mode
 if (SPENDLY_MODE === 'cloud') {
@@ -19052,8 +19052,17 @@ function getCCGoalContributions(ccAcctId, cycleOffset) {
   // already "used". Always reduces the SALARY portion specifically, never
   // a goal's — an unattributed credit shouldn't be assumed to offset a
   // goal contribution it was never linked to.
+  // Refunds/credits on the card reduce what's owed and must be netted from the payment.
+  // These come in two shapes: explicit ccRefund transactions (toAccountId = card), and
+  // plain income logged directly on the credit account (accountId = card, e.g. a
+  // merchant refund imported as income). Both credit the card balance, so both must be
+  // subtracted — previously only ccRefund was, leaving income-style refunds to inflate
+  // the payment (real case: two $46.20 Qantas refunds overpaid the card by $92.40).
   const refundsTotal = (state.accountTransactions||[])
-    .filter(t => t.type === 'ccRefund' && t.toAccountId === ccAcctId && !t.deleted && t.date >= _pcsStr && t.date <= _pceStr)
+    .filter(t => !t.deleted && t.date >= _pcsStr && t.date <= _pceStr && (
+      (t.type === 'ccRefund' && t.toAccountId === ccAcctId) ||
+      (t.type === 'income' && t.accountId === ccAcctId)
+    ))
     .reduce((s, t) => s + t.amount, 0);
   // Track remaining goal balances during iteration to avoid over-drawing
   const goalBalances = {};
