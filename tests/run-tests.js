@@ -4270,6 +4270,54 @@ await check("the budget savings notice renders the target and an on-track/over l
   }
 });
 
+console.log('\n── home savings breakdown table ──');
+
+function _setupSavingsRows(ctx) {
+  ctx.state = buildMockState();
+  ctx.state.viewingCycleOffset = 0;
+  const cs = ctx.dateToStr(ctx.getCycleRange(0).cycleStart);
+  ctx.state.savingsCategories.push({ id: 'gH', name: 'Holiday', icon: '✈️', status: 'active', linkedAccountId: 'offset1' });
+  ctx.state.savingsCategories.push({ id: 'gS', name: 'Shares', icon: '📈', status: 'active', linkedAccountId: 'offset1' });
+  // two fired deposits this cycle
+  ctx.state.savingsDeposits.push({ id: 'd1', catId: 'gH', recurringId: 'r1', amount: 600, date: cs, cycleDate: cs, type: 'deposit' });
+  ctx.state.savingsDeposits.push({ id: 'd2', catId: 'gS', recurringId: 'r2', amount: 400, date: cs, cycleDate: cs, type: 'deposit' });
+  return cs;
+}
+
+await check("getCycleSavingsBreakdown lists every saving with scheduled + adjusted, and the adjusted total equals target minus overspend", () => {
+  _setupSavingsRows(ctx);
+  const b = ctx.getCycleSavingsBreakdown(200);
+  assertEqual(b.target, 1000, 'target is the sum of all scheduled savings');
+  assertEqual(b.rows.length, 2, 'every saving is a row');
+  // proportional: 600/1000*200=120 -> 480 ; 400/1000*200=80 -> 320
+  const h = b.rows.find(r => r.goalName === 'Holiday');
+  const sh = b.rows.find(r => r.goalName === 'Shares');
+  assertEqual(h.adjusted, 480, 'Holiday reduced proportionally (600 - 120)');
+  assertEqual(sh.adjusted, 320, 'Shares reduced proportionally (400 - 80)');
+  assertEqual(b.adjustedTotal, 800, 'adjusted total = target - overspend (1000 - 200)');
+});
+
+await check("fired savings are ALSO reduced (reconciliation can claw back before the card is paid)", () => {
+  _setupSavingsRows(ctx);
+  const b = ctx.getCycleSavingsBreakdown(200);
+  assertTrue(b.rows.every(r => r.status === 'fired'), 'both rows are fired in this fixture');
+  assertTrue(b.rows.every(r => r.adjusted < r.scheduled), 'fired rows are still trimmed by the overspend');
+});
+
+await check("with no overspend, adjusted equals scheduled for every row and the totals match", () => {
+  _setupSavingsRows(ctx);
+  const b = ctx.getCycleSavingsBreakdown(0);
+  assertTrue(b.rows.every(r => Math.abs(r.adjusted - r.scheduled) < 0.005), 'nothing is trimmed when on budget');
+  assertEqual(b.adjustedTotal, b.target, 'totals are equal');
+});
+
+await check("an overspend larger than the whole target floors every adjusted amount at zero", () => {
+  _setupSavingsRows(ctx);
+  const b = ctx.getCycleSavingsBreakdown(5000); // far exceeds 1000 target
+  assertTrue(b.rows.every(r => r.adjusted === 0), 'no saving can go negative');
+  assertEqual(b.adjustedTotal, 0, 'nothing is saved when overspend swamps the target');
+});
+
 await check('no top-level function is declared more than once anywhere in the file (regression: silent shadowing caused both a data-loss bug and a broken legacy super-contribution modal)', () => {
   const fs = require('fs');
   const html = fs.readFileSync(APP_PATH, 'utf8');

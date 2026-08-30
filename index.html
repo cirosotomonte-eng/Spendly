@@ -26,8 +26,8 @@ const SPENDLY_MODE = 'cloud';
 // derive its cache name and reported version from the SAME constants the app uses.
 // Previously the worker carried its own hardcoded version that was never bumped,
 // so its cache name never changed and its version never matched the running app.
-const APP_VERSION = '2.71.0';
-const BUILD_TIME = '29 Aug 2026 6:58 PM AEDT';
+const APP_VERSION = '2.72.0';
+const BUILD_TIME = '31 Aug 2026 8:44 AM AEDT';
 
 // Only load Supabase SDK in cloud mode
 if (SPENDLY_MODE === 'cloud') {
@@ -5895,6 +5895,43 @@ function renderDashboard() {
         '</div>'
       : '') +
   '</div>';
+
+  // ── Savings breakdown table (current cycle) ───────────────────────────────
+  // Every recurring saving this cycle with its scheduled amount and an adjusted
+  // amount that spreads any overspend proportionally across all of them (fired
+  // included — reconciliation can claw back from already-funded goals before the
+  // card is paid). Goal-generic: new goals appear automatically.
+  if (_viewOffset === 0) {
+    const _ovS = leftToSpend < 0 ? Math.abs(leftToSpend) : 0;
+    const _sb = getCycleSavingsBreakdown(_ovS);
+    if (_sb.rows.length > 0) {
+      const _mName = d => { const mo = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']; const p = (d||'').split('-'); return p.length===3 ? (mo[parseInt(p[1],10)-1] + ' ' + parseInt(p[2],10)) : d; };
+      let t = '<div style="background:var(--surface);border-radius:var(--r);padding:14px;margin-bottom:14px">' +
+        '<div style="font-size:12px;font-weight:700;color:var(--text);margin-bottom:2px">💚 Savings this cycle</div>' +
+        (_ovS > 0.005
+          ? '<div style="font-size:11px;color:var(--orange);margin-bottom:10px;line-height:1.5">You\'re ' + fmt(_ovS) + ' over budget — each saving is trimmed proportionally to what you can actually fund.</div>'
+          : '<div style="font-size:11px;color:#34C759;margin-bottom:10px;line-height:1.5">✓ On track to fund every saving in full.</div>') +
+        '<div style="display:grid;grid-template-columns:1fr auto auto;gap:6px 10px;font-size:11px;align-items:center">' +
+          '<div style="color:var(--muted);font-weight:600">Goal</div>' +
+          '<div style="color:var(--muted);font-weight:600;text-align:right">Scheduled</div>' +
+          '<div style="color:var(--muted);font-weight:600;text-align:right">Adjusted</div>';
+      _sb.rows.forEach(r => {
+        const trimmed = r.scheduled - r.adjusted > 0.005;
+        t += '<div style="color:var(--text);display:flex;align-items:center;gap:5px;min-width:0">' +
+              '<span style="flex-shrink:0">' + (r.status === 'fired' ? '✓' : '⏳') + '</span>' +
+              '<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + r.goalName + '</span>' +
+              '<span style="color:var(--muted);flex-shrink:0;font-size:10px">' + _mName(r.date) + '</span>' +
+            '</div>' +
+            '<div style="text-align:right;color:var(--muted)">' + fmt(r.scheduled) + '</div>' +
+            '<div style="text-align:right;font-weight:700;color:' + (trimmed ? 'var(--orange)' : '#34C759') + '">' + fmt(r.adjusted) + '</div>';
+      });
+      t += '<div style="grid-column:1/2;border-top:1px solid var(--border);padding-top:7px;margin-top:2px;font-weight:700;color:var(--text)">Total</div>' +
+           '<div style="text-align:right;border-top:1px solid var(--border);padding-top:7px;margin-top:2px;font-weight:700;color:var(--text)">' + fmt(_sb.target) + '</div>' +
+           '<div style="text-align:right;border-top:1px solid var(--border);padding-top:7px;margin-top:2px;font-weight:700;color:' + (_ovS > 0.005 ? 'var(--orange)' : '#34C759') + '">' + fmt(_sb.adjustedTotal) + '</div>';
+      t += '</div></div>';
+      html += t;
+    }
+  }
 
   // ── 3. NEXT 7 DAYS ────────────────────────────────────────────────────
   if (upcoming7.length > 0) {
@@ -13478,7 +13515,58 @@ function getUpcomingRecurringSavings() {
   return upcoming.sort((a,b) => a.date.localeCompare(b.date));
 }
 
-// ── Convert a recurring rule's amount to a monthly-equivalent figure ──────────
+// Per-transaction savings breakdown for the current cycle: every recurring saving,
+// fired or upcoming, with its scheduled amount and an "adjusted" amount that spreads
+// an overspend proportionally across ALL of them (fired included). This mirrors what
+// reconciliation does: before the card is paid, even an already-fired transfer can be
+// clawed back if the money isn't there, so the shortfall is shared by the whole plan.
+// Fully goal-generic — any goal with a recurring saving (now or added later) appears.
+function getCycleSavingsBreakdown(overspend) {
+  overspend = Math.max(0, overspend || 0);
+  const { cycleStart, cycleEnd } = getCycleRange(0);
+  const csStr = dateToStr(cycleStart), ceStr = dateToStr(cycleEnd);
+  const rows = [];
+
+  // Fired: recorded deposits with a recurringId in this cycle
+  (state.savingsDeposits||[]).forEach(d => {
+    if (!d.recurringId) return;
+    if (d.type === 'withdrawal' || d.type === 'bill-payment') return;
+    const cd = d.cycleDate || d.date;
+    if (cd < csStr || cd > ceStr) return;
+    const g = savingsCatById(d.catId);
+    rows.push({ goalId: d.catId, goalName: g ? g.name : 'Goal', goalIcon: g ? (g.icon||'🎯') : '🎯',
+      date: cd, status: 'fired', scheduled: d.amount });
+  });
+  // Fired-but-still-pending payment items (committed, not yet paid)
+  (state.pendingPayments||[]).forEach(p => {
+    if (p.status !== 'pending') return;
+    if (p.dueDate < csStr || p.dueDate > ceStr) return;
+    if (!p.recurringId) return;
+    const rule = (state.recurringSavings||[]).find(r => r.id === p.recurringId);
+    if (!rule) return;
+    const g = savingsCatById(rule.savingsGoalId);
+    rows.push({ goalId: rule.savingsGoalId, goalName: g ? g.name : 'Goal', goalIcon: g ? (g.icon||'🎯') : '🎯',
+      date: p.dueDate, status: 'fired', scheduled: p.amount });
+  });
+  // Upcoming: scheduled occurrences not yet fired
+  getUpcomingRecurringSavings().forEach(u => {
+    rows.push({ goalId: u.r.savingsGoalId, goalName: u.goal ? u.goal.name : 'Goal',
+      goalIcon: u.goal ? (u.goal.icon||'🎯') : '🎯', date: u.date, status: 'upcoming', scheduled: u.r.amount });
+  });
+
+  rows.sort((a,b) => a.date.localeCompare(b.date) || a.goalName.localeCompare(b.goalName));
+
+  const target = Math.round(rows.reduce((s,r) => s + r.scheduled, 0) * 100) / 100;
+  // Proportional adjustment across every row. Guard against target 0.
+  rows.forEach(r => {
+    const share = target > 0 ? (r.scheduled / target) * overspend : 0;
+    r.adjusted = Math.round(Math.max(0, r.scheduled - share) * 100) / 100;
+  });
+  const adjustedTotal = Math.round(rows.reduce((s,r) => s + r.adjusted, 0) * 100) / 100;
+
+  return { rows, target, overspend: Math.min(overspend, target), adjustedTotal };
+}
+
 function monthlyEquivalent(r) {
   const amt = r.amount || 0;
   switch (r.frequency) {
