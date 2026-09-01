@@ -4318,6 +4318,40 @@ await check("an overspend larger than the whole target floors every adjusted amo
   assertEqual(b.adjustedTotal, 0, 'nothing is saved when overspend swamps the target');
 });
 
+console.log('\n── expense search by amount ──');
+
+await check("the expense search filter matches on amount, not just name/category", () => {
+  const fs = require('fs'); const html = fs.readFileSync(APP_PATH, 'utf8');
+  // the numeric-query branch must exist in renderExpenseResults
+  const fnIdx = html.indexOf('function renderExpenseResults');
+  const body = html.slice(fnIdx, fnIdx + 4000);
+  assertTrue(/_isNumericQuery/.test(body), 'a numeric-query path exists');
+  assertTrue(/toFixed\(2\)\.includes|amtStr\.includes/.test(body), 'it matches the query against the formatted amount');
+  assertTrue(/Math\.abs\(\(e\.amount/.test(body), 'and supports an exact amount match');
+});
+
+await check("amount-search matching logic: substring and exact behave as intended", () => {
+  // mirror the in-app predicate to lock the behaviour
+  const match = (amount, name, query) => {
+    const q = String(query).trim().toLowerCase();
+    const qNum = q.replace(/[$,\s]/g, '');
+    const isNum = qNum !== '' && /^[0-9]*\.?[0-9]+$/.test(qNum);
+    if ((name||'').toLowerCase().includes(q)) return true;
+    if (isNum) {
+      const amtStr = (amount != null ? amount : 0).toFixed(2);
+      if (amtStr.includes(qNum)) return true;
+      if (Math.abs((amount||0) - parseFloat(qNum)) < 0.005) return true;
+    }
+    return false;
+  };
+  assertTrue(match(150, 'Gas', '150'), '"150" matches a $150 expense');
+  assertTrue(match(150.15, 'Protein', '150'), '"150" matches $150.15 (substring)');
+  assertTrue(match(150, 'Gas', '$150.00'), 'a dollar-signed exact query matches');
+  assertTrue(match(1560.82, 'Flights', '1560.82'), 'an exact decimal matches');
+  assertTrue(!match(99, 'Coffee', '150'), 'a non-matching amount does not match');
+  assertTrue(match(150, 'Gas', 'gas'), 'text search still works alongside amount search');
+});
+
 await check('no top-level function is declared more than once anywhere in the file (regression: silent shadowing caused both a data-loss bug and a broken legacy super-contribution modal)', () => {
   const fs = require('fs');
   const html = fs.readFileSync(APP_PATH, 'utf8');

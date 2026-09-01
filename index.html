@@ -26,8 +26,8 @@ const SPENDLY_MODE = 'cloud';
 // derive its cache name and reported version from the SAME constants the app uses.
 // Previously the worker carried its own hardcoded version that was never bumped,
 // so its cache name never changed and its version never matched the running app.
-const APP_VERSION = '2.72.0';
-const BUILD_TIME = '31 Aug 2026 8:44 AM AEDT';
+const APP_VERSION = '2.73.0';
+const BUILD_TIME = '01 Sep 2026 9:30 PM AEDT';
 
 // Only load Supabase SDK in cloud mode
 if (SPENDLY_MODE === 'cloud') {
@@ -5365,7 +5365,7 @@ function renderExpenses() {
   const searchBar =
     '<div id="expenseSearchBar" style="display:inline-flex;align-items:center;gap:6px;margin-bottom:10px;background:var(--surface);border-radius:var(--r);padding:0 14px;border:1.5px solid ' + (query ? 'var(--accent)' : 'transparent') + ';height:34px;width:100%;box-sizing:border-box">' +
       '<svg width="13" height="13" viewBox="0 0 15 15" fill="none" style="flex-shrink:0;opacity:0.4"><circle cx="6" cy="6" r="4.5" stroke="currentColor" stroke-width="1.5"/><path d="M10 10l3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>' +
-      '<input id="expenseSearchInput" type="text" placeholder="Search expenses\u2026" value="' + (query ? query.replace(/"/g,'&quot;') : '') + '" oninput="debounceSearch(this.value)" style="flex:1;background:none;border:none;outline:none;color:var(--text);font-size:16px;font-family:var(--font);padding:0;margin:0;height:100%">' +
+      '<input id="expenseSearchInput" type="text" placeholder="Search name, category, or amount\u2026" value="' + (query ? query.replace(/"/g,'&quot;') : '') + '" oninput="debounceSearch(this.value)" style="flex:1;background:none;border:none;outline:none;color:var(--text);font-size:16px;font-family:var(--font);padding:0;margin:0;height:100%">' +
       '<button id="expenseSearchClear" onclick="clearExpenseSearch()" style="display:' + (query ? 'flex' : 'none') + ';align-items:center;justify-content:center;background:var(--surface2);border:none;color:var(--muted);font-size:14px;font-weight:700;cursor:pointer;padding:0;width:22px;height:22px;border-radius:50%;flex-shrink:0;line-height:1">\u00d7</button>' +
     '</div>';
 
@@ -5529,15 +5529,27 @@ function renderExpenseResults(resultsEl) {
     .sort((a,b) => b.date.localeCompare(a.date) || b.id.localeCompare(a.id));
   const allUpcoming = isCurrentCycle() ? getUpcomingRecurring().sort((a,b) => a.date.localeCompare(b.date)) : [];
 
-  // Apply text search
+  // Apply text search. A numeric query also matches the expense amount: "50" matches
+  // 50.00, 150.00, 50.99 (substring on the formatted amount), and an exact "50.00"
+  // matches precisely. Non-numeric queries search category, name, and badge as before.
+  const _qNum = query.replace(/[$,\s]/g, '');
+  const _isNumericQuery = _qNum !== '' && /^[0-9]*\.?[0-9]+$/.test(_qNum);
   let expenses = query ? allExpenses.filter(e => {
     const cat = catById(e.categoryId);
     const badge = e.transactionType === 'saving' ? 'saving' :
                   e.goalCoveredAmount > 0 && e.amount - e.goalCoveredAmount > 0.01 ? 'split' :
                   e.goalCoveredAmount >= e.amount && e.goalCoveredAmount > 0 ? 'goal' : '';
-    return (cat ? cat.name.toLowerCase() : '').includes(query) ||
+    const textMatch = (cat ? cat.name.toLowerCase() : '').includes(query) ||
            (e.name||'').toLowerCase().includes(query) ||
            badge.includes(query);
+    if (textMatch) return true;
+    if (_isNumericQuery) {
+      const amtStr = (e.amount != null ? e.amount : 0).toFixed(2);
+      // match on the raw amount ("50" in 150.00) or exact value
+      if (amtStr.includes(_qNum)) return true;
+      if (Math.abs((e.amount||0) - parseFloat(_qNum)) < 0.005) return true;
+    }
+    return false;
   }) : allExpenses;
 
   // Apply payment method filter
@@ -5558,7 +5570,14 @@ function renderExpenseResults(resultsEl) {
   // Filter upcoming when searching (payment filter doesn't apply to upcoming — they haven't fired yet)
   const upcomingFiltered = query ? allUpcoming.filter(e => {
     const cat = catById(e.categoryId);
-    return (cat ? cat.name.toLowerCase() : '').includes(query) || (e.name||'').toLowerCase().includes(query);
+    const textMatch = (cat ? cat.name.toLowerCase() : '').includes(query) || (e.name||'').toLowerCase().includes(query);
+    if (textMatch) return true;
+    if (_isNumericQuery) {
+      const amtStr = (e.amount != null ? e.amount : 0).toFixed(2);
+      if (amtStr.includes(_qNum)) return true;
+      if (Math.abs((e.amount||0) - parseFloat(_qNum)) < 0.005) return true;
+    }
+    return false;
   }) : (hasPaymentFilter ? [] : allUpcoming);
 
   // ── Upcoming recurring section handled by collapsible above search results ─
