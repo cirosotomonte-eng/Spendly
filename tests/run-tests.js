@@ -4352,6 +4352,64 @@ await check("amount-search matching logic: substring and exact behave as intende
   assertTrue(match(150, 'Gas', 'gas'), 'text search still works alongside amount search');
 });
 
+console.log('\n── expense filter by specific card ──');
+
+await check("per-card filter pills appear only when there are 2+ credit cards", () => {
+  const fs = require('fs'); const html = fs.readFileSync(APP_PATH, 'utf8');
+  const fnIdx = html.indexOf('function renderPaymentFilterBar');
+  const body = html.slice(fnIdx, fnIdx + 2500);
+  assertTrue(/_cards\.length > 1/.test(body), 'card pills are gated on having more than one card');
+  assertTrue(/'card:' \+ c\.id/.test(body), "each card pill uses a 'card:<id>' filter key");
+});
+
+await check("card-specific filter key matches expenses paid with that exact card", () => {
+  // mirror the filter predicate to lock the behaviour
+  const filterKeys = new Set(['card:ccANZ']);
+  const cardKeys = new Set(); const methodKeys = new Set();
+  filterKeys.forEach(k => { if (k.indexOf('card:') === 0) cardKeys.add(k.slice(5)); else methodKeys.add(k); });
+  const expenses = [
+    { id: 'a', paymentAccountId: 'ccANZ', paymentMethod: 'account' },
+    { id: 'b', paymentAccountId: 'ccAmex', paymentMethod: 'account' },
+    { id: 'c', paymentAccountId: 'ccANZ', paymentMethod: 'cc' },
+  ];
+  const match = (e) => {
+    if (cardKeys.size > 0 && e.paymentAccountId && cardKeys.has(e.paymentAccountId)) return true;
+    if (methodKeys.size > 0) { /* not exercised here */ return false; }
+    return false;
+  };
+  const got = expenses.filter(match).map(e => e.id);
+  assertEqual(got.length, 2, 'only the two ANZ expenses match');
+  assertTrue(got.includes('a') && got.includes('c'), 'both ANZ expenses regardless of paymentMethod shape');
+  assertTrue(!got.includes('b'), 'the Amex expense is excluded');
+});
+
+await check("selecting the generic CC method still matches all card expenses (card pills narrow, method pill broadens)", () => {
+  const filterKeys = new Set(['cc']);
+  const cardKeys = new Set(); const methodKeys = new Set();
+  filterKeys.forEach(k => { if (k.indexOf('card:') === 0) cardKeys.add(k.slice(5)); else methodKeys.add(k); });
+  const accts = { ccANZ: { type: 'credit' }, ccAmex: { type: 'credit' }, bank1: { type: 'transaction' } };
+  const expenses = [
+    { id: 'a', paymentAccountId: 'ccANZ', paymentMethod: 'account' },
+    { id: 'b', paymentAccountId: 'ccAmex', paymentMethod: 'account' },
+    { id: 'c', paymentAccountId: 'bank1', paymentMethod: 'account' },
+  ];
+  const match = (e) => {
+    if (cardKeys.size > 0 && e.paymentAccountId && cardKeys.has(e.paymentAccountId)) return true;
+    if (methodKeys.size > 0) {
+      if (!e.paymentMethod) return false;
+      if (e.paymentMethod === 'account' && e.paymentAccountId) {
+        const acct = accts[e.paymentAccountId];
+        const resolved = acct ? (acct.type === 'credit' ? 'cc' : 'bank') : 'other';
+        return methodKeys.has(resolved);
+      }
+      return methodKeys.has(e.paymentMethod);
+    }
+    return false;
+  };
+  const got = expenses.filter(match).map(e => e.id);
+  assertTrue(got.includes('a') && got.includes('b') && !got.includes('c'), 'CC matches both cards but not the bank expense');
+});
+
 await check('no top-level function is declared more than once anywhere in the file (regression: silent shadowing caused both a data-loss bug and a broken legacy super-contribution modal)', () => {
   const fs = require('fs');
   const html = fs.readFileSync(APP_PATH, 'utf8');

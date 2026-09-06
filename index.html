@@ -26,8 +26,8 @@ const SPENDLY_MODE = 'cloud';
 // derive its cache name and reported version from the SAME constants the app uses.
 // Previously the worker carried its own hardcoded version that was never bumped,
 // so its cache name never changed and its version never matched the running app.
-const APP_VERSION = '2.73.0';
-const BUILD_TIME = '01 Sep 2026 9:30 PM AEDT';
+const APP_VERSION = '2.74.0';
+const BUILD_TIME = '06 Sep 2026 4:30 PM AEDT';
 
 // Only load Supabase SDK in cloud mode
 if (SPENDLY_MODE === 'cloud') {
@@ -5481,6 +5481,14 @@ function renderPaymentFilterBar() {
     const active = _expPaymentFilter.has(m.key);
     html += '<button type="button" onclick="togglePaymentFilter(\'' + m.key + '\')" style="padding:5px 12px;border-radius:100px;border:1.5px solid ' + (active?'var(--accent)':'var(--border)') + ';background:' + (active?'var(--accent-dim)':'var(--surface2)') + ';color:' + (active?'var(--accent)':'var(--muted)') + ';font-size:12px;font-weight:' + (active?'700':'500') + ';font-family:var(--font);cursor:pointer;-webkit-tap-highlight-color:transparent">' + m.icon + ' ' + m.label + '</button>';
   });
+  const _cards = (state.accounts||[]).filter(a => a.type === 'credit');
+  if (_cards.length > 1) {
+    _cards.forEach(c => {
+      const key = 'card:' + c.id;
+      const active = _expPaymentFilter.has(key);
+      html += '<button type="button" onclick="togglePaymentFilter(\'' + key + '\')" style="padding:5px 12px;border-radius:100px;border:1.5px solid ' + (active?'var(--accent)':'var(--border)') + ';background:' + (active?'var(--accent-dim)':'var(--surface2)') + ';color:' + (active?'var(--accent)':'var(--muted)') + ';font-size:12px;font-weight:' + (active?'700':'500') + ';font-family:var(--font);cursor:pointer;-webkit-tap-highlight-color:transparent">\ud83d\udcb3 ' + c.name + '</button>';
+    });
+  }
   html += '</div>';
   el.innerHTML = html;
 }
@@ -5555,15 +5563,24 @@ function renderExpenseResults(resultsEl) {
   // Apply payment method filter
   const hasPaymentFilter = _expPaymentFilter.size > 0;
   if (hasPaymentFilter) {
+    // Split filter into card-specific keys ('card:<id>') and general method keys.
+    const cardKeys = new Set();
+    const methodKeys = new Set();
+    _expPaymentFilter.forEach(k => { if (k.indexOf('card:') === 0) cardKeys.add(k.slice(5)); else methodKeys.add(k); });
     expenses = expenses.filter(e => {
-      if (!e.paymentMethod) return false;
-      // For account-specific payments, resolve to cc or bank based on account type
-      if (e.paymentMethod === 'account' && e.paymentAccountId) {
-        const acct = accountById(e.paymentAccountId);
-        const resolvedMethod = acct ? (acct.type === 'credit' ? 'cc' : 'bank') : 'other';
-        return _expPaymentFilter.has(resolvedMethod);
+      // A specific-card filter matches expenses paid with that exact card.
+      if (cardKeys.size > 0 && e.paymentAccountId && cardKeys.has(e.paymentAccountId)) return true;
+      // General method filters (cc/cash/bank/other).
+      if (methodKeys.size > 0) {
+        if (!e.paymentMethod) return false;
+        if (e.paymentMethod === 'account' && e.paymentAccountId) {
+          const acct = accountById(e.paymentAccountId);
+          const resolvedMethod = acct ? (acct.type === 'credit' ? 'cc' : 'bank') : 'other';
+          return methodKeys.has(resolvedMethod);
+        }
+        return methodKeys.has(e.paymentMethod);
       }
-      return _expPaymentFilter.has(e.paymentMethod);
+      return false;
     });
   }
 
