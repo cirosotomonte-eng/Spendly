@@ -4410,6 +4410,56 @@ await check("selecting the generic CC method still matches all card expenses (ca
   assertTrue(got.includes('a') && got.includes('b') && !got.includes('c'), 'CC matches both cards but not the bank expense');
 });
 
+console.log('\n── per-card statement days (option A) ──');
+
+await check("a card's charges bucket onto ITS OWN statement day, closing-day inclusive", () => {
+  ctx.state = buildMockState();
+  ctx.state.cycleDay = 17;
+  ctx.state.accounts.push({ id: 'anzC', name: 'ANZ', type: 'credit', statementDay: 17 });
+  ctx.state.accounts.push({ id: 'amexC', name: 'Amex', type: 'credit', statementDay: 7 });
+  const f = r => ctx.dateToStr(r.cycleStart) + '|' + ctx.dateToStr(r.cycleEnd);
+  // Amex: 7th included in the statement closing on the 7th
+  assertEqual(f(ctx.getEffectiveBillingCycleRange({ date: '2026-09-07', paymentAccountId: 'amexC' })), '2026-08-08|2026-09-07', 'a charge on the 7th is the last day of the Amex statement');
+  assertEqual(f(ctx.getEffectiveBillingCycleRange({ date: '2026-09-08', paymentAccountId: 'amexC' })), '2026-09-08|2026-10-07', 'the 8th rolls to the next Amex statement');
+  // ANZ: 17th included
+  assertEqual(f(ctx.getEffectiveBillingCycleRange({ date: '2026-09-17', paymentAccountId: 'anzC' })), '2026-08-18|2026-09-17', 'a charge on the 17th is the last day of the ANZ statement');
+  assertEqual(f(ctx.getEffectiveBillingCycleRange({ date: '2026-09-18', paymentAccountId: 'anzC' })), '2026-09-18|2026-10-17', 'the 18th rolls to the next ANZ statement');
+});
+
+await check("a card with NO statementDay falls back to the budget cycle (unchanged legacy behaviour)", () => {
+  ctx.state = buildMockState();
+  ctx.state.cycleDay = 17;
+  ctx.state.accounts.push({ id: 'legacyC', name: 'Old', type: 'credit' }); // no statementDay
+  const r = ctx.getEffectiveBillingCycleRange({ date: '2026-09-05', paymentAccountId: 'legacyC' });
+  const budget = ctx.getCycleRangeForDate('2026-09-05');
+  assertEqual(ctx.dateToStr(r.cycleStart), ctx.dateToStr(budget.cycleStart), 'falls back to the budget cycle start');
+  assertEqual(ctx.dateToStr(r.cycleEnd), ctx.dateToStr(budget.cycleEnd), 'falls back to the budget cycle end');
+});
+
+await check("billedPrevCycle / deferToNextCycle shift by the charge's OWN card statement", () => {
+  ctx.state = buildMockState();
+  ctx.state.accounts.push({ id: 'amexD', name: 'Amex', type: 'credit', statementDay: 7 });
+  const f = r => ctx.dateToStr(r.cycleStart) + '|' + ctx.dateToStr(r.cycleEnd);
+  // a Sep 3 Amex charge normally on Aug8-Sep7; deferToNextCycle pushes to next Amex stmt
+  assertEqual(f(ctx.getEffectiveBillingCycleRange({ date: '2026-09-03', paymentAccountId: 'amexD', deferToNextCycle: true })), '2026-09-08|2026-10-07', 'deferring pushes to the next Amex statement');
+  // billedPrevCycle pulls back one Amex statement
+  assertEqual(f(ctx.getEffectiveBillingCycleRange({ date: '2026-09-03', paymentAccountId: 'amexD', billedPrevCycle: true })), '2026-07-08|2026-08-07', 'billed-prev pulls back one Amex statement');
+});
+
+await check("setting statement days does not change the offset or pending-on-card (offset model is date-agnostic)", () => {
+  ctx.state = buildMockState();
+  ctx.state.accounts.push({ id: 'amexE', name: 'Amex', type: 'credit' });
+  ctx.state.savingsCategories.push({ id: 'gSD', name: 'Holiday', status: 'active', linkedAccountId: 'offset1' });
+  ctx.state.savingsDeposits.push({ id: 'wSD', catId: 'gSD', targetId: 'gSD', amount: 100, date: '2026-09-09', type: 'bill-payment', linkedExpenseId: 'eSD' });
+  ctx.state.expenses.push({ id: 'eSD', amount: 100, name: 'Hotel', date: '2026-09-09', paymentAccountId: 'amexE', paymentMethod: 'cc', linkedGoalId: 'gSD', goalCoveredAmount: 100, linkedWithdrawalId: 'wSD' });
+  const before = ctx.getTrueOffsetBalance() + ctx.getPendingCardGoalDebits().total;
+  // now set a statement day and re-measure
+  ctx.state.accounts.find(a => a.id === 'amexE').statementDay = 7;
+  const after = ctx.getTrueOffsetBalance() + ctx.getPendingCardGoalDebits().total;
+  assertEqual(after, before, 'offset + pending is unchanged by statement-day config');
+  assertTrue(ctx.getPendingCardGoalDebits().items.some(e => e.id === 'eSD'), 'the charge remains in pending-on-card regardless of which statement it bills on');
+});
+
 await check('no top-level function is declared more than once anywhere in the file (regression: silent shadowing caused both a data-loss bug and a broken legacy super-contribution modal)', () => {
   const fs = require('fs');
   const html = fs.readFileSync(APP_PATH, 'utf8');

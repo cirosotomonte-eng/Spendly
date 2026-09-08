@@ -26,8 +26,8 @@ const SPENDLY_MODE = 'cloud';
 // derive its cache name and reported version from the SAME constants the app uses.
 // Previously the worker carried its own hardcoded version that was never bumped,
 // so its cache name never changed and its version never matched the running app.
-const APP_VERSION = '2.74.0';
-const BUILD_TIME = '06 Sep 2026 4:30 PM AEDT';
+const APP_VERSION = '2.75.0';
+const BUILD_TIME = '09 Sep 2026 9:08 AM AEDT';
 
 // Only load Supabase SDK in cloud mode
 if (SPENDLY_MODE === 'cloud') {
@@ -1863,6 +1863,12 @@ async function applyUpdate() {
     <input type="number" inputmode="decimal" id="acctOpeningBalance" placeholder="0.00" step="0.01">
     <label>Opening balance date</label>
     <input type="date" id="acctOpeningDate">
+    <!-- Credit card statement day -->
+    <div id="acctStatementSection" style="display:none;margin-bottom:14px">
+      <label>Statement closing day</label>
+      <input type="number" inputmode="numeric" id="acctStatementDay" min="1" max="31" placeholder="e.g. 17">
+      <div style="font-size:11px;color:var(--muted);margin-top:4px;line-height:1.5">The day your statement closes each month (a charge made on this day is included). Used to group this card's charges onto the right statement for payment. Your budget cycle is unaffected.</div>
+    </div>
     <label>Color</label>
     <div class="color-grid" id="acctColorGrid"></div>
     <!-- Salary account options -->
@@ -15928,9 +15934,11 @@ function setAcctType(type) {
     btn.style.fontWeight = active ? '700' : '600';
   });
   // Show salary section only for transaction/savings account types
-  // Show salary section only for transaction/savings account types
   const salarySection = document.getElementById('acctSalarySection');
   if (salarySection) salarySection.style.display = (type === 'transaction' || type === 'savings') ? '' : 'none';
+  // Statement closing day only for credit cards
+  const stmtSection = document.getElementById('acctStatementSection');
+  if (stmtSection) stmtSection.style.display = (type === 'credit') ? '' : 'none';
   // Super fields
   let superSec = document.getElementById('superSection');
   if (type === 'super' && !superSec) {
@@ -16073,6 +16081,7 @@ function openAddAccount() {
   document.getElementById('acctName').value = '';
   document.getElementById('acctOpeningBalance').value = '';
   document.getElementById('acctOpeningDate').value = todayStr();
+  const _sdAdd = document.getElementById('acctStatementDay'); if (_sdAdd) _sdAdd.value = '';
   document.getElementById('acctSaveBtn').textContent = 'Save account';
   document.getElementById('acctDeleteBtn').style.display = 'none';
   buildColorGridFor('acctColorGrid', PALETTE[Math.floor(Math.random()*PALETTE.length)]);
@@ -16093,6 +16102,7 @@ function openEditAccount(id) {
   document.getElementById('acctName').value = acct.name;
   document.getElementById('acctOpeningBalance').value = acct.openingBalance || '';
   document.getElementById('acctOpeningDate').value = acct.openingDate || '';
+  const _sdEdit = document.getElementById('acctStatementDay'); if (_sdEdit) _sdEdit.value = acct.statementDay || '';
   document.getElementById('acctSaveBtn').textContent = 'Update account';
   document.getElementById('acctDeleteBtn').style.display = 'block';
   buildColorGridFor('acctColorGrid', acct.color);
@@ -16152,15 +16162,24 @@ function saveAccount() {
     salarysacrifice: parseFloat(document.getElementById('superSalarySacrifice')?.value) || 0,
   } : {};
   if (!state.accounts) state.accounts = [];
+  // Statement closing day for credit cards (1–31). Closing-day inclusive. Used to
+  // bucket each card's charges onto its own statement for payment/reconciliation,
+  // independent of the budget cycle.
+  let statementDay = undefined;
+  if (_acctType === 'credit') {
+    const sdRaw = document.getElementById('acctStatementDay')?.value;
+    const sd = parseInt(sdRaw, 10);
+    if (sd >= 1 && sd <= 31) statementDay = sd;
+  }
   if (_editingAccountId) {
     const idx = state.accounts.findIndex(a => a.id === _editingAccountId);
     const isSalaryE = !!(document.getElementById('acctIsSalary')?.checked);
     const linkedOffsetE = isSalaryE ? (document.getElementById('acctLinkedOffset')?.value || '') : '';
-    if (idx >= 0) state.accounts[idx] = { ...state.accounts[idx], name, type: _acctType, icon, color, openingBalance, openingDate, isSalaryAccount: isSalaryE, linkedOffsetAccountId: linkedOffsetE||null, ...superFields };
+    if (idx >= 0) state.accounts[idx] = { ...state.accounts[idx], name, type: _acctType, icon, color, openingBalance, openingDate, isSalaryAccount: isSalaryE, linkedOffsetAccountId: linkedOffsetE||null, ...(_acctType === 'credit' ? { statementDay } : {}), ...superFields };
   } else {
     const isSalary = !!(document.getElementById('acctIsSalary')?.checked);
     const linkedOffset = isSalary ? (document.getElementById('acctLinkedOffset')?.value || '') : '';
-    state.accounts.push({ id: uid(), name, type: _acctType, icon, color, openingBalance, openingDate, isSalaryAccount: isSalary, linkedOffsetAccountId: linkedOffset||null, ...superFields });
+    state.accounts.push({ id: uid(), name, type: _acctType, icon, color, openingBalance, openingDate, isSalaryAccount: isSalary, linkedOffsetAccountId: linkedOffset||null, ...(_acctType === 'credit' ? { statementDay } : {}), ...superFields });
   }
   saveState(); closeModal('accountModal'); renderContent();
 }
@@ -19096,21 +19115,61 @@ function reconcileStatement(statementTxns, cycleExpenses, historyExpenses, optio
   };
 }
 
+// Statement range for a specific credit card, by its closing day (CLOSING-DAY
+// INCLUSIVE: a charge dated ON the closing day is the LAST day of that statement; the
+// next statement starts the following day). This differs from the budget cycle, whose
+// cycleDay is the FIRST day of the cycle — cards bill on their own schedule. Returns
+// the statement (cycleStart..cycleEnd) that a given date falls into for this card.
+function getCardStatementRangeForDate(dateStr, closingDay) {
+  const d = new Date(dateStr + 'T00:00:00');
+  const dom = d.getDate();
+  let cycleStart, cycleEnd;
+  if (dom <= closingDay) {
+    // belongs to the statement closing on closingDay THIS month
+    cycleEnd   = new Date(d.getFullYear(), d.getMonth(), closingDay);
+    cycleStart = new Date(d.getFullYear(), d.getMonth() - 1, closingDay + 1);
+  } else {
+    // belongs to the statement closing NEXT month
+    cycleEnd   = new Date(d.getFullYear(), d.getMonth() + 1, closingDay);
+    cycleStart = new Date(d.getFullYear(), d.getMonth(), closingDay + 1);
+  }
+  return { cycleStart, cycleEnd };
+}
+
+// The closing day to use for a charge: its card's statementDay if set, else the global
+// budget cycleDay's equivalent closing day (cycleDay - 1, since cycleDay is the first
+// day of the budget cycle). Falls back gracefully so existing single-cycle behaviour is
+// unchanged for cards without a statementDay.
+function getStatementRangeForCharge(e) {
+  const acct = accountById(e.paymentAccountId);
+  if (acct && acct.type === 'credit' && acct.statementDay) {
+    return getCardStatementRangeForDate(e.date, acct.statementDay);
+  }
+  // No card-specific statement day — use the budget cycle window (unchanged behaviour).
+  return getCycleRangeForDate(e.date);
+}
+
 function getEffectiveBillingCycleRange(e) {
-  const natural = getCycleRangeForDate(e.date);
+  const natural = getStatementRangeForCharge(e);
   // The bank's POSTING date can differ from the transaction date, so a charge can
   // appear on the statement that closed just before it. This is the exact mirror of
   // deferToNextCycle: pull the charge back one cycle so it settles with the payment
-  // that actually covered it. The two flags are mutually exclusive.
+  // that actually covered it. The two flags are mutually exclusive. The shift is by
+  // ONE of the charge's OWN card's statements (card-aware), by nudging the date one day
+  // past the boundary and re-bucketing.
+  const acct = accountById(e.paymentAccountId);
+  const useCard = acct && acct.type === 'credit' && acct.statementDay;
   if (e.billedPrevCycle) {
     const dayBefore = new Date(natural.cycleStart);
     dayBefore.setDate(dayBefore.getDate() - 1);
-    return getCycleRangeForDate(dateToStr(dayBefore));
+    return useCard ? getCardStatementRangeForDate(dateToStr(dayBefore), acct.statementDay)
+                   : getCycleRangeForDate(dateToStr(dayBefore));
   }
   if (!e.deferToNextCycle) return natural;
   const dayAfter = new Date(natural.cycleEnd);
   dayAfter.setDate(dayAfter.getDate() + 1);
-  return getCycleRangeForDate(dateToStr(dayAfter));
+  return useCard ? getCardStatementRangeForDate(dateToStr(dayAfter), acct.statementDay)
+                 : getCycleRangeForDate(dateToStr(dayAfter));
 }
 function getEffectiveBillingCycleEnd(e) {
   return getEffectiveBillingCycleRange(e).cycleEnd;
