@@ -4559,6 +4559,53 @@ await check("a single payable card skips the selection step (no needless picker)
   } finally { ctx.getCCGoalContributions = _gc; ctx.renderPayCreditCardsFlow = _rp; }
 });
 
+console.log('\n── stale deferral detection ──');
+
+await check("findStaleDeferrals flags a deferred charge that has already been settled by a payment", () => {
+  ctx.state = buildMockState();
+  ctx.state.accounts.push({ id: 'ccSD', name: 'ANZ', type: 'credit', statementDay: 17 });
+  ctx.state.expenses.push({ id: 'paidDef', amount: 68.24, name: 'Electricity', date: '2026-07-16', paymentAccountId: 'ccSD', paymentMethod: 'cc', deferToNextCycle: true });
+  ctx.state.ccPayments = [{ id: 'pSD', date: '2026-07-20', amount: 68.24, expenseIds: ['paidDef'], deleted: false }];
+  const stale = ctx.findStaleDeferrals();
+  assertTrue(stale.some(x => x.id === 'paidDef' && x.reason === 'settled'), 'a settled deferred charge is flagged as settled');
+});
+
+await check("findStaleDeferrals flags a deferred charge whose statement was already reconciled", () => {
+  ctx.state = buildMockState();
+  ctx.state.accounts.push({ id: 'amexSD', name: 'Amex', type: 'credit', statementDay: 7, closingBalanceCycleEnd: '2026-09-17' });
+  // charge dated 28 Aug -> natural Amex statement closes Sep 7, which is <= reconciled end
+  ctx.state.expenses.push({ id: 'hotelDef', amount: 119.84, name: 'Hotel', date: '2026-08-28', paymentAccountId: 'amexSD', paymentMethod: 'cc', deferToNextCycle: true });
+  const stale = ctx.findStaleDeferrals();
+  assertTrue(stale.some(x => x.id === 'hotelDef' && x.reason === 'reconciled'), 'a deferred charge on a reconciled statement is flagged');
+});
+
+await check("findStaleDeferrals does NOT flag a legitimate current-boundary deferral (statement not yet reconciled, destination still open)", () => {
+  ctx.state = buildMockState();
+  // ANZ never reconciled (no closingBalanceCycleEnd). A charge on the statement close
+  // day deferred to the next (still-open) statement is a valid posting-lag deferral.
+  ctx.state.accounts.push({ id: 'anzSD', name: 'ANZ', type: 'credit', statementDay: 17 });
+  const nextClose = ctx.dateToStr(ctx.getCardStatementRangeForDate(ctx.todayStr(), 17).cycleEnd);
+  // pick a recent date whose destination statement is still open
+  ctx.state.expenses.push({ id: 'boundaryDef', amount: 60, name: 'Opal', date: ctx.todayStr(), paymentAccountId: 'anzSD', paymentMethod: 'cc', deferToNextCycle: true });
+  const stale = ctx.findStaleDeferrals();
+  assertTrue(!stale.some(x => x.id === 'boundaryDef'), 'a valid current-boundary deferral is not flagged');
+});
+
+await check("clearStaleDeferrals removes the flags and the charge returns to its real cycle", () => {
+  ctx.state = buildMockState();
+  ctx.state.accounts.push({ id: 'ccCl', name: 'ANZ', type: 'credit', statementDay: 17 });
+  ctx.state.expenses.push({ id: 'clDef', amount: 50, name: 'X', date: '2026-07-16', paymentAccountId: 'ccCl', paymentMethod: 'cc', deferToNextCycle: true });
+  ctx.state.ccPayments = [{ id: 'pCl', date: '2026-07-20', amount: 50, expenseIds: ['clDef'], deleted: false }];
+  const _sv = ctx.saveState, _rc = ctx.renderContent, _uh = ctx.updateHeader;
+  ctx.saveState = () => {}; ctx.renderContent = () => {}; ctx.updateHeader = () => {};
+  try {
+    const n = ctx.clearStaleDeferrals();
+    assertEqual(n, 1, 'one flag cleared');
+    assertTrue(!ctx.state.expenses.find(e => e.id === 'clDef').deferToNextCycle, 'the defer flag is gone');
+    assertEqual(ctx.findStaleDeferrals().length, 0, 'no stale deferrals remain');
+  } finally { ctx.saveState = _sv; ctx.renderContent = _rc; ctx.updateHeader = _uh; }
+});
+
 await check('no top-level function is declared more than once anywhere in the file (regression: silent shadowing caused both a data-loss bug and a broken legacy super-contribution modal)', () => {
   const fs = require('fs');
   const html = fs.readFileSync(APP_PATH, 'utf8');

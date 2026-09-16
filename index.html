@@ -26,8 +26,8 @@ const SPENDLY_MODE = 'cloud';
 // derive its cache name and reported version from the SAME constants the app uses.
 // Previously the worker carried its own hardcoded version that was never bumped,
 // so its cache name never changed and its version never matched the running app.
-const APP_VERSION = '2.78.0';
-const BUILD_TIME = '17 Sep 2026 6:23 AM AEDT';
+const APP_VERSION = '2.79.0';
+const BUILD_TIME = '17 Sep 2026 6:42 AM AEDT';
 
 // Only load Supabase SDK in cloud mode
 if (SPENDLY_MODE === 'cloud') {
@@ -14086,6 +14086,78 @@ function getDeferredForCycle(offset) {
 
 // Reverse a deferral. Previously deferToNextCycle could only ever be set to true,
 // so a mis-tapped Defer permanently altered budget maths with no way back.
+// Detect stale deferrals: a charge flagged deferToNextCycle (or billedPrevCycle) whose
+// deferral no longer makes sense. Two clear cases:
+//  1. Already settled by a (non-deleted) payment — a paid charge can't be "waiting for
+//     the next cycle"; the flag is a leftover.
+//  2. Its NATURAL statement (by its card's statement day) has already been reconciled
+//     and closed — the charge belongs to a statement that's done, so deferring it to a
+//     future cycle contradicts that.
+// This commonly happens to flags set before per-card statement days existed (v2.75):
+// the charge's real statement moved, but the old flag stuck. Read-only; the user
+// clears them from a review banner rather than any auto-fix.
+function findStaleDeferrals() {
+  const settled = new Set((state.ccPayments||[]).filter(p => !p.deleted).flatMap(p => p.expenseIds||[]));
+  const stale = [];
+  (state.expenses||[]).forEach(e => {
+    if (!e.deferToNextCycle && !e.billedPrevCycle) return;
+    const acct = accountById(e.paymentAccountId);
+    let reason = null;
+    if (settled.has(e.id)) {
+      // Already paid — cannot still be pending for a future cycle. Unambiguous.
+      reason = 'settled';
+    } else if (acct && acct.type === 'credit' && acct.statementDay && e.deferToNextCycle) {
+      const nat = getCardStatementRangeForDate(e.date, acct.statementDay);
+      // (a) The charge's natural statement has already been RECONCILED (its close is on
+      // or before the card's last-reconciled statement end). Reconciliation is direct
+      // evidence the charge really is on that closed statement, so deferring it forward
+      // contradicts that — the flag is stale (typically left from before per-card
+      // statement days existed).
+      if (acct.closingBalanceCycleEnd && dateToStr(nat.cycleEnd) <= acct.closingBalanceCycleEnd) {
+        reason = 'reconciled';
+      } else {
+        // (b) Even the DESTINATION statement (one after the natural one) has already
+        // closed — the deferral is abandoned; it should long since have been billed.
+        const dayAfter = new Date(nat.cycleEnd); dayAfter.setDate(dayAfter.getDate() + 1);
+        const dest = getCardStatementRangeForDate(dateToStr(dayAfter), acct.statementDay);
+        if (dateToStr(dest.cycleEnd) < todayStr()) reason = 'destination-closed';
+      }
+    }
+    if (reason) {
+      stale.push({
+        id: e.id, name: e.name || 'Charge', amount: e.amount, date: e.date,
+        cardName: acct ? acct.name : '', reason,
+        flag: e.deferToNextCycle ? 'deferToNextCycle' : 'billedPrevCycle',
+      });
+    }
+  });
+  stale.sort((a,b) => b.date.localeCompare(a.date));
+  return stale;
+}
+
+// Clear the stale deferral/billed flags on the given expense ids (or all detected stale
+// ones if no ids passed). No native confirm() — an in-app path calls this directly.
+function clearStaleDeferrals(ids) {
+  const target = ids && ids.length ? new Set(ids) : new Set(findStaleDeferrals().map(s => s.id));
+  let n = 0;
+  (state.expenses||[]).forEach(e => {
+    if (!target.has(e.id)) return;
+    if (e.deferToNextCycle) { delete e.deferToNextCycle; n++; }
+    if (e.billedPrevCycle) { delete e.billedPrevCycle; n++; }
+  });
+  if (n > 0) {
+    saveState();
+    if (typeof renderContent === 'function') renderContent();
+    if (typeof updateHeader === 'function') updateHeader();
+  }
+  return n;
+}
+
+function _doClearStaleDeferrals() {
+  const n = clearStaleDeferrals();
+  showToast(n > 0 ? '✅ Cleared ' + n + ' stale deferral' + (n !== 1 ? 's' : '') : 'Nothing to clear', 3000);
+}
+
 function undeferExpense(expId) {
   const e = (state.expenses||[]).find(x => x.id === expId);
   if (!e) return;
@@ -19970,6 +20042,33 @@ function renderAccounts() {
         window._offsetLegacyBucketHTML = '';
       }
 
+      // ── Stale deferrals: deferToNextCycle/billedPrevCycle flags that no longer make
+      // sense (charge already settled, or its statement already reconciled). Read-only
+      // review — one tap clears them all. ──
+      const _sd = findStaleDeferrals();
+      if (_sd.length > 0) {
+        window._offsetStaleDeferBanner = true;
+        const _sdTotal = Math.round(_sd.reduce((s,x)=>s+x.amount,0) * 100) / 100;
+        const _sdDay = (ds) => { try { return new Date(ds + 'T00:00:00').toLocaleDateString('en-AU',{day:'numeric',month:'short'}); } catch(e){ return ds; } };
+        let _sdRows = '';
+        _sd.forEach(s => {
+          const why = s.reason === 'settled' ? 'already paid' : s.reason === 'reconciled' ? 'on a reconciled statement' : 'statement long closed';
+          _sdRows += '<div style="background:var(--surface2);border-radius:8px;padding:9px 10px;margin-top:7px;display:flex;justify-content:space-between;align-items:center;gap:8px">' +
+            '<div style="min-width:0"><div style="font-size:12px;font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + s.name + ' · ' + fmtB(s.amount) + '</div>' +
+            '<div style="font-size:11px;color:var(--muted)">' + s.cardName + ' · ' + _sdDay(s.date) + ' · ' + why + '</div></div>' +
+          '</div>';
+        });
+        window._offsetStaleDeferHTML = '<div style="background:rgba(255,149,0,0.08);border:1.5px solid rgba(255,149,0,0.3);border-radius:12px;padding:14px;margin-bottom:14px">' +
+          '<div style="font-size:13px;font-weight:700;color:var(--orange);margin-bottom:4px">📅 ' + _sd.length + ' stale deferral' + (_sd.length!==1?'s':'') + ' (' + fmtB(_sdTotal) + ')</div>' +
+          '<div style="font-size:12px;color:var(--muted);line-height:1.5">These charges are flagged as deferred to a future cycle, but they\u2019ve already been paid or appear on a statement you\u2019ve reconciled. Clearing puts them back in the cycle they belong to.</div>' +
+          _sdRows +
+          '<button onclick="_doClearStaleDeferrals();renderContent();" style="width:100%;margin-top:10px;background:var(--accent);color:#fff;border:none;border-radius:8px;padding:10px;font-size:13px;font-weight:700;font-family:var(--font);cursor:pointer">Clear ' + _sd.length + ' stale deferral' + (_sd.length!==1?'s':'') + '</button>' +
+        '</div>';
+      } else {
+        window._offsetStaleDeferBanner = false;
+        window._offsetStaleDeferHTML = '';
+      }
+
       // ── Goal-link integrity: re-fired duplicates + dangling withdrawal links ──
       const _gl = findGoalLinkIssues();
       if (_gl.refired.length > 0 || _gl.brokenLinks.length > 0 || (_gl.orphanWithdrawals||[]).length > 0) {
@@ -20823,6 +20922,10 @@ function renderAccounts() {
     // Legacy adjustment-bucket migration banner for offset accounts
     if (acct.type === 'offset' && window._offsetLegacyBucketBanner) {
       html += window._offsetLegacyBucketHTML;
+    }
+    // Stale-deferral banner for offset accounts
+    if (acct.type === 'offset' && window._offsetStaleDeferBanner) {
+      html += window._offsetStaleDeferHTML;
     }
     // Missing-card banner for offset accounts
     if (acct.type === 'offset' && window._offsetMissingCardBanner) {
