@@ -4606,6 +4606,43 @@ await check("clearStaleDeferrals removes the flags and the charge returns to its
   } finally { ctx.saveState = _sv; ctx.renderContent = _rc; ctx.updateHeader = _uh; }
 });
 
+console.log('\n── reconciliation: logged-not-yet-billed (future statement) ──');
+
+await check("a logged charge that bills to a LATER statement than the one reconciled is surfaced as not-yet-billed (regression: it was silently dropped)", () => {
+  ctx.state = buildMockState();
+  ctx.state.accounts.push({ id: 'amexNYB', name: 'Amex', type: 'credit', statementDay: 7 });
+  // reconciling the statement that closed Sep 7 (Aug 8 - Sep 7)
+  // a charge on Sep 7 is ON this statement; a charge on Sep 9 bills to the NEXT one
+  const onStmt = { id: 'onS', amount: 100, name: 'On statement', date: '2026-09-06', paymentAccountId: 'amexNYB', paymentMethod: 'cc' };
+  const future = { id: 'futS', amount: 50, name: 'Dymocks', date: '2026-09-16', paymentAccountId: 'amexNYB', paymentMethod: 'cc' };
+  ctx.state.expenses.push(onStmt, future);
+
+  const stmtEnd = '2026-09-07';
+  // mirror the notYetBilled predicate
+  const nyb = (ctx.state.expenses||[]).filter(e =>
+    e.paymentAccountId === 'amexNYB' && e.transactionType !== 'saving' &&
+    ctx.dateToStr(ctx.getEffectiveBillingCycleEnd(e)) > stmtEnd);
+  assertTrue(nyb.some(e => e.id === 'futS'), 'the Sep 16 charge is flagged as not-yet-billed');
+  assertTrue(!nyb.some(e => e.id === 'onS'), 'a charge on this statement is NOT flagged as not-yet-billed');
+});
+
+await check("clearing a stale deferral moves the charge onto its real statement and out of not-yet-billed", () => {
+  ctx.state = buildMockState();
+  ctx.state.accounts.push({ id: 'amexNYB2', name: 'Amex', type: 'credit', statementDay: 7, closingBalanceCycleEnd: '2026-09-17' });
+  // a hotel on Aug 28 (natural statement Sep 7) but stale-deferred to the next statement
+  ctx.state.expenses.push({ id: 'hotelN', amount: 119.84, name: 'Hotel', date: '2026-08-28', paymentAccountId: 'amexNYB2', paymentMethod: 'cc', deferToNextCycle: true });
+  const stmtEnd = '2026-09-07';
+  const beforeNyb = (ctx.state.expenses||[]).filter(e => e.paymentAccountId === 'amexNYB2' && ctx.dateToStr(ctx.getEffectiveBillingCycleEnd(e)) > stmtEnd);
+  assertTrue(beforeNyb.some(e => e.id === 'hotelN'), 'while stale-deferred it bills to the next statement');
+  const _sv = ctx.saveState, _rc = ctx.renderContent, _uh = ctx.updateHeader;
+  ctx.saveState = () => {}; ctx.renderContent = () => {}; ctx.updateHeader = () => {};
+  try {
+    ctx.clearStaleDeferrals();
+    const afterNyb = (ctx.state.expenses||[]).filter(e => e.paymentAccountId === 'amexNYB2' && ctx.dateToStr(ctx.getEffectiveBillingCycleEnd(e)) > stmtEnd);
+    assertTrue(!afterNyb.some(e => e.id === 'hotelN'), 'after clearing, it bills to Sep 7 (this statement) and is no longer not-yet-billed');
+  } finally { ctx.saveState = _sv; ctx.renderContent = _rc; ctx.updateHeader = _uh; }
+});
+
 await check('no top-level function is declared more than once anywhere in the file (regression: silent shadowing caused both a data-loss bug and a broken legacy super-contribution modal)', () => {
   const fs = require('fs');
   const html = fs.readFileSync(APP_PATH, 'utf8');

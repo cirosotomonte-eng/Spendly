@@ -26,8 +26,8 @@ const SPENDLY_MODE = 'cloud';
 // derive its cache name and reported version from the SAME constants the app uses.
 // Previously the worker carried its own hardcoded version that was never bumped,
 // so its cache name never changed and its version never matched the running app.
-const APP_VERSION = '2.79.0';
-const BUILD_TIME = '17 Sep 2026 6:42 AM AEDT';
+const APP_VERSION = '2.80.0';
+const BUILD_TIME = '17 Sep 2026 7:04 AM AEDT';
 
 // Only load Supabase SDK in cloud mode
 if (SPENDLY_MODE === 'cloud') {
@@ -16965,6 +16965,18 @@ function runStatementReconciliation(ccAccountId, statementTxns, cycleOffset, sum
     const d = new Date(e.date + 'T00:00:00');
     return d >= cycleStart && d <= cycleEnd;
   });
+  // Charges already LOGGED on this card that belong to a LATER statement than the one
+  // being reconciled — spent (and in the current budget cycle) but the bank hasn't
+  // billed them yet, so they're correctly absent from this statement. Surface them as
+  // "Logged, not yet billed" so their absence is explained rather than silent, and so
+  // the user can see everything they've logged is accounted for. Excludes anything
+  // already settled or in this statement's own pool.
+  const _ceStrNYB = dateToStr(cycleEnd);
+  const notYetBilled = (state.expenses||[]).filter(e => {
+    if (e.paymentAccountId !== ccAccountId) return false;
+    if (e.transactionType === 'saving') return false;
+    return dateToStr(getEffectiveBillingCycleEnd(e)) > _ceStrNYB;
+  });
   const historyExp = (state.expenses||[]).filter(e => {
     if (e.paymentAccountId !== ccAccountId) return false;
     const d = new Date(e.date + 'T00:00:00');
@@ -17033,6 +17045,7 @@ function runStatementReconciliation(ccAccountId, statementTxns, cycleOffset, sum
   const result = reconcileStatement(filteredStatementTxns, cycleExp, historyExp, { dateToleranceDays: 3 });
   result.skippedAlreadyResolved = skippedCount;
   result.deferredOut = deferredOut;
+  result.notYetBilled = notYetBilled;
   // A charge that MATCHED a line on this statement but is dated after the statement
   // closed was posted by the bank before the close (posting date vs transaction
   // date). Spendly infers the billing cycle from the transaction date alone, so it
@@ -17451,6 +17464,21 @@ function renderReconciliationReview() {
       '</div>';
     });
     if (result.missingFromStatement.length === 0) html += '<div style="padding:14px 16px;font-size:12px;color:var(--muted)">Nothing pending — every logged charge already appears on the statement.</div>';
+    if ((result.notYetBilled || []).length > 0) {
+      const _nTot = Math.round(result.notYetBilled.reduce((s,e) => s + e.amount, 0) * 100) / 100;
+      let _nRows = '';
+      result.notYetBilled.slice().sort((a,b)=>a.date.localeCompare(b.date)).forEach(e => {
+        const cat = catById(e.categoryId);
+        _nRows += '<div style="display:flex;justify-content:space-between;gap:10px;padding:8px 16px;border-top:1px solid var(--surface2)">' +
+          '<div style="min-width:0;font-size:12px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + (e.name || (cat?cat.name:'Expense')) + '</div>' +
+          '<div style="font-size:12px;color:var(--muted);flex-shrink:0">' + fmtDateAU(e.date) + ' · ' + fmt(e.amount) + '</div>' +
+        '</div>';
+      });
+      html += '<div style="border-top:1px solid var(--surface2)">' +
+        '<div style="padding:12px 16px 4px;font-size:11px;color:var(--muted);line-height:1.5">🕒 ' + result.notYetBilled.length + ' logged charge' + (result.notYetBilled.length!==1?'s':'') + ' (' + fmt(_nTot) + ') ' + (result.notYetBilled.length!==1?'belong':'belongs') + ' to a later statement — spent already but the bank hasn\\u2019t billed ' + (result.notYetBilled.length!==1?'them':'it') + ' on this one yet. Nothing to do; ' + (result.notYetBilled.length!==1?'they\\u2019ll':'it\\u2019ll') + ' appear on your next statement.</div>' +
+        _nRows +
+      '</div>';
+    }
     if ((result.deferredOut || []).length > 0) {
       const _dTot = Math.round(result.deferredOut.reduce((s,e) => s + e.amount, 0) * 100) / 100;
       html += '<div style="padding:12px 16px;border-top:1px solid var(--surface2);font-size:11px;color:var(--muted);line-height:1.5">📅 ' + result.deferredOut.length + ' charge' + (result.deferredOut.length!==1?'s':'') + ' (' + fmt(_dTot) + ') ' + (result.deferredOut.length!==1?'were':'was') + ' already deferred to the next cycle, so ' + (result.deferredOut.length!==1?'they are':'it is') + ' not listed again here.</div>';
