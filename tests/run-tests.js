@@ -4460,6 +4460,32 @@ await check("setting statement days does not change the offset or pending-on-car
   assertTrue(ctx.getPendingCardGoalDebits().items.some(e => e.id === 'eSD'), 'the charge remains in pending-on-card regardless of which statement it bills on');
 });
 
+console.log('\n── reconciliation window is card-aware ──');
+
+await check("statement reconciliation collects charges by the CARD's statement window, not the budget cycle (regression: Amex on the 7th matched nothing against a 17th budget cycle)", () => {
+  ctx.state = buildMockState();
+  ctx.state.cycleDay = 17; // budget cycle runs to the 17th
+  ctx.state.accounts.push({ id: 'amexR', name: 'Amex', type: 'credit', statementDay: 7 });
+  // charges that belong to the Amex statement closing Sep 7 (Aug 8 – Sep 7)
+  ctx.state.expenses.push({ id: 'ax1', amount: 200, name: 'Coles', date: '2026-08-21', paymentAccountId: 'amexR', paymentMethod: 'cc' });
+  ctx.state.expenses.push({ id: 'ax2', amount: 106.28, name: 'Lunch', date: '2026-08-22', paymentAccountId: 'amexR', paymentMethod: 'cc' });
+  ctx.state.expenses.push({ id: 'ax3', amount: 95.88, name: 'Hotel', date: '2026-09-01', paymentAccountId: 'amexR', paymentMethod: 'cc' });
+  // a charge on Sep 9 belongs to the NEXT Amex statement, so must NOT be in this window
+  ctx.state.expenses.push({ id: 'ax4', amount: 50, name: 'Next stmt', date: '2026-09-09', paymentAccountId: 'amexR', paymentMethod: 'cc' });
+
+  // Reproduce the window the reconciler builds for this card
+  const acct = ctx.accountById('amexR');
+  const r = ctx.getCardStatementRangeForDate('2026-09-06', acct.statementDay);
+  const ceStr = ctx.dateToStr(r.cycleEnd);
+  const cycleExp = (ctx.state.expenses||[]).filter(e =>
+    e.paymentAccountId === 'amexR' && ctx.dateToStr(ctx.getEffectiveBillingCycleEnd(e)) === ceStr);
+  const ids = cycleExp.map(e => e.id);
+  assertEqual(ceStr, '2026-09-07', 'the window closes on the Amex statement day, not the budget day');
+  assertTrue(ids.includes('ax1') && ids.includes('ax2') && ids.includes('ax3'), 'charges in the Amex statement are collected (not zero)');
+  assertTrue(!ids.includes('ax4'), 'a charge on the next Amex statement is excluded');
+  assertEqual(cycleExp.length, 3, 'exactly the three in-statement charges match');
+});
+
 await check('no top-level function is declared more than once anywhere in the file (regression: silent shadowing caused both a data-loss bug and a broken legacy super-contribution modal)', () => {
   const fs = require('fs');
   const html = fs.readFileSync(APP_PATH, 'utf8');

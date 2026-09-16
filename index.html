@@ -26,8 +26,8 @@ const SPENDLY_MODE = 'cloud';
 // derive its cache name and reported version from the SAME constants the app uses.
 // Previously the worker carried its own hardcoded version that was never bumped,
 // so its cache name never changed and its version never matched the running app.
-const APP_VERSION = '2.75.0';
-const BUILD_TIME = '09 Sep 2026 9:08 AM AEDT';
+const APP_VERSION = '2.76.0';
+const BUILD_TIME = '16 Sep 2026 7:41 PM AEDT';
 
 // Only load Supabase SDK in cloud mode
 if (SPENDLY_MODE === 'cloud') {
@@ -16852,8 +16852,29 @@ function inferCycleOffsetFromStatement(statementTxns) {
 // historyExpenses = a wider pool (current + 3 prior cycles) used only for credit/refund matching.
 function runStatementReconciliation(ccAccountId, statementTxns, cycleOffset, summary) {
   if (cycleOffset === undefined) cycleOffset = inferCycleOffsetFromStatement(statementTxns);
-  const { cycleStart, cycleEnd } = getCycleRange(cycleOffset);
-  const { cycleStart: historyStart } = getCycleRange(cycleOffset - 3);
+  // The statement window must follow the CARD's own statement day, not the global
+  // budget cycle — otherwise a card whose statement day differs from the budget day
+  // (e.g. Amex closing on the 7th while the budget cycle runs to the 17th) would look
+  // for charges in the wrong window and match nothing. When the card has a
+  // statementDay, anchor the window to a representative charge date in that statement;
+  // otherwise fall back to the budget cycle (unchanged single-cycle behaviour).
+  const _reconAcct = accountById(ccAccountId);
+  let cycleStart, cycleEnd, historyStart;
+  if (_reconAcct && _reconAcct.type === 'credit' && _reconAcct.statementDay) {
+    // Anchor on the statement's own close. Use the latest non-credit statement txn
+    // date (or today) to land inside the right card statement, then take its range.
+    let anchor = todayStr();
+    const _dated = (statementTxns||[]).filter(t => t && t.date && !t.isCredit).map(t => t.date).sort();
+    if (_dated.length) anchor = _dated[_dated.length - 1];
+    const r = getCardStatementRangeForDate(anchor, _reconAcct.statementDay);
+    cycleStart = r.cycleStart; cycleEnd = r.cycleEnd;
+    // history: three statements back
+    const h = getCardStatementRangeForDate(dateToStr(new Date(cycleStart.getFullYear(), cycleStart.getMonth() - 3, cycleStart.getDate())), _reconAcct.statementDay);
+    historyStart = h.cycleStart;
+  } else {
+    const bc = getCycleRange(cycleOffset); cycleStart = bc.cycleStart; cycleEnd = bc.cycleEnd;
+    historyStart = getCycleRange(cycleOffset - 3).cycleStart;
+  }
 
   // Which charges belong to THIS statement — by effective billing cycle, not raw
   // date. Deferring a charge moves it to the next cycle, so a re-run of the same
