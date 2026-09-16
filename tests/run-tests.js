@@ -4511,6 +4511,54 @@ await check("logResolvedStatementCredit upgrades a legacy record in place instea
   assertTrue(!!recs[0].charge, 'and now carries the charge side');
 });
 
+console.log('\n── reconciliation UX: possible-match memory, card selection ──');
+
+await check("a confirmed/rejected possible match is remembered across re-runs (per card)", () => {
+  ctx.state = buildMockState();
+  ctx.state.resolvedStatementAcks = [];
+  const m = { expense: { id: 'expP' }, statementTxn: { amount: 96.65 }, daysApart: 4 };
+  ctx.window._reconciliation = { ccAccountId: 'amexP', result: { possibleMatches: [m] }, resolved: {}, collapsed: {} };
+  const _sv = ctx.saveState; ctx.saveState = () => {};
+  try {
+    ctx._reconcileRecordAck('possible', m);
+    assertTrue(ctx._reconcileIsAcked('amexP', 'possible', m), 'the possible match is acked for this card');
+    assertTrue(!ctx._reconcileIsAcked('otherCard', 'possible', m), 'not acked for a different card');
+    // a different amount for the same expense is a different pairing
+    assertTrue(!ctx._reconcileIsAcked('amexP', 'possible', { expense: { id: 'expP' }, statementTxn: { amount: 50 } }), 'a different amount is a distinct pairing');
+  } finally { ctx.saveState = _sv; }
+});
+
+await check("the pay-cards flow starts with a card-selection step when 2+ cards are payable, and honours the choice", () => {
+  ctx.state = buildMockState();
+  ctx.state.accounts.push({ id: 'anzSel', name: 'ANZ', type: 'credit' });
+  ctx.state.accounts.push({ id: 'amexSel', name: 'Amex', type: 'credit' });
+  const _gc = ctx.getCCGoalContributions;
+  ctx.getCCGoalContributions = (id) => ({ grossTotal: id === 'anzSel' ? 2000 : id === 'amexSel' ? 500 : 0, goalTotal: 0, salaryTotal: 0, contributions: [], unsettled: [] });
+  const _rp = ctx.renderPayCreditCardsFlow; ctx.renderPayCreditCardsFlow = () => {};
+  try {
+    ctx.openPayCreditCardsFlow('sal1');
+    assertEqual(ctx.window._payFlow.step, 'select', 'two payable cards => selection step first');
+    assertEqual(ctx.window._payFlow.fullQueue.length, 2, 'both cards are in the full queue');
+    // choose only Amex
+    ctx.payFlowSelectCards(['amexSel']);
+    assertEqual(ctx.window._payFlow.ccQueue.length, 1, 'only the chosen card is queued');
+    assertEqual(ctx.window._payFlow.ccQueue[0], 'amexSel', 'and it is the one selected (can pay Amex without ANZ first)');
+    assertEqual(ctx.window._payFlow.step, 'reconcile', 'proceeds into that card');
+  } finally { ctx.getCCGoalContributions = _gc; ctx.renderPayCreditCardsFlow = _rp; }
+});
+
+await check("a single payable card skips the selection step (no needless picker)", () => {
+  ctx.state = buildMockState();
+  ctx.state.accounts.push({ id: 'onlyCard', name: 'ANZ', type: 'credit' });
+  const _gc = ctx.getCCGoalContributions;
+  ctx.getCCGoalContributions = (id) => ({ grossTotal: id === 'onlyCard' ? 1000 : 0, goalTotal: 0, salaryTotal: 0, contributions: [], unsettled: [] });
+  const _rp = ctx.renderPayCreditCardsFlow; ctx.renderPayCreditCardsFlow = () => {};
+  try {
+    ctx.openPayCreditCardsFlow('sal1');
+    assertEqual(ctx.window._payFlow.step, 'reconcile', 'one card goes straight to reconcile');
+  } finally { ctx.getCCGoalContributions = _gc; ctx.renderPayCreditCardsFlow = _rp; }
+});
+
 await check('no top-level function is declared more than once anywhere in the file (regression: silent shadowing caused both a data-loss bug and a broken legacy super-contribution modal)', () => {
   const fs = require('fs');
   const html = fs.readFileSync(APP_PATH, 'utf8');

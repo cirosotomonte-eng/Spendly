@@ -26,8 +26,8 @@ const SPENDLY_MODE = 'cloud';
 // derive its cache name and reported version from the SAME constants the app uses.
 // Previously the worker carried its own hardcoded version that was never bumped,
 // so its cache name never changed and its version never matched the running app.
-const APP_VERSION = '2.77.0';
-const BUILD_TIME = '16 Sep 2026 8:12 PM AEDT';
+const APP_VERSION = '2.78.0';
+const BUILD_TIME = '17 Sep 2026 6:23 AM AEDT';
 
 // Only load Supabase SDK in cloud mode
 if (SPENDLY_MODE === 'cloud') {
@@ -16995,6 +16995,9 @@ function showStatementReconciliationResults(ccAccountId, result, cycleInfo) {
   (result.splitSuggestions||[]).forEach((sug, i) => {
     if (_reconcileIsAcked(ccAccountId, 'split', sug)) _preResolved['split-' + i] = 'ack';
   });
+  (result.possibleMatches||[]).forEach((m, i) => {
+    if (_reconcileIsAcked(ccAccountId, 'possible', m)) _preResolved['possible-' + i] = 'ack';
+  });
   window._reconciliation = { ccAccountId, result, cycleInfo, resolved: _preResolved, collapsed: { matched: true } };
   renderReconciliationReview();
 }
@@ -17130,6 +17133,13 @@ function _reconcileAckSignature(kind, item) {
   if (kind === 'split') {
     return 'split|' + ((item.expense && item.expense.id) || '') + '|' + Math.round((item.sum||0) * 100);
   }
+  // Possible (fuzzy) matches: once the user confirms/rejects a pairing, remember it by
+  // the matched expense id + statement amount so a re-run shows it Reviewed rather than
+  // asking again. The expense already matches by amount; the ack just records that the
+  // human has adjudicated this ambiguous pairing.
+  if (kind === 'possible') {
+    return 'possible|' + ((item.expense && item.expense.id) || '') + '|' + Math.round(((item.statementTxn && item.statementTxn.amount)||0) * 100);
+  }
   return kind + '|unknown';
 }
 function _reconcileRecordAck(kind, item) {
@@ -17155,12 +17165,16 @@ function reconcileAcknowledgeSplit(index) {
 }
 
 function reconcilePossibleMatchConfirm(index) {
+  const rc = window._reconciliation;
+  if (rc) _reconcileRecordAck('possible', (rc.result.possibleMatches||[])[index] || {});
   reconcileMarkResolved('possible-' + index);
   renderReconciliationReview();
   showToast('✅ Confirmed as the same transaction', 2000);
 }
 
 function reconcilePossibleMatchReject(index) {
+  const rc = window._reconciliation;
+  if (rc) _reconcileRecordAck('possible', (rc.result.possibleMatches||[])[index] || {});
   reconcileMarkResolved('possible-' + index);
   renderReconciliationReview();
   showToast('Treated as separate — worth double-checking both manually', 3000);
@@ -17512,11 +17526,42 @@ function renderReconciliationReview() {
   html += '</div>';
 
   const t = result.totals;
-  const totalsCloseEnough = t && Math.abs(t.totalsDifference) < 1; // within $1 — rounding/timing noise, not a real discrepancy
+  // Recompute the difference LIVE so the banner updates as items are actioned, rather
+  // than showing the stale snapshot from when the statement was first analysed. As the
+  // user adds a missing charge, resolves a refund pair, or logs a credit, the effective
+  // logged/credited totals change — reflect that immediately.
+  let liveDiff = t ? t.totalsDifference : 0;
+  let liveLogged = t ? t.spendlyLoggedTotal : 0;
+  let liveCredits = t ? t.statementCreditsTotal : 0;
+  if (t && rc.ccAccountId) {
+    // Charges now logged in Spendly for this statement (re-read from state, so a just-
+    // added charge counts). Match by the same billing window used to build the review.
+    const _ci = cycleInfo || {};
+    const _ceStr = _ci.cycleEnd ? dateToStr(_ci.cycleEnd) : null;
+    if (_ceStr) {
+      const loggedNow = (state.expenses||[]).filter(e =>
+        e.paymentAccountId === rc.ccAccountId &&
+        dateToStr(getEffectiveBillingCycleEnd(e)) === _ceStr
+      ).reduce((s,e) => s + e.amount, 0);
+      liveLogged = Math.round(loggedNow * 100) / 100;
+    }
+    // Missing charges the user has resolved this session (added / deferred / etc.) or
+    // that belong to a resolved refund pair should count as reconciled too. A resolved
+    // "missing" row means it's been handled, so remove it from the outstanding gap.
+    let resolvedMissing = 0;
+    (result.missingFromSpendly||[]).forEach((m, i) => {
+      if (resolved['missing-' + i]) resolvedMissing += m.amount;
+    });
+    (result.refundedPairs||[]).forEach((p, i) => {
+      if (resolved['refundpair-' + i]) resolvedMissing += p.charge.amount;
+    });
+    liveDiff = Math.round((t.statementChargesTotal - liveLogged - resolvedMissing) * 100) / 100;
+  }
+  const totalsCloseEnough = t && Math.abs(liveDiff) < 1; // within $1 — rounding/timing noise, not a real discrepancy
   const totalsBar = t ? (
     '<div style="padding:10px 16px;background:' + (totalsCloseEnough ? 'rgba(52,199,89,0.08)' : 'rgba(255,149,0,0.08)') + ';border-bottom:1px solid var(--surface2);flex-shrink:0">' +
-      '<div style="font-size:12px;font-weight:700;color:' + (totalsCloseEnough ? '#34C759' : 'var(--orange)') + '">' + (totalsCloseEnough ? '✓ Totals line up' : '⚠️ Totals differ by ' + fmt(Math.abs(t.totalsDifference))) + '</div>' +
-      '<div style="font-size:11px;color:var(--muted);margin-top:1px">Statement: ' + fmt(t.statementChargesTotal) + ' · Logged in Spendly: ' + fmt(t.spendlyLoggedTotal) + (t.statementCreditsTotal > 0 ? ' · Credits: ' + fmt(t.statementCreditsTotal) : '') + '</div>' +
+      '<div style="font-size:12px;font-weight:700;color:' + (totalsCloseEnough ? '#34C759' : 'var(--orange)') + '">' + (totalsCloseEnough ? '✓ Totals line up' : '⚠️ Totals differ by ' + fmt(Math.abs(liveDiff))) + '</div>' +
+      '<div style="font-size:11px;color:var(--muted);margin-top:1px">Statement: ' + fmt(t.statementChargesTotal) + ' · Logged in Spendly: ' + fmt(liveLogged) + (liveCredits > 0 ? ' · Credits: ' + fmt(liveCredits) : '') + '</div>' +
     '</div>'
   ) : '';
 
@@ -17971,10 +18016,31 @@ function openPayCreditCardsFlow(salaryAccountId) {
     .map(a => a.id);
   window._payFlow = {
     salaryAccountId,
+    fullQueue: ccQueue.slice(), // all payable cards, before the user narrows the selection
     ccQueue,
     cardIndex: 0,
-    step: ccQueue.length > 0 ? 'reconcile' : 'distribute',
+    // With more than one payable card, start by letting the user choose which to pay,
+    // instead of forcing them through every card in a fixed order.
+    step: ccQueue.length > 1 ? 'select' : (ccQueue.length > 0 ? 'reconcile' : 'distribute'),
   };
+  renderPayCreditCardsFlow();
+}
+
+// Called from the card-selection step: set the queue to just the chosen cards.
+function payFlowSelectCards(ids) {
+  const flow = window._payFlow;
+  if (!flow) return;
+  flow.ccQueue = ids.slice();
+  flow.cardIndex = 0;
+  flow.step = ids.length > 0 ? 'reconcile' : 'distribute';
+  renderPayCreditCardsFlow();
+}
+
+function payFlowToggleCardSelection(id) {
+  const flow = window._payFlow;
+  if (!flow) return;
+  if (!flow._selected) flow._selected = new Set(flow.fullQueue);
+  if (flow._selected.has(id)) flow._selected.delete(id); else flow._selected.add(id);
   renderPayCreditCardsFlow();
 }
 
@@ -18021,7 +18087,8 @@ function renderPayCreditCardsFlow() {
 
   const totalCards = flow.ccQueue.length;
   const onCardStep = flow.step === 'reconcile' || flow.step === 'pay';
-  const progressLabel = onCardStep
+  const progressLabel = flow.step === 'select' ? 'Choose cards'
+    : onCardStep
     ? 'Card ' + (flow.cardIndex + 1) + ' of ' + totalCards
     : flow.step === 'distribute' ? 'Distribute surplus' : 'Done';
 
@@ -18037,7 +18104,31 @@ function renderPayCreditCardsFlow() {
   dots += dot(flow.step === 'distribute' ? 'active' : flow.step === 'done' ? 'done' : 'pending');
 
   let body = '';
-  if (flow.step === 'reconcile') {
+  if (flow.step === 'select') {
+    if (!flow._selected) flow._selected = new Set(flow.fullQueue);
+    const cards = flow.fullQueue.map(id => accountById(id)).filter(Boolean);
+    let rows = '';
+    cards.forEach(a => {
+      const owed = getCCGoalContributions(a.id, _salaryCycleOffset).grossTotal;
+      const on = flow._selected.has(a.id);
+      rows += '<button onclick="payFlowToggleCardSelection(\'' + a.id + '\')" style="width:100%;display:flex;align-items:center;justify-content:space-between;gap:10px;background:' + (on?'var(--accent-dim)':'var(--surface2)') + ';border:1.5px solid ' + (on?'var(--accent)':'var(--border)') + ';border-radius:12px;padding:14px;margin-bottom:10px;cursor:pointer;font-family:var(--font)">' +
+        '<div style="display:flex;align-items:center;gap:10px">' +
+          '<div style="width:22px;height:22px;border-radius:6px;border:2px solid ' + (on?'var(--accent)':'var(--muted)') + ';background:' + (on?'var(--accent)':'transparent') + ';display:flex;align-items:center;justify-content:center;flex-shrink:0">' + (on?'<span style="color:#fff;font-size:13px;font-weight:700">✓</span>':'') + '</div>' +
+          '<div style="text-align:left"><div style="font-size:15px;font-weight:700;color:var(--text)">' + (a.icon||'💳') + ' ' + a.name + '</div></div>' +
+        '</div>' +
+        '<div style="font-size:15px;font-weight:700;color:var(--red)">' + fmt(owed) + '</div>' +
+      '</button>';
+    });
+    const selectedIds = flow.fullQueue.filter(id => flow._selected.has(id));
+    const selTotal = selectedIds.reduce((s,id) => s + getCCGoalContributions(id, _salaryCycleOffset).grossTotal, 0);
+    body =
+      '<div style="font-size:13px;color:var(--accent);font-weight:700;margin-bottom:6px">Pay credit cards</div>' +
+      '<div style="font-size:20px;font-weight:700;margin-bottom:4px">Which cards do you want to pay?</div>' +
+      '<div style="font-size:13px;color:var(--muted);margin-bottom:20px">Select one or more. You\'ll reconcile and pay each selected card in turn.</div>' +
+      rows +
+      '<button ' + (selectedIds.length === 0 ? 'disabled' : '') + ' onclick="payFlowSelectCards([' + selectedIds.map(id=>"'"+id+"'").join(',') + '])" style="width:100%;background:' + (selectedIds.length?'var(--accent)':'var(--surface3)') + ';color:#fff;border:none;border-radius:10px;padding:14px;font-size:14px;font-weight:700;font-family:var(--font);cursor:' + (selectedIds.length?'pointer':'not-allowed') + ';margin-top:6px">Continue' + (selectedIds.length?' · ' + fmt(selTotal):'') + '</button>' +
+      '<button onclick="finishPayFlow()" style="width:100%;background:none;border:none;color:var(--muted);padding:10px;font-size:13px;font-family:var(--font);cursor:pointer;margin-top:6px">Cancel</button>';
+  } else if (flow.step === 'reconcile') {
     const acct = accountById(flow.ccQueue[flow.cardIndex]);
     const owed = getCCGoalContributions(acct.id, _salaryCycleOffset).grossTotal;
     body =
