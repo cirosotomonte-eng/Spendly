@@ -4486,6 +4486,31 @@ await check("statement reconciliation collects charges by the CARD's statement w
   assertEqual(cycleExp.length, 3, 'exactly the three in-statement charges match');
 });
 
+console.log('\n── refunded-pair re-run suppresses BOTH sides ──');
+
+await check("resolving a refund pair stores the charge side so a re-run suppresses the charge too (not just the credit)", () => {
+  ctx.state = buildMockState();
+  ctx.state.resolvedStatementCredits = [];
+  const credit = { date: '2026-08-29', amount: 505.96, merchant: 'QANTAS' };
+  const charge = { date: '2026-08-23', amount: 505.96, merchant: 'QANTAS' };
+  ctx.logResolvedStatementCredit('amexX', credit, 'refunded-pair', charge);
+  const rec = (ctx.state.resolvedStatementCredits||[]).find(r => r.ccAccountId === 'amexX');
+  assertTrue(!!rec && !!rec.charge, 'the charge side is recorded');
+  assertEqual(rec.charge.amount, 505.96, 'with the charge amount');
+  assertEqual(rec.charge.date, '2026-08-23', 'and the charge date');
+});
+
+await check("logResolvedStatementCredit upgrades a legacy record in place instead of duplicating", () => {
+  ctx.state = buildMockState();
+  ctx.state.resolvedStatementCredits = [
+    { id: 'old', ccAccountId: 'amexY', date: '2026-08-29', amount: 505.96, merchant: 'QANTAS', resolution: 'refunded-pair' } // legacy, no charge
+  ];
+  ctx.logResolvedStatementCredit('amexY', { date: '2026-08-29', amount: 505.96, merchant: 'QANTAS' }, 'refunded-pair', { date: '2026-08-23', amount: 505.96 });
+  const recs = (ctx.state.resolvedStatementCredits||[]).filter(r => r.ccAccountId === 'amexY' && Math.abs(r.amount - 505.96) < 0.01);
+  assertEqual(recs.length, 1, 'the legacy record is replaced, not duplicated');
+  assertTrue(!!recs[0].charge, 'and now carries the charge side');
+});
+
 await check('no top-level function is declared more than once anywhere in the file (regression: silent shadowing caused both a data-loss bug and a broken legacy super-contribution modal)', () => {
   const fs = require('fs');
   const html = fs.readFileSync(APP_PATH, 'utf8');
