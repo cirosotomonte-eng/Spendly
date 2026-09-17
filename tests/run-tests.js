@@ -4698,6 +4698,51 @@ await check("only charges billing strictly after this cycle's statement are rese
   assertEqual(r.futureChargesTotal, 300, 'only the strictly-later charge is reserved, not the in-window one');
 });
 
+console.log('\n── distribute step gated on ALL cards paid ──');
+
+await check("after paying only some cards, the flow routes to 'more-cards' not 'distribute' when another card still owes", () => {
+  ctx.state = buildMockState();
+  ctx.state.accounts.push({ id: 'anzG', name: 'ANZ', type: 'credit' });
+  ctx.state.accounts.push({ id: 'amexG', name: 'Amex', type: 'credit' });
+  const _gc = ctx.getCCGoalContributions;
+  // ANZ still owes, Amex paid (0)
+  ctx.getCCGoalContributions = (id) => ({ grossTotal: id === 'anzG' ? 2000 : 0, goalTotal: 0, salaryTotal: 0, contributions: [], unsettled: [] });
+  const _rp = ctx.renderPayCreditCardsFlow; ctx.renderPayCreditCardsFlow = () => {};
+  try {
+    ctx.window._payFlow = { salaryAccountId: 'sal', fullQueue: ['anzG','amexG'], ccQueue: ['amexG'], cardIndex: 0, step: 'pay' };
+    ctx.advancePayFlow();
+    assertEqual(ctx.window._payFlow.step, 'more-cards', 'routes to more-cards because ANZ still owes');
+  } finally { ctx.getCCGoalContributions = _gc; ctx.renderPayCreditCardsFlow = _rp; }
+});
+
+await check("when every card is paid, the flow goes straight to distribute", () => {
+  ctx.state = buildMockState();
+  ctx.state.accounts.push({ id: 'anzH', name: 'ANZ', type: 'credit' });
+  const _gc = ctx.getCCGoalContributions;
+  ctx.getCCGoalContributions = () => ({ grossTotal: 0, goalTotal: 0, salaryTotal: 0, contributions: [], unsettled: [] });
+  const _rp = ctx.renderPayCreditCardsFlow; ctx.renderPayCreditCardsFlow = () => {};
+  try {
+    assertTrue(!ctx._anyCreditCardStillOwing(), 'nothing owes');
+    ctx.window._payFlow = { salaryAccountId: 'sal', fullQueue: ['anzH'], ccQueue: ['anzH'], cardIndex: 0, step: 'pay' };
+    ctx.advancePayFlow();
+    assertEqual(ctx.window._payFlow.step, 'distribute', 'all paid => distribute');
+  } finally { ctx.getCCGoalContributions = _gc; ctx.renderPayCreditCardsFlow = _rp; }
+});
+
+await check("from more-cards, paying the remaining cards then reaching the end goes to distribute", () => {
+  ctx.state = buildMockState();
+  ctx.state.accounts.push({ id: 'anzI', name: 'ANZ', type: 'credit' });
+  const _gc = ctx.getCCGoalContributions;
+  // simulate ANZ now paid after the more-cards step
+  ctx.getCCGoalContributions = () => ({ grossTotal: 0, goalTotal: 0, salaryTotal: 0, contributions: [], unsettled: [] });
+  const _rp = ctx.renderPayCreditCardsFlow; ctx.renderPayCreditCardsFlow = () => {};
+  try {
+    ctx.window._payFlow = { salaryAccountId: 'sal', fullQueue: ['anzI'], ccQueue: ['anzI'], cardIndex: 1, step: 'more-cards' };
+    ctx.advancePayFlow();
+    assertEqual(ctx.window._payFlow.step, 'distribute', 'more-cards advances to distribute once resolved');
+  } finally { ctx.getCCGoalContributions = _gc; ctx.renderPayCreditCardsFlow = _rp; }
+});
+
 await check('no top-level function is declared more than once anywhere in the file (regression: silent shadowing caused both a data-loss bug and a broken legacy super-contribution modal)', () => {
   const fs = require('fs');
   const html = fs.readFileSync(APP_PATH, 'utf8');

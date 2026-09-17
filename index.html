@@ -26,8 +26,8 @@ const SPENDLY_MODE = 'cloud';
 // derive its cache name and reported version from the SAME constants the app uses.
 // Previously the worker carried its own hardcoded version that was never bumped,
 // so its cache name never changed and its version never matched the running app.
-const APP_VERSION = '2.81.0';
-const BUILD_TIME = '17 Sep 2026 11:43 AM AEDT';
+const APP_VERSION = '2.82.0';
+const BUILD_TIME = '17 Sep 2026 2:05 PM AEDT';
 
 // Only load Supabase SDK in cloud mode
 if (SPENDLY_MODE === 'cloud') {
@@ -18169,11 +18169,29 @@ function advancePayFlow() {
     flow.step = 'pay';
   } else if (flow.step === 'pay') {
     flow.cardIndex += 1;
-    flow.step = flow.cardIndex < flow.ccQueue.length ? 'reconcile' : 'distribute';
+    if (flow.cardIndex < flow.ccQueue.length) {
+      flow.step = 'reconcile';
+    } else {
+      // Before distributing surplus, EVERY credit card must be paid/settled — not just
+      // the ones in this run's queue. If the user selected only some cards (e.g. paid
+      // Amex but not ANZ), the "surplus" still includes money owed to the unpaid card,
+      // so distributing now would force a claw-back. Route to the remaining-cards step
+      // instead of jumping to distribute.
+      flow.step = _anyCreditCardStillOwing() ? 'more-cards' : 'distribute';
+    }
+  } else if (flow.step === 'more-cards') {
+    flow.step = 'distribute';
   } else if (flow.step === 'distribute') {
     flow.step = 'done';
   }
   renderPayCreditCardsFlow();
+}
+
+// True if any credit card still has an unpaid balance this cycle (across ALL cards,
+// regardless of what was selected for this pay run).
+function _anyCreditCardStillOwing() {
+  return (state.accounts||[]).filter(a => a.type === 'credit')
+    .some(a => getCCGoalContributions(a.id, _salaryCycleOffset).grossTotal > 0.01);
 }
 
 function skipReconcileStepInPayFlow() {
@@ -18206,6 +18224,7 @@ function renderPayCreditCardsFlow() {
   const totalCards = flow.ccQueue.length;
   const onCardStep = flow.step === 'reconcile' || flow.step === 'pay';
   const progressLabel = flow.step === 'select' ? 'Choose cards'
+    : flow.step === 'more-cards' ? 'Cards remaining'
     : onCardStep
     ? 'Card ' + (flow.cardIndex + 1) + ' of ' + totalCards
     : flow.step === 'distribute' ? 'Distribute surplus' : 'Done';
@@ -18246,6 +18265,27 @@ function renderPayCreditCardsFlow() {
       rows +
       '<button ' + (selectedIds.length === 0 ? 'disabled' : '') + ' onclick="payFlowSelectCards([' + selectedIds.map(id=>"'"+id+"'").join(',') + '])" style="width:100%;background:' + (selectedIds.length?'var(--accent)':'var(--surface3)') + ';color:#fff;border:none;border-radius:10px;padding:14px;font-size:14px;font-weight:700;font-family:var(--font);cursor:' + (selectedIds.length?'pointer':'not-allowed') + ';margin-top:6px">Continue' + (selectedIds.length?' · ' + fmt(selTotal):'') + '</button>' +
       '<button onclick="finishPayFlow()" style="width:100%;background:none;border:none;color:var(--muted);padding:10px;font-size:13px;font-family:var(--font);cursor:pointer;margin-top:6px">Cancel</button>';
+  } else if (flow.step === 'more-cards') {
+    // Some cards are still unpaid. Offer to pay them before distributing surplus, so
+    // the surplus never includes money owed to an unpaid card.
+    const owing = (state.accounts||[]).filter(a => a.type === 'credit')
+      .filter(a => getCCGoalContributions(a.id, _salaryCycleOffset).grossTotal > 0.01);
+    let rows = '';
+    owing.forEach(a => {
+      const owed = getCCGoalContributions(a.id, _salaryCycleOffset).grossTotal;
+      rows += '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;background:var(--surface2);border-radius:12px;padding:14px;margin-bottom:10px">' +
+        '<div style="font-size:15px;font-weight:700;color:var(--text)">' + (a.icon||'💳') + ' ' + a.name + '</div>' +
+        '<div style="font-size:15px;font-weight:700;color:var(--red)">' + fmt(owed) + '</div>' +
+      '</div>';
+    });
+    const owingIds = owing.map(a => a.id);
+    body =
+      '<div style="font-size:13px;color:var(--orange);font-weight:700;margin-bottom:6px">Still to pay</div>' +
+      '<div style="font-size:20px;font-weight:700;margin-bottom:4px">' + owing.length + ' card' + (owing.length!==1?'s':'') + ' still ' + (owing.length!==1?'have':'has') + ' a balance</div>' +
+      '<div style="font-size:13px;color:var(--muted);margin-bottom:20px">Pay ' + (owing.length!==1?'these':'this') + ' before distributing surplus — otherwise the leftover still includes money you owe on ' + (owing.length!==1?'them':'it') + '.</div>' +
+      rows +
+      '<button onclick="payFlowSelectCards([' + owingIds.map(id=>"'"+id+"'").join(',') + '])" style="width:100%;background:var(--accent);color:#fff;border:none;border-radius:10px;padding:14px;font-size:14px;font-weight:700;font-family:var(--font);cursor:pointer;margin-top:6px">Pay ' + (owing.length!==1?'these cards':'this card') + '</button>' +
+      '<button onclick="(function(){window._payFlow.step=\'distribute\';renderPayCreditCardsFlow();})()" style="width:100%;background:none;border:none;color:var(--muted);padding:12px;font-size:13px;font-family:var(--font);cursor:pointer;margin-top:4px">Skip — distribute anyway</button>';
   } else if (flow.step === 'reconcile') {
     const acct = accountById(flow.ccQueue[flow.cardIndex]);
     const owed = getCCGoalContributions(acct.id, _salaryCycleOffset).grossTotal;
