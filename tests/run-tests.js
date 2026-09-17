@@ -4643,6 +4643,61 @@ await check("clearing a stale deferral moves the charge onto its real statement 
   } finally { ctx.saveState = _sv; ctx.renderContent = _rc; ctx.updateHeader = _uh; }
 });
 
+console.log('\n── surplus reserves future-statement charges ──');
+
+await check("computeCycleSurplus reserves already-logged charges that bill to a later statement (no phantom surplus that would force a goal claw-back)", () => {
+  ctx.state = buildMockState();
+  ctx.state.cycleDay = 17;
+  ctx.state.accounts.push({ id: 'amexFC', name: 'Amex', type: 'credit', statementDay: 7 });
+  const sal = ctx.state.accounts.find(a => a.type === 'transaction');
+  // a charge dated well after the budget cycle end -> bills to a future statement
+  const { cycleEnd } = ctx.getCycleRange(0);
+  const sceStr = ctx.dateToStr(cycleEnd);
+  const futureDate = ctx.dateToStr(new Date(cycleEnd.getFullYear(), cycleEnd.getMonth() + 1, 5));
+  ctx.state.expenses.push({ id: 'fc1', amount: 1000, name: 'Big future charge', date: futureDate, paymentAccountId: 'amexFC', paymentMethod: 'cc' });
+
+  const salBal = 5000;
+  const r = ctx.computeCycleSurplus([], salBal, sceStr, 0);
+  assertEqual(r.futureChargesTotal, 1000, 'the future charge is reserved');
+  // surplus is salary minus cc-this-cycle (0 here) minus the reserved future charge
+  assertEqual(r.surplus, Math.round((salBal - r.ccCycleTotal - 1000) * 100) / 100, 'the reserved amount is held out of surplus');
+});
+
+await check("a goal-covered future charge does NOT draw on salary in the reservation (only the salary-funded portion is reserved)", () => {
+  ctx.state = buildMockState();
+  ctx.state.cycleDay = 17;
+  ctx.state.accounts.push({ id: 'amexFC2', name: 'Amex', type: 'credit', statementDay: 7 });
+  const { cycleEnd } = ctx.getCycleRange(0);
+  const sceStr = ctx.dateToStr(cycleEnd);
+  const futureDate = ctx.dateToStr(new Date(cycleEnd.getFullYear(), cycleEnd.getMonth() + 1, 5));
+  // 300 charge, 200 covered by a goal -> only 100 draws on salary
+  ctx.state.expenses.push({ id: 'fc2', amount: 300, name: 'Covered future', date: futureDate, paymentAccountId: 'amexFC2', paymentMethod: 'cc', goalCoveredAmount: 200 });
+  const r = ctx.computeCycleSurplus([], 5000, sceStr, 0);
+  assertEqual(r.futureChargesTotal, 100, 'only the salary-funded portion (300 - 200) is reserved');
+});
+
+await check("only charges billing strictly after this cycle's statement are reserved; the reservation matches the same boundary getCCGoalContributions uses", () => {
+  ctx.state = buildMockState();
+  ctx.state.cycleDay = 17;
+  ctx.state.accounts.push({ id: 'anzFC3', name: 'ANZ', type: 'credit', statementDay: 17 });
+  const { cycleEnd } = ctx.getCycleRange(0);
+  const sceStr = ctx.dateToStr(cycleEnd);
+  // pick a charge whose effective billing end is on/before the cycle end (this statement)
+  // and one clearly after; only the latter is reserved. Find an in-window date by scanning.
+  let inWindow = null;
+  for (let d = 1; d <= 28 && !inWindow; d++) {
+    const cand = ctx.dateToStr(new Date(cycleEnd.getFullYear(), cycleEnd.getMonth() - 1, d));
+    const be = ctx.dateToStr(ctx.getEffectiveBillingCycleEnd({ date: cand, paymentAccountId: 'anzFC3' }));
+    if (be <= sceStr) inWindow = cand;
+  }
+  assertTrue(!!inWindow, 'found a date that bills within this cycle');
+  ctx.state.expenses.push({ id: 'inW', amount: 500, name: 'In window', date: inWindow, paymentAccountId: 'anzFC3', paymentMethod: 'cc' });
+  const afterDate = ctx.dateToStr(new Date(cycleEnd.getFullYear(), cycleEnd.getMonth() + 1, 20));
+  ctx.state.expenses.push({ id: 'aft', amount: 300, name: 'After', date: afterDate, paymentAccountId: 'anzFC3', paymentMethod: 'cc' });
+  const r = ctx.computeCycleSurplus([], 5000, sceStr, 0);
+  assertEqual(r.futureChargesTotal, 300, 'only the strictly-later charge is reserved, not the in-window one');
+});
+
 await check('no top-level function is declared more than once anywhere in the file (regression: silent shadowing caused both a data-loss bug and a broken legacy super-contribution modal)', () => {
   const fs = require('fs');
   const html = fs.readFileSync(APP_PATH, 'utf8');

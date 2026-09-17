@@ -26,8 +26,8 @@ const SPENDLY_MODE = 'cloud';
 // derive its cache name and reported version from the SAME constants the app uses.
 // Previously the worker carried its own hardcoded version that was never bumped,
 // so its cache name never changed and its version never matched the running app.
-const APP_VERSION = '2.80.0';
-const BUILD_TIME = '17 Sep 2026 7:04 AM AEDT';
+const APP_VERSION = '2.81.0';
+const BUILD_TIME = '17 Sep 2026 11:43 AM AEDT';
 
 // Only load Supabase SDK in cloud mode
 if (SPENDLY_MODE === 'cloud') {
@@ -18003,6 +18003,23 @@ function buildSurplusShortfallPanelHtml(salaryAccountId, cycleOffset) {
       .reduce((sum, a) => sum + getCCGoalContributions(a.id, cycleOffset).grossTotal, 0) * 100
   ) / 100;
 
+  // Charges ALREADY LOGGED on a card that bill to a LATER statement than the one being
+  // paid this cycle. Their money is committed (you spent it) but the current statement
+  // doesn't include it — so without reserving it, the surplus calc would offer this
+  // money for distribution to goals, and next statement you'd have to claw it back out
+  // of goals to pay the card. Reserving it keeps the surplus honest. Salary-funded
+  // portion only: goal-covered amounts already left their goals, so they don't draw on
+  // salary. Uses each card's own statement window (per-card statement days).
+  const futureChargesTotal = Math.round(
+    (state.accounts||[]).filter(a => a.type === 'credit').reduce((sum, a) => {
+      const cardFuture = (state.expenses||[]).filter(e =>
+        e.paymentAccountId === a.id && e.transactionType !== 'saving' &&
+        dateToStr(getEffectiveBillingCycleEnd(e)) > sceStr
+      ).reduce((s,e) => s + Math.max(0, e.amount - (e.goalCoveredAmount||0)), 0);
+      return sum + cardFuture;
+    }, 0) * 100
+  ) / 100;
+
   const { cycleStart: scs } = getCycleRange(cycleOffset);
   const scsStr = dateToStr(scs);
   const pending = (state.pendingPayments||[])
@@ -18018,12 +18035,13 @@ function buildSurplusShortfallPanelHtml(salaryAccountId, cycleOffset) {
   const mortgagePending = pending.filter(p => !eligiblePending.includes(p));
   const eligibleTotal = Math.round(eligiblePending.reduce((s,p) => s + p.amount, 0) * 100) / 100;
   const mortgageTotal = Math.round(mortgagePending.reduce((s,p) => s + p.amount, 0) * 100) / 100;
-  const surplus = Math.round((salBal - ccCycleTotal - eligibleTotal - mortgageTotal) * 100) / 100;
+  const surplus = Math.round((salBal - ccCycleTotal - futureChargesTotal - eligibleTotal - mortgageTotal) * 100) / 100;
 
   const summaryRows =
     '<div style="display:flex;flex-direction:column;gap:6px;margin-bottom:12px">' +
       '<div style="display:flex;justify-content:space-between;font-size:12px"><span style="color:var(--muted)">💰 Salary balance</span><span style="font-weight:600">' + fmt(salBal) + '</span></div>' +
       '<div style="display:flex;justify-content:space-between;font-size:12px"><span style="color:var(--muted)">💳 CC this cycle</span><span style="font-weight:600;color:var(--red)">-' + fmt(ccCycleTotal) + '</span></div>' +
+      (futureChargesTotal > 0.005 ? '<div style="display:flex;justify-content:space-between;font-size:12px"><span style="color:var(--muted)">🕒 Logged, bills next statement</span><span style="font-weight:600;color:var(--red)">-' + fmt(futureChargesTotal) + '</span></div>' : '') +
       '<div style="display:flex;justify-content:space-between;font-size:12px"><span style="color:var(--muted)">🏠 Mortgage (fixed)</span><span style="font-weight:600">-' + fmt(mortgageTotal) + '</span></div>' +
       '<div style="display:flex;justify-content:space-between;font-size:12px"><span style="color:var(--muted)">💼 Other savings</span><span style="font-weight:600">-' + fmt(eligibleTotal) + '</span></div>';
 
@@ -19444,6 +19462,15 @@ function computeCycleSurplus(pendingItems, salBal, sceStr, cycleOffset) {
   const ccCycleTotal = Math.round((state.accounts||[])
     .filter(a => a.type === 'credit')
     .reduce((s,a) => s + (getCCGoalContributions(a.id, cycleOffset).grossTotal || 0), 0) * 100) / 100;
+  // Reserve already-logged charges that bill to a LATER statement (salary-funded
+  // portion) so the surplus never offers money committed to a future card bill —
+  // which would otherwise force a claw-back from goals next statement.
+  const futureChargesTotal = Math.round((state.accounts||[])
+    .filter(a => a.type === 'credit')
+    .reduce((sum, a) => sum + (state.expenses||[]).filter(e =>
+      e.paymentAccountId === a.id && e.transactionType !== 'saving' &&
+      dateToStr(getEffectiveBillingCycleEnd(e)) > sceStr
+    ).reduce((s,e) => s + Math.max(0, e.amount - (e.goalCoveredAmount||0)), 0), 0) * 100) / 100;
   const mortgageKW = ['mortgage', 'home savings'];
   const eligiblePending = (pendingItems||[]).filter(p => {
     const goal = savingsCatById(p.goalId);
@@ -19454,8 +19481,8 @@ function computeCycleSurplus(pendingItems, salBal, sceStr, cycleOffset) {
   const mortgagePending = (pendingItems||[]).filter(p => !eligiblePending.includes(p));
   const eligibleTotal = Math.round(eligiblePending.reduce((s,p) => s + p.amount, 0) * 100) / 100;
   const mortgageTotal = Math.round(mortgagePending.reduce((s,p) => s + p.amount, 0) * 100) / 100;
-  const surplus = Math.round((salBal - ccCycleTotal - eligibleTotal - mortgageTotal) * 100) / 100;
-  return { ccCycleTotal, eligiblePending, mortgagePending, eligibleTotal, mortgageTotal, surplus };
+  const surplus = Math.round((salBal - ccCycleTotal - futureChargesTotal - eligibleTotal - mortgageTotal) * 100) / 100;
+  return { ccCycleTotal, futureChargesTotal, eligiblePending, mortgagePending, eligibleTotal, mortgageTotal, surplus };
 }
 
 // True total still owed across all credit cards (the authoritative figure the Pay
