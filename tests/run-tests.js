@@ -4846,6 +4846,85 @@ await check('when fully settled (no Pay CTA shown), the header figure still show
 
 
 
+// ─────────────────────────────────────────────────────────────────────────
+console.log('\n── Bulk edit (Spend tab multi-select): coverage recalc + forced goal ──');
+
+await check('the multi-select action bar opens the bulk-edit sheet (not just a date picker)', () => {
+  const fs = require('fs'); const html = fs.readFileSync(APP_PATH, 'utf8');
+  assertTrue(/onclick="openBulkEditExpenses\(\)"/.test(html), 'the select-bar button calls openBulkEditExpenses');
+  assertTrue(html.indexOf('function confirmBulkEditExpenses') > -1, 'confirmBulkEditExpenses exists');
+  assertTrue(html.indexOf('function _recomputeExpenseCoverage') > -1, '_recomputeExpenseCoverage exists');
+});
+
+await check('bulk coverage recalc: moving an expense into a goal-linked category creates a capped withdrawal and leaves no orphan', () => {
+  ctx.state = buildMockState();
+  ctx.state.savingsDeposits.push({ id: 'seed', catId: 'goal1', targetId: 'goal1', amount: 100, date: '2026-11-01', type: 'deposit' });
+  ctx.state.categories.push({ id: 'catG', name: 'Travel', icon: '✈️', linkedSavingsGoalId: 'goal1' });
+  const e = { id: 'eBulk1', amount: 40, name: 'Flights', categoryId: 'catG', date: '2026-11-01', transactionType: 'expense' };
+  ctx.state.expenses.push(e);
+  assertEqual(ctx.totalSavedForCat('goal1'), 100, 'goal starts at 100');
+  ctx._recomputeExpenseCoverage(e, 'goal1');
+  assertEqual(e.goalCoveredAmount, 40, 'coverage is min(balance, amount) = 40');
+  assertTrue(!!e.linkedWithdrawalId, 'a withdrawal was linked');
+  const w = ctx.state.savingsDeposits.find(d => d.id === e.linkedWithdrawalId);
+  assertTrue(!!w && w.type === 'bill-payment' && w.amount === 40 && w.linkedExpenseId === 'eBulk1', 'a bill-payment withdrawal of 40 exists, linked back to the expense');
+  assertEqual(ctx.totalSavedForCat('goal1'), 60, 'goal balance drops by the covered amount');
+});
+
+await check('bulk coverage recalc caps the withdrawal at the goal balance when the expense exceeds it', () => {
+  ctx.state = buildMockState();
+  ctx.state.savingsDeposits.push({ id: 'seed2', catId: 'goal1', targetId: 'goal1', amount: 100, date: '2026-11-01', type: 'deposit' });
+  ctx.state.categories.push({ id: 'catG2', name: 'Travel', linkedSavingsGoalId: 'goal1' });
+  const e = { id: 'eBulk2', amount: 500, name: 'Big trip', categoryId: 'catG2', date: '2026-11-01', transactionType: 'expense' };
+  ctx.state.expenses.push(e);
+  ctx._recomputeExpenseCoverage(e, 'goal1');
+  assertEqual(e.goalCoveredAmount, 100, 'covered is capped at the 100 balance, not the 500 amount');
+  assertEqual(ctx.totalSavedForCat('goal1'), 0, 'goal is fully drawn down, never negative beyond its balance');
+});
+
+await check('re-pointing an expense to a no-goal category removes its old withdrawal (no orphaned deposit ever persists)', () => {
+  ctx.state = buildMockState();
+  ctx.state.savingsDeposits.push({ id: 'seed3', catId: 'goal1', targetId: 'goal1', amount: 100, date: '2026-11-01', type: 'deposit' });
+  ctx.state.categories.push({ id: 'catG3', name: 'Travel', linkedSavingsGoalId: 'goal1' });
+  const e = { id: 'eBulk3', amount: 40, name: 'Flights', categoryId: 'catG3', date: '2026-11-01', transactionType: 'expense' };
+  ctx.state.expenses.push(e);
+  ctx._recomputeExpenseCoverage(e, 'goal1');          // creates withdrawal
+  const oldWid = e.linkedWithdrawalId;
+  assertTrue(!!oldWid, 'withdrawal created');
+  // now move it to a plain category (cat1 has no goal) → coverage must be torn down
+  e.categoryId = 'cat1';
+  ctx._recomputeExpenseCoverage(e, null);
+  assertEqual(e.goalCoveredAmount, 0, 'coverage cleared');
+  assertEqual(e.linkedWithdrawalId, null, 'link cleared');
+  assertTrue(!ctx.state.savingsDeposits.some(d => d.id === oldWid), 'the old withdrawal is gone — no orphan');
+  assertTrue(!ctx.state.savingsDeposits.some(d => d.linkedExpenseId === 'eBulk3'), 'nothing in savingsDeposits still points at this expense');
+  assertEqual(ctx.totalSavedForCat('goal1'), 100, 'goal balance fully restored');
+});
+
+await check('bulk edit forces a goal when the chosen category has linked goals (guard present in confirm + validate)', () => {
+  const fs = require('fs'); const html = fs.readFileSync(APP_PATH, 'utf8');
+  // confirmBulkEditExpenses blocks apply when category has goals but none picked
+  const confirmSrc = html.slice(html.indexOf('function confirmBulkEditExpenses'), html.indexOf('function confirmBulkEditExpenses') + 1400);
+  assertTrue(/goalIds\.length > 0 && !newGoal/.test(confirmSrc), 'confirm refuses to apply a goal-linked category without a chosen goal');
+  // _bulkEditValidate disables the Apply button in the same situation
+  const valSrc = html.slice(html.indexOf('function _bulkEditValidate'), html.indexOf('function _bulkEditValidate') + 600);
+  assertTrue(/needsGoal && !hasGoal/.test(valSrc) && /btn\.disabled = blocked/.test(valSrc), 'validate disables Apply until a goal is chosen');
+});
+
+await check('bulk edit auto-syncs the autoOffset mirror entry on category/date change', () => {
+  ctx.state = buildMockState();
+  ctx.state.categories.push({ id: 'catAO', name: 'Rent', autoOffset: true });
+  const e = { id: 'eAO', amount: 200, name: 'Rent', categoryId: 'catAO', date: '2026-11-01', transactionType: 'expense' };
+  ctx.state.expenses.push(e);
+  ctx._recomputeExpenseCoverage(e, null);
+  const offs = (ctx.state.offsetTransactions || []).filter(t => t.linkedExpenseId === 'eAO');
+  assertEqual(offs.length, 1, 'exactly one auto-offset entry');
+  assertTrue(offs[0].amount === 200 && offs[0].type === 'withdrawal', 'offset mirrors the amount');
+  // run it again — must not duplicate
+  ctx._recomputeExpenseCoverage(e, null);
+  assertEqual((ctx.state.offsetTransactions || []).filter(t => t.linkedExpenseId === 'eAO').length, 1, 're-running never duplicates the offset entry');
+});
+
 console.log(`\x1b[1mResults: ${pass} passed, ${fail} failed\x1b[0m`);
 if (fail > 0) {
   console.log('\nFailed tests:');

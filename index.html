@@ -26,8 +26,8 @@ const SPENDLY_MODE = 'cloud';
 // derive its cache name and reported version from the SAME constants the app uses.
 // Previously the worker carried its own hardcoded version that was never bumped,
 // so its cache name never changed and its version never matched the running app.
-const APP_VERSION = '2.84.0';
-const BUILD_TIME = '02 Nov 2026 8:46 AM AEDT';
+const APP_VERSION = '2.85.0';
+const BUILD_TIME = '02 Nov 2026 9:15 AM AEDT';
 
 // Only load Supabase SDK in cloud mode
 if (SPENDLY_MODE === 'cloud') {
@@ -5283,60 +5283,171 @@ function toggleExpenseSelect(id) {
   }
 }
 
-function openMoveExpensesDate() {
+// Bulk-edit sheet: change date, category, goal and/or payment account on all selected
+// transactions at once. Each field defaults to "leave unchanged"; only fields the user
+// sets are applied. Goal coverage is recalculated per expense exactly as a single edit
+// would (old withdrawal removed, new one created, capped at the goal balance) so the
+// offset stays correct and no orphaned withdrawals are left behind.
+function openBulkEditExpenses() {
   if (_expSelected.size === 0) return;
+  const n = _expSelected.size;
+  // Category options
+  const cats = (state.categories||[]).filter(c => !c.archived);
+  const catOpts = '<option value="">— leave unchanged —</option>' +
+    cats.map(c => '<option value="' + c.id + '">' + (c.icon ? c.icon + ' ' : '') + c.name + '</option>').join('');
+  // Payment account options (transaction + credit accounts)
+  const payAccts = (state.accounts||[]).filter(a => a.type === 'transaction' || a.type === 'credit' || a.type === 'offset');
+  const payOpts = '<option value="">— leave unchanged —</option>' +
+    payAccts.map(a => '<option value="' + a.id + '">' + (a.icon ? a.icon + ' ' : '') + a.name + '</option>').join('');
+
   const overlay = document.createElement('div');
-  overlay.id = 'expMoveDateModal';
+  overlay.id = 'expBulkEditModal';
   overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:flex-end;justify-content:center';
-  overlay.innerHTML = `
-    <div style="background:var(--bg);border-radius:20px 20px 0 0;padding:24px 20px 36px;width:100%;max-width:480px;margin:0 auto;box-sizing:border-box">
-      <div style="font-size:16px;font-weight:700;margin-bottom:6px">Move ${_expSelected.size} transaction${_expSelected.size!==1?'s':''}</div>
-      <div style="font-size:12px;color:var(--muted);margin-bottom:18px">Goal coverage will be recalculated for the new date.</div>
-      <div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:6px">New date</div>
-      <input id="expMoveDate" type="date" value="${todayStr()}"
-        style="width:100%;padding:10px 12px;border-radius:10px;border:1.5px solid var(--surface2);background:var(--surface);color:var(--text);font-size:16px;font-family:var(--font);box-sizing:border-box;margin-bottom:18px">
-      <div style="display:flex;gap:10px">
-        <button onclick="document.getElementById('expMoveDateModal').remove()"
-          style="flex:1;padding:13px;border-radius:12px;border:1.5px solid var(--surface2);background:var(--surface);color:var(--text);font-size:14px;font-weight:600;font-family:var(--font);cursor:pointer">Cancel</button>
-        <button onclick="confirmMoveExpenses()"
-          style="flex:2;padding:13px;border-radius:12px;border:none;background:var(--accent);color:#fff;font-size:14px;font-weight:700;font-family:var(--font);cursor:pointer">Move</button>
-      </div>
-    </div>`;
+  overlay.innerHTML =
+    '<div style="background:var(--bg);border-radius:20px 20px 0 0;padding:24px 20px 36px;width:100%;max-width:480px;margin:0 auto;box-sizing:border-box;max-height:88vh;overflow-y:auto">' +
+      '<div style="font-size:16px;font-weight:700;margin-bottom:6px">Edit ' + n + ' transaction' + (n!==1?'s':'') + '</div>' +
+      '<div style="font-size:12px;color:var(--muted);margin-bottom:18px">Only the fields you change are applied. Goal coverage is recalculated automatically.</div>' +
+
+      '<div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:6px">Date</div>' +
+      '<input id="bulkDate" type="date" style="width:100%;padding:10px 12px;border-radius:10px;border:1.5px solid var(--surface2);background:var(--surface);color:var(--text);font-size:16px;font-family:var(--font);box-sizing:border-box;margin-bottom:16px" placeholder="leave unchanged">' +
+
+      '<div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:6px">Category</div>' +
+      '<select id="bulkCat" onchange="_bulkEditCatChanged()" style="width:100%;padding:11px 12px;border-radius:10px;border:1.5px solid var(--surface2);background:var(--surface);color:var(--text);font-size:15px;font-family:var(--font);box-sizing:border-box;margin-bottom:16px">' + catOpts + '</select>' +
+
+      '<div id="bulkGoalWrap" style="display:none">' +
+        '<div style="font-size:11px;font-weight:600;color:var(--orange);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:6px">Savings goal · required</div>' +
+        '<select id="bulkGoal" onchange="_bulkEditValidate()" style="width:100%;padding:11px 12px;border-radius:10px;border:1.5px solid var(--orange);background:var(--surface);color:var(--text);font-size:15px;font-family:var(--font);box-sizing:border-box;margin-bottom:16px"></select>' +
+      '</div>' +
+
+      '<div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:6px">Paid from</div>' +
+      '<select id="bulkPay" style="width:100%;padding:11px 12px;border-radius:10px;border:1.5px solid var(--surface2);background:var(--surface);color:var(--text);font-size:15px;font-family:var(--font);box-sizing:border-box;margin-bottom:20px">' + payOpts + '</select>' +
+
+      '<div style="display:flex;gap:10px">' +
+        '<button onclick="document.getElementById(\'expBulkEditModal\').remove()" style="flex:1;padding:13px;border-radius:12px;border:1.5px solid var(--surface2);background:var(--surface);color:var(--text);font-size:14px;font-weight:600;font-family:var(--font);cursor:pointer">Cancel</button>' +
+        '<button id="bulkApplyBtn" onclick="confirmBulkEditExpenses()" style="flex:2;padding:13px;border-radius:12px;border:none;background:var(--accent);color:#fff;font-size:14px;font-weight:700;font-family:var(--font);cursor:pointer">Apply</button>' +
+      '</div>' +
+    '</div>';
   document.body.appendChild(overlay);
   overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
 }
 
-function confirmMoveExpenses() {
-  const newDate = document.getElementById('expMoveDate')?.value;
-  if (!newDate) return;
-  document.getElementById('expMoveDateModal')?.remove();
+// When the bulk category changes: if it has linked goals, show a REQUIRED goal picker
+// (auto-select when there's exactly one), otherwise hide it. Then re-validate Apply.
+function _bulkEditCatChanged() {
+  const catId = document.getElementById('bulkCat')?.value;
+  const wrap = document.getElementById('bulkGoalWrap');
+  const goalSel = document.getElementById('bulkGoal');
+  if (!wrap || !goalSel) return;
+  const goalIds = catId ? getLinkedGoalIds(catById(catId)) : [];
+  if (catId && goalIds.length > 0) {
+    goalSel.innerHTML = (goalIds.length > 1 ? '<option value="">— choose a goal —</option>' : '') +
+      goalIds.map(gid => { const g = savingsCatById(gid); return '<option value="' + gid + '">' + (g ? ((g.icon||'🎯') + ' ' + g.name) : gid) + '</option>'; }).join('');
+    if (goalIds.length === 1) goalSel.value = goalIds[0];
+    wrap.style.display = '';
+  } else {
+    wrap.style.display = 'none';
+    goalSel.innerHTML = '';
+  }
+  _bulkEditValidate();
+}
 
-  let moved = 0;
+// Apply is blocked while a chosen category has goals but no goal is picked — the user
+// must pick a goal before changing the category (no ambiguous coverage).
+function _bulkEditValidate() {
+  const catId = document.getElementById('bulkCat')?.value;
+  const goalSel = document.getElementById('bulkGoal');
+  const btn = document.getElementById('bulkApplyBtn');
+  if (!btn) return;
+  const goalIds = catId ? getLinkedGoalIds(catById(catId)) : [];
+  const needsGoal = catId && goalIds.length > 0;
+  const hasGoal = goalSel && goalSel.value;
+  const blocked = needsGoal && !hasGoal;
+  btn.disabled = blocked;
+  btn.style.opacity = blocked ? '0.4' : '1';
+  btn.style.cursor = blocked ? 'not-allowed' : 'pointer';
+}
+
+// Recompute one expense's goal coverage for a target goal (or none), rebuilding its
+// withdrawal. Mirrors single-edit: drop the old withdrawal, cap new coverage at the
+// goal balance, create a fresh bill-payment withdrawal. Pass goalId=null to clear.
+function _recomputeExpenseCoverage(e, goalId) {
+  if (!state.savingsDeposits) state.savingsDeposits = [];
+  // Remove any existing withdrawal/deposit this expense owns
+  if (e.linkedWithdrawalId) state.savingsDeposits = state.savingsDeposits.filter(d => d.id !== e.linkedWithdrawalId);
+  if (e.linkedDepositId) state.savingsDeposits = state.savingsDeposits.filter(d => d.id !== e.linkedDepositId);
+  e.linkedWithdrawalId = null;
+  e.linkedDepositId = null;
+  if (e.transactionType === 'saving' && goalId) {
+    const depId = uid();
+    state.savingsDeposits.push({ id: depId, catId: goalId, targetId: goalId, amount: e.amount, date: e.date, note: e.name || 'Saving deposit', type: 'deposit', linkedExpenseId: e.id });
+    e.linkedDepositId = depId;
+    e.linkedGoalId = goalId;
+    e.goalCoveredAmount = 0;
+  } else if (goalId) {
+    const bal = totalSavedForCat(goalId);
+    const covered = Math.round(Math.min(bal, e.amount) * 100) / 100;
+    e.goalCoveredAmount = covered;
+    e.linkedGoalId = goalId;
+    if (covered > 0) {
+      const wId = uid();
+      state.savingsDeposits.push({ id: wId, catId: goalId, targetId: goalId, amount: covered, date: e.date, note: e.name || 'Expense withdrawal', type: 'bill-payment', linkedExpenseId: e.id });
+      e.linkedWithdrawalId = wId;
+    }
+  } else {
+    e.goalCoveredAmount = 0;
+    e.linkedGoalId = null;
+  }
+  // Keep the auto-offset mirror entry in step with the (possibly new) category and date,
+  // exactly as single-edit does: drop any old one, recreate it only if the current
+  // category has autoOffset enabled.
+  state.offsetTransactions = (state.offsetTransactions||[]).filter(t => t.linkedExpenseId !== e.id);
+  const cat = catById(e.categoryId);
+  if (cat && cat.autoOffset) {
+    state.offsetTransactions.push({ id: uid(), type: 'withdrawal', amount: e.amount, date: e.date, note: (e.name || cat.name) + ' (auto)', linkedExpenseId: e.id });
+  }
+}
+
+function confirmBulkEditExpenses() {
+  const newDate = document.getElementById('bulkDate')?.value || '';
+  const newCat = document.getElementById('bulkCat')?.value || '';
+  const newGoal = document.getElementById('bulkGoal')?.value || '';
+  const newPay = document.getElementById('bulkPay')?.value || '';
+
+  // Guard: a chosen category with goals requires a goal.
+  if (newCat) {
+    const goalIds = getLinkedGoalIds(catById(newCat));
+    if (goalIds.length > 0 && !newGoal) { showToast('Pick a goal for that category first', 2500); return; }
+  }
+  if (!newDate && !newCat && !newPay) { showToast('Nothing to change — pick at least one field', 2500); return; }
+
+  document.getElementById('expBulkEditModal')?.remove();
+  let changed = 0;
   _expSelected.forEach(id => {
     const e = (state.expenses||[]).find(x => x.id === id);
     if (!e) return;
-    e.date = newDate;
-    // Recalculate goal coverage for new date
-    const cat = catById(e.categoryId);
-    const linkedGoalIds = getLinkedGoalIds(cat);
-    if (linkedGoalIds.length > 0) {
-      const goalId = e.linkedGoalId || linkedGoalIds[0];
-      const goalBal = totalSavedForCat(goalId);
-      const covered = Math.min(goalBal, e.amount);
-      e.goalCoveredAmount = Math.round(covered * 100) / 100;
-      e.linkedGoalId = goalId;
-    } else {
-      e.goalCoveredAmount = 0;
-      e.linkedGoalId = null;
+    if (newDate) e.date = newDate;
+    if (newPay) { e.paymentAccountId = newPay; const a = accountById(newPay); e.paymentMethod = (a && a.type === 'credit') ? 'cc' : 'account'; }
+    // Category/goal: recompute coverage. If category changed, use the new category's
+    // goal (the required-picked one). If only moving date on an unchanged category,
+    // keep its current goal but recompute coverage for the new date.
+    if (newCat) {
+      e.categoryId = newCat;
+      const goalIds = getLinkedGoalIds(catById(newCat));
+      _recomputeExpenseCoverage(e, goalIds.length > 0 ? newGoal : null);
+    } else if (newDate) {
+      // date-only change on existing category: recompute coverage at the new date
+      const goalIds = getLinkedGoalIds(catById(e.categoryId));
+      _recomputeExpenseCoverage(e, goalIds.length > 0 ? (e.linkedGoalId || goalIds[0]) : null);
     }
-    moved++;
+    changed++;
   });
 
   _expSelectMode = false;
   _expSelected = new Set();
   saveState();
   renderExpenses();
-  showToast('✅ Moved ' + moved + ' transaction' + (moved!==1?'s':'') + ' to ' + newDate, 2500);
+  if (typeof updateHeader === 'function') updateHeader();
+  showToast('✅ Updated ' + changed + ' transaction' + (changed!==1?'s':''), 2500);
 }
 
 function renderExpenses() {
@@ -5394,7 +5505,7 @@ function renderExpenses() {
     bar.id = 'expSelectBar';
     bar.style.cssText = 'position:fixed;bottom:80px;left:0;right:0;z-index:100;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 16px;background:var(--bg);border-top:1px solid var(--surface2);box-shadow:0 -2px 12px rgba(0,0,0,0.15)';
     bar.innerHTML = '<div style="font-size:13px;font-weight:600;color:var(--text)"><span id="expSelCount">0 selected</span></div>' +
-      '<button id="expSelMove" onclick="openMoveExpensesDate()" disabled style="opacity:0.4;background:var(--accent);color:#fff;border:none;border-radius:10px;padding:9px 18px;font-size:13px;font-weight:700;font-family:var(--font);cursor:pointer">📅 Change date</button>';
+      '<button id="expSelMove" onclick="openBulkEditExpenses()" disabled style="opacity:0.4;background:var(--accent);color:#fff;border:none;border-radius:10px;padding:9px 18px;font-size:13px;font-weight:700;font-family:var(--font);cursor:pointer">✏️ Edit</button>';
     document.body.appendChild(bar);
   }
 
