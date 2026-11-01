@@ -4743,6 +4743,42 @@ await check("from more-cards, paying the remaining cards then reaching the end g
   } finally { ctx.getCCGoalContributions = _gc; ctx.renderPayCreditCardsFlow = _rp; }
 });
 
+console.log('\n── recurring dedup survives instance edits ──');
+
+await check("fired recurring expenses are stamped with an immutable occurrenceDate", () => {
+  const fs = require('fs'); const html = fs.readFileSync(APP_PATH, 'utf8');
+  // the catch-up push must include occurrenceDate: checkDateStr
+  const idx = html.indexOf('recurringId: r.id,\n        occurrenceDate: checkDateStr');
+  assertTrue(idx > -1, 'fired expenses carry occurrenceDate');
+  // and the dedup checks occurrenceDate (falling back to date), not just date
+  assertTrue(/e\.recurringId === r\.id && \(e\.occurrenceDate \|\| e\.date\) === checkDateStr/.test(html), 'dedup uses occurrenceDate with a date fallback');
+});
+
+await check("the recurring dedup predicate: an edited instance (date + amount changed) is still recognised as already-fired", () => {
+  // mirror the in-app alreadyExists predicate
+  const checkDateStr = '2026-09-28';
+  const r = { id: 'rX', categoryId: 'cat1', amount: 5, name: 'Coffee' };
+  // an expense that fired for 2026-09-28 but the user edited to yesterday + $8
+  const edited = { recurringId: 'rX', occurrenceDate: '2026-09-28', date: '2026-09-27', amount: 8, name: 'Coffee', categoryId: 'cat1' };
+  const expenses = [edited];
+  const alreadyExists = expenses.some(e => e.recurringId === r.id && (e.occurrenceDate || e.date) === checkDateStr)
+    || expenses.some(e => !e.recurringId && e.categoryId === r.categoryId && e.date === checkDateStr && e.amount === r.amount && e.name === r.name);
+  assertTrue(alreadyExists, 'the edited instance is recognised by occurrenceDate, so it will NOT re-fire');
+
+  // the OLD date-anchored predicate would MISS it (proving the bug existed)
+  const oldPredicate = expenses.some(e => e.recurringId === r.id && e.date === checkDateStr)
+    || expenses.some(e => e.categoryId === r.categoryId && e.date === checkDateStr && e.amount === r.amount && e.name === r.name);
+  assertTrue(!oldPredicate, 'the old date-anchored predicate missed the edited instance (would duplicate)');
+});
+
+await check("a legacy fired expense without occurrenceDate still dedupes by its date", () => {
+  const checkDateStr = '2026-09-28';
+  const r = { id: 'rY', categoryId: 'cat1', amount: 5, name: 'Coffee' };
+  const legacy = { recurringId: 'rY', date: '2026-09-28', amount: 5, name: 'Coffee', categoryId: 'cat1' }; // no occurrenceDate
+  const alreadyExists = [legacy].some(e => e.recurringId === r.id && (e.occurrenceDate || e.date) === checkDateStr);
+  assertTrue(alreadyExists, 'legacy expenses fall back to date and still dedupe');
+});
+
 await check('no top-level function is declared more than once anywhere in the file (regression: silent shadowing caused both a data-loss bug and a broken legacy super-contribution modal)', () => {
   const fs = require('fs');
   const html = fs.readFileSync(APP_PATH, 'utf8');

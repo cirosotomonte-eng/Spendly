@@ -26,8 +26,8 @@ const SPENDLY_MODE = 'cloud';
 // derive its cache name and reported version from the SAME constants the app uses.
 // Previously the worker carried its own hardcoded version that was never bumped,
 // so its cache name never changed and its version never matched the running app.
-const APP_VERSION = '2.82.0';
-const BUILD_TIME = '17 Sep 2026 2:05 PM AEDT';
+const APP_VERSION = '2.83.0';
+const BUILD_TIME = '29 Sep 2026 8:51 AM AEDT';
 
 // Only load Supabase SDK in cloud mode
 if (SPENDLY_MODE === 'cloud') {
@@ -13240,9 +13240,11 @@ function applyRecurringSavings() {
         return;
       }
 
-      // Standard flow — auto-fire deposit into goal
+      // Standard flow — auto-fire deposit into goal. Dedupe on the OCCURRENCE date
+      // (immutable), not the deposit's editable date, so editing a fired deposit's date
+      // does not cause a re-fire on the next catch-up.
       const alreadyExists = (state.savingsDeposits||[]).some(d =>
-        d.recurringId === r.id && (d.date === checkDateStr || d.cycleDate === checkDateStr)
+        d.recurringId === r.id && ((d.occurrenceDate || d.date) === checkDateStr || d.cycleDate === checkDateStr)
       );
       if (alreadyExists) return;
       if (!state.savingsDeposits) state.savingsDeposits = [];
@@ -13252,7 +13254,7 @@ function applyRecurringSavings() {
       state.savingsDeposits.push({
         id: depositId, catId: _stdGoalId, targetId: _stdGoalId,
         amount: r.amount, date: checkDateStr, note: r.name, type: 'deposit',
-        recurringId: r.id, sourceAccountId: r.sourceAccountId || undefined,
+        recurringId: r.id, occurrenceDate: checkDateStr, sourceAccountId: r.sourceAccountId || undefined,
       });
       if (r.sourceAccountId) {
         if (!state.accountTransactions) state.accountTransactions = [];
@@ -13433,13 +13435,13 @@ function applyRecurringIncome() {
         : next.getTime() === checkDate.getTime();
       if (!isDue) return;
       const alreadyExists = (state.accountTransactions||[]).some(t =>
-        t.recurringIncomeId === r.id && t.date === checkDateStr
+        t.recurringIncomeId === r.id && (t.occurrenceDate || t.date) === checkDateStr
       );
       if (alreadyExists) return;
       if (!state.accountTransactions) state.accountTransactions = [];
       state.accountTransactions.push({
         id: uid(), type: 'income', accountId: r.accountId,
-        amount: r.amount, date: checkDateStr,
+        amount: r.amount, date: checkDateStr, occurrenceDate: checkDateStr,
         description: r.name, recurringIncomeId: r.id,
       });
       added = true;
@@ -13904,10 +13906,16 @@ function applyRecurringExpenses() {
       // For catch-up: check if recurring was due on checkDate specifically
       if (!isRecurringDueOn(r, checkDateStr)) return;
 
-      // Skip if expense already exists for this date
+      // Skip if this occurrence already fired. Dedupe on the recurring rule + the
+      // OCCURRENCE date (the original due date, stamped at fire time and never edited),
+      // NOT the expense's visible date/amount — those are user-editable. Previously, if
+      // you edited a fired expense's date (or amount), the date-anchored check no longer
+      // matched, so the next catch-up re-fired the occurrence → a duplicate. Falls back
+      // to the visible date for legacy expenses fired before occurrenceDate existed.
       const alreadyExists = (state.expenses||[]).some(e =>
-        e.recurringId === r.id && e.date === checkDateStr
+        e.recurringId === r.id && (e.occurrenceDate || e.date) === checkDateStr
       ) || (state.expenses||[]).some(e =>
+        !e.recurringId &&
         e.categoryId === r.categoryId &&
         e.date === checkDateStr &&
         e.amount === r.amount &&
@@ -13966,6 +13974,7 @@ function applyRecurringExpenses() {
         paymentMethod: _payMethod,
         paymentAccountId: _payAcct,
         recurringId: r.id,
+        occurrenceDate: checkDateStr,
         ...(checkDateStr !== todayDateStr ? { catchUp: true } : {}),
       });
       r.lastAdded = checkDateStr;
