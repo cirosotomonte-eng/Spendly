@@ -26,8 +26,8 @@ const SPENDLY_MODE = 'cloud';
 // derive its cache name and reported version from the SAME constants the app uses.
 // Previously the worker carried its own hardcoded version that was never bumped,
 // so its cache name never changed and its version never matched the running app.
-const APP_VERSION = '2.83.0';
-const BUILD_TIME = '29 Sep 2026 8:51 AM AEDT';
+const APP_VERSION = '2.84.0';
+const BUILD_TIME = '02 Nov 2026 8:46 AM AEDT';
 
 // Only load Supabase SDK in cloud mode
 if (SPENDLY_MODE === 'cloud') {
@@ -8645,10 +8645,16 @@ function importData(evt) {
 
 // ── Modals ────────────────────────────────────────────────────────────────────
 function closeModal(id) {
-  document.getElementById(id).classList.remove('open');
+  const _m = document.getElementById(id);
+  _m.classList.remove('open');
   // If the expense modal is dismissed without saving, drop any pending
   // reconciliation-return so a later normal save doesn't wrongly bounce back.
-  if (id === 'expenseModal') window._reconcileAddReturn = null;
+  if (id === 'expenseModal') {
+    window._reconcileAddReturn = null;
+    // Reset the elevated z-index applied when opened from reconciliation, so the
+    // modal returns to its normal stacking for ordinary use.
+    if (_m && _m.style) _m.style.zIndex = '';
+  }
 }
 function openModal(id) {
   document.getElementById(id).classList.add('open');
@@ -17122,6 +17128,13 @@ function reconcileAddExpense(index) {
   // resolved. Previously this pushed a bare expense with the first category and a raw
   // paymentAccountId, which the user then had to hunt down and fix.
   openAddExpense();
+  // The reconciliation review is a full-screen overlay at z-index 99996, and the
+  // expense modal normally sits at z-index 100 — so without this it opens BEHIND the
+  // reconciliation screen and the user has to close reconciliation to see it. Lift the
+  // expense modal above the reconciliation overlay while adding from this flow; the
+  // z-index is reset when the modal closes (see closeModal).
+  const _expM = document.getElementById('expenseModal');
+  if (_expM) _expM.style.zIndex = '99998';
   const setVal = (id, v) => { const el = document.getElementById(id); if (el != null && v != null) el.value = v; };
   setVal('expAmount', item.amount);
   setVal('expName', item.merchant || '');

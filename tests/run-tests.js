@@ -3832,7 +3832,7 @@ await check("an expense added from reconciliation returns to the review; the ret
   // the flag must be captured BEFORE closeModal (which clears it on dismiss)
   assertTrue(/const _recReturn = window\._reconcileAddReturn;\s*\n\s*closeModal\('expenseModal'\)/.test(html),
     'the reconciliation-return is captured before closeModal, or dismissing the modal would wipe it');
-  assertTrue(/if \(id === 'expenseModal'\) window\._reconcileAddReturn = null;/.test(html),
+  assertTrue(/if \(id === 'expenseModal'\)[\s\S]{0,120}?window\._reconcileAddReturn = null;/.test(html),
     'closeModal clears the flag on a genuine dismiss, so a later normal save does not wrongly bounce to reconciliation');
 });
 
@@ -3855,6 +3855,18 @@ await check("saveExpense captures the reconciliation-return BEFORE closeModal wi
     'the return is captured before closeModal, which clears the flag on dismiss');
   assertTrue(body.indexOf('const _recReturn') < body.indexOf("closeModal('expenseModal')"),
     'capture must precede the close');
+});
+
+await check("the expense modal opens ABOVE the reconciliation review when added from it (z-index lift), and resets on close", () => {
+  ctx.state = buildMockState();
+  const result = { matched: [], missingFromSpendly: [{ date: '2026-06-01', merchant: 'Test Shop', amount: 42 }], missingFromStatement: [], splitSuggestions: [], creditsWithMatch: [], creditsUnmatched: [] };
+  ctx.showStatementReconciliationResults('cc1', result, null);
+  const em = ctx.document.getElementById('expenseModal');
+  ctx.reconcileAddExpense(0);
+  // the reconciliation review overlay is z-index 99996; the expense modal must sit above it
+  assertTrue(!!em.style && Number(em.style.zIndex) > 99996, 'expense modal is lifted above the reconciliation overlay (was behind it — user had to close reconciliation to see it)');
+  ctx.closeModal('expenseModal');
+  assertTrue(!em.style.zIndex, 'the z-index lift is reset on close so normal expense-adding keeps its default stacking');
 });
 
 console.log('\n── Legacy adjustment bucket migration ──');
