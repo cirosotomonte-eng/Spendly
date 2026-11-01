@@ -26,8 +26,11 @@ const SPENDLY_MODE = 'cloud';
 // derive its cache name and reported version from the SAME constants the app uses.
 // Previously the worker carried its own hardcoded version that was never bumped,
 // so its cache name never changed and its version never matched the running app.
-const APP_VERSION = '2.85.0';
-const BUILD_TIME = '02 Nov 2026 9:15 AM AEDT';
+const APP_VERSION = '2.86.0';
+const BUILD_TIME = '02 Nov 2026 9:44 AM AEDT';
+// Max characters shown for a statement merchant name in the reconciliation review.
+// Display-only: the full name is always kept on the data and used when the charge is added.
+const RECONCILE_NAME_DISPLAY_MAX = 10;
 
 // Only load Supabase SDK in cloud mode
 if (SPENDLY_MODE === 'cloud') {
@@ -17560,10 +17563,17 @@ function renderReconciliationReview() {
       const key = 'missing-' + i;
       const isResolved = resolved[key];
       const catOptions = (state.categories||[]).map(c => '<option value="' + c.id + '">' + (c.icon||'') + ' ' + c.name + '</option>').join('');
+      // Display name is hard-capped so the row stays a fixed width and the + Add button
+      // never shifts, however long the statement merchant string is. The FULL merchant
+      // name is preserved on the data object and is what reconcileAddExpense() prefills
+      // into the expense — the cap is display-only. Full name shown via the title tooltip.
+      const _mFull = item.merchant || 'Unknown';
+      const _mDisp = _mFull.length > RECONCILE_NAME_DISPLAY_MAX ? _mFull.slice(0, RECONCILE_NAME_DISPLAY_MAX) + '…' : _mFull;
+      const _mTitle = _mFull.replace(/"/g, '&quot;');
       html += '<div style="padding:12px 16px;border-top:1px solid var(--surface2)">' +
         '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;' + (isResolved ? '' : 'margin-bottom:8px') + '">' +
           '<div style="min-width:0">' +
-            '<div style="font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + (item.merchant||'Unknown') + '</div>' +
+            '<div title="' + _mTitle + '" style="font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + _mDisp + '</div>' +
             '<div style="font-size:11px;color:var(--muted)">' + fmtDateAU(item.date) + ' · ' + fmt(item.amount) + '</div>' +
           '</div>' +
           (isResolved ? resolvedBadge('Added') : '') +

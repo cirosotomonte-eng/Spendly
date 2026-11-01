@@ -4925,6 +4925,59 @@ await check('bulk edit auto-syncs the autoOffset mirror entry on category/date c
   assertEqual((ctx.state.offsetTransactions || []).filter(t => t.linkedExpenseId === 'eAO').length, 1, 're-running never duplicates the offset entry');
 });
 
+// ─────────────────────────────────────────────────────────────────────────
+console.log('\n── Reconciliation: merchant name truncated for display, full on add ──');
+
+await check('a long statement merchant name renders capped at RECONCILE_NAME_DISPLAY_MAX with an ellipsis, full name kept in the title tooltip', () => {
+  ctx.state = buildMockState();
+  const full = 'WOOLWORTHS METRO TOWN HALL';
+  ctx.window._reconciliation = {
+    ccAccountId: 'cc1',
+    result: {
+      missingFromSpendly: [{ merchant: full, amount: 54.3, date: '2026-11-01' }],
+      missingFromStatement: [], refundedPairs: [], matched: [], possibleMatches: [],
+      creditsUnmatched: [], creditsWithMatch: [], splitSuggestions: [], notYetBilled: [],
+      billedEarly: [], deferredOut: [],
+    },
+    cycleInfo: null, resolved: {}, collapsed: {},
+  };
+  ctx.renderReconciliationReview();
+  const out = ctx.document.getElementById('reconcileReviewScreen').innerHTML;
+  // RECONCILE_NAME_DISPLAY_MAX is a top-level const, so (like `state`) it isn't exposed
+  // as a sandbox property — read the agreed cap from the source instead.
+  const fs = require('fs');
+  const cap = parseInt((fs.readFileSync(APP_PATH, 'utf8').match(/RECONCILE_NAME_DISPLAY_MAX = (\d+)/) || [])[1], 10);
+  const expectedDisp = full.slice(0, cap) + '…';
+  assertTrue(out.includes('>' + expectedDisp + '<'), 'the visible merchant text is truncated to ' + cap + ' chars + ellipsis (got display "' + expectedDisp + '")');
+  assertTrue(!out.includes('>' + full + '<'), 'the full untruncated name is NOT the visible row text (old behaviour)');
+  assertTrue(out.includes('title="' + full + '"'), 'the full name is preserved in the title tooltip');
+});
+
+await check('adding a truncated reconciliation row prefills the FULL merchant name into the expense, not the display-capped one', () => {
+  ctx.state = buildMockState();
+  const full = 'WOOLWORTHS METRO TOWN HALL';
+  ctx.window._reconciliation = {
+    ccAccountId: 'cc1',
+    result: {
+      missingFromSpendly: [{ merchant: full, amount: 54.3, date: '2026-11-01' }],
+      missingFromStatement: [], refundedPairs: [], matched: [], possibleMatches: [],
+      creditsUnmatched: [], creditsWithMatch: [], splitSuggestions: [], notYetBilled: [],
+      billedEarly: [], deferredOut: [],
+    },
+    cycleInfo: null, resolved: {}, collapsed: {},
+  };
+  ctx.reconcileAddExpense(0);
+  const nameVal = ctx.document.getElementById('expName').value;
+  assertEqual(nameVal, full, 'the full merchant name is what gets added — the cap is display-only');
+});
+
+await check('the expense name input carries no maxlength, so a full statement name is never clipped on save', () => {
+  const fs = require('fs'); const html = fs.readFileSync(APP_PATH, 'utf8');
+  const tag = html.slice(html.indexOf('id="expName"') - 20, html.indexOf('id="expName"') + 120);
+  assertTrue(!/maxlength/i.test(tag), 'expName has no maxlength attribute');
+  assertTrue(/const RECONCILE_NAME_DISPLAY_MAX = \d+;/.test(html), 'the display cap is a named constant');
+});
+
 console.log(`\x1b[1mResults: ${pass} passed, ${fail} failed\x1b[0m`);
 if (fail > 0) {
   console.log('\nFailed tests:');
