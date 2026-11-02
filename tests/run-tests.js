@@ -4978,6 +4978,37 @@ await check('the expense name input carries no maxlength, so a full statement na
   assertTrue(/const RECONCILE_NAME_DISPLAY_MAX = \d+;/.test(html), 'the display cap is a named constant');
 });
 
+// ─────────────────────────────────────────────────────────────────────────
+console.log('\n── Reconciliation copy: apostrophes render, not literal \\u2019 ──');
+
+await check('the "later statement" notice renders real apostrophes, never a literal \\u2019 escape', () => {
+  ctx.state = buildMockState();
+  ctx.window._reconciliation = {
+    ccAccountId: 'cc1',
+    result: {
+      missingFromSpendly: [], missingFromStatement: [], refundedPairs: [], matched: [],
+      possibleMatches: [], creditsUnmatched: [], creditsWithMatch: [], splitSuggestions: [],
+      billedEarly: [], deferredOut: [],
+      notYetBilled: [
+        { name: 'A', date: '2026-11-01', amount: 100, categoryId: 'cat1' },
+        { name: 'B', date: '2026-11-02', amount: 467.31, categoryId: 'cat1' },
+      ],
+    },
+    cycleInfo: null, resolved: {}, collapsed: {},
+  };
+  ctx.renderReconciliationReview();
+  const out = ctx.document.getElementById('reconcileReviewScreen').innerHTML;
+  assertTrue(out.includes('later statement'), 'the notice is rendered');
+  assertTrue(!out.includes('\\u2019'), 'no literal backslash-u2019 leaks into the rendered copy (the bug)');
+  assertTrue(out.includes('hasn’t') && out.includes('they’ll'), 'apostrophes are real ’ characters');
+});
+
+await check('no user-facing string in the source carries a double-escaped unicode apostrophe/dash (\\\\u20xx)', () => {
+  const fs = require('fs'); const html = fs.readFileSync(APP_PATH, 'utf8');
+  const bad = html.match(/\\\\u20[0-9a-fA-F]{2}/g) || [];
+  assertTrue(bad.length === 0, 'found double-escaped unicode sequences that render literally: ' + bad.join(', '));
+});
+
 console.log(`\x1b[1mResults: ${pass} passed, ${fail} failed\x1b[0m`);
 if (fail > 0) {
   console.log('\nFailed tests:');
