@@ -26,8 +26,8 @@ const SPENDLY_MODE = 'cloud';
 // derive its cache name and reported version from the SAME constants the app uses.
 // Previously the worker carried its own hardcoded version that was never bumped,
 // so its cache name never changed and its version never matched the running app.
-const APP_VERSION = '2.88.0';
-const BUILD_TIME = '02 Nov 2026 3:00 PM AEDT';
+const APP_VERSION = '2.89.0';
+const BUILD_TIME = '02 Nov 2026 3:36 PM AEDT';
 // Max characters shown for a statement merchant name in the reconciliation review.
 // Display-only: the full name is always kept on the data and used when the charge is added.
 const RECONCILE_NAME_DISPLAY_MAX = 10;
@@ -7085,15 +7085,21 @@ function renderGoals() {
   // save — the target reduced by the overspend, since money you overspend can't also
   // be saved.
   if (upcomingRecSavingsTotal > 0 && isCurrentCycle()) {
-    const _overspend = freeToSpend < 0 ? Math.abs(freeToSpend) : 0;
-    const _projectedSavings = Math.max(0, upcomingRecSavingsTotal - _overspend);
+    // The "gap" is how much the full savings plan exceeds the budget still available
+    // after spending (freeToSpend already has all planned savings subtracted, so a
+    // negative value is the plan outrunning the remaining budget — NOT necessarily
+    // overspending). It can only erode savings that HAVEN'T fired yet: money already
+    // moved into goals (firedRecSavingsTotal) is locked in and can't be un-saved, so
+    // the projection floors at what's fired and only eats into the upcoming portion.
+    const _gap = freeToSpend < 0 ? Math.abs(freeToSpend) : 0;
+    const _projectedSavings = firedRecSavingsTotal + Math.max(0, upcomingRecSavingsOnly - _gap);
     html += '<div style="background:rgba(52,199,89,0.08);border:1.5px solid rgba(52,199,89,0.25);border-radius:12px;padding:10px 14px;margin-bottom:14px;font-size:11px;line-height:1.6;color:var(--muted)">' +
       '💚 <strong style="color:var(--text)">' + fmt(upcomingRecSavingsTotal) + '</strong> savings target · ' +
       '<span style="color:#34C759">' + fmt(firedRecSavingsTotal) + ' fired</span>' +
       (upcomingRecSavingsOnly > 0 ? ' · <span style="color:var(--muted)">' + fmt(upcomingRecSavingsOnly) + ' upcoming</span>' : '') +
-      (_overspend > 0.005
+      (_gap > 0.005
         ? '<div style="margin-top:7px;padding-top:7px;border-top:1px solid rgba(52,199,89,0.2);color:var(--muted)">' +
-            '⚠️ You\'re <strong style="color:var(--orange)">' + fmt(_overspend) + '</strong> over budget, so you\'re on track to save <strong style="color:' + (_projectedSavings > 0 ? 'var(--text)' : 'var(--red)') + '">' + fmt(_projectedSavings) + '</strong> of your ' + fmt(upcomingRecSavingsTotal) + ' target.' +
+            '⚠️ Your savings plan is <strong style="color:var(--orange)">' + fmt(_gap) + '</strong> more than your remaining budget, so you\'re on track to save <strong style="color:' + (_projectedSavings > 0 ? 'var(--text)' : 'var(--red)') + '">' + fmt(_projectedSavings) + '</strong> of your ' + fmt(upcomingRecSavingsTotal) + ' target.' +
           '</div>'
         : '<div style="margin-top:7px;padding-top:7px;border-top:1px solid rgba(52,199,89,0.2)">' +
             '✓ On track to save your full <strong style="color:#34C759">' + fmt(upcomingRecSavingsTotal) + '</strong> target.' +

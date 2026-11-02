@@ -5053,6 +5053,36 @@ await check('when totals line up (within $1), no explainer is shown', () => {
   assertTrue(!out.includes('What does this mean?'), 'no explainer once the gap is within $1');
 });
 
+// ─────────────────────────────────────────────────────────────────────────
+console.log('\n── Budget sub-tab: projected savings floors at what has already fired ──');
+
+await check('projected savings = fired + max(0, upcoming − gap): a gap bigger than upcoming never drops below already-fired', () => {
+  // Mirrors the in-app projection. Already-fired savings are money already moved into
+  // goals — an overspend/plan-gap can only erode the UPCOMING portion, not claw back
+  // what's locked in.
+  const fired = 2625, upcomingOnly = 4184;
+  const projNew = (gap) => fired + Math.max(0, upcomingOnly - gap);
+  const projOld = (gap) => Math.max(0, (fired + upcomingOnly) - gap); // the old, broken formula
+
+  // the real-world case from the report: gap 3032.12 → 3776.88 either way
+  assertTrue(Math.abs(projNew(3032.12) - 3776.88) < 0.005, 'normal gap projects 3776.88');
+  assertTrue(Math.abs(projOld(3032.12) - 3776.88) < 0.005, 'old and new agree when gap < upcoming');
+
+  // the edge the fix targets: gap larger than the upcoming portion
+  assertEqual(projNew(5000), fired, 'new formula floors at the already-fired amount');
+  assertTrue(projOld(5000) < fired, 'the OLD formula wrongly projected LESS than what was already saved (the bug): ' + projOld(5000) + ' < ' + fired);
+});
+
+await check('the budget savings notice uses the floored projection and the plan-vs-budget wording in source', () => {
+  const fs = require('fs'); const html = fs.readFileSync(APP_PATH, 'utf8');
+  assertTrue(/const _projectedSavings = firedRecSavingsTotal \+ Math\.max\(0, upcomingRecSavingsOnly - _gap\);/.test(html), 'projection floors at fired and only eats into upcoming');
+  assertTrue(html.includes('more than your remaining budget'), 'copy reframes the gap as plan-vs-remaining-budget');
+  // the misleading "over budget" phrasing is gone from this specific notice
+  const noticeStart = html.indexOf('savings target · ');
+  const noticeSlice = html.slice(noticeStart, noticeStart + 900);
+  assertTrue(!/over budget/.test(noticeSlice), 'the misleading "over budget" phrasing is removed from the savings notice');
+});
+
 console.log(`\x1b[1mResults: ${pass} passed, ${fail} failed\x1b[0m`);
 if (fail > 0) {
   console.log('\nFailed tests:');
