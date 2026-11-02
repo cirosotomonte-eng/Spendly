@@ -5009,6 +5009,50 @@ await check('no user-facing string in the source carries a double-escaped unicod
   assertTrue(bad.length === 0, 'found double-escaped unicode sequences that render literally: ' + bad.join(', '));
 });
 
+// ─────────────────────────────────────────────────────────────────────────
+console.log('\n── Reconciliation: "What does this mean?" totals explainer ──');
+
+function _reconFixture(totals) {
+  return {
+    ccAccountId: 'cc1',
+    result: {
+      totals,
+      missingFromSpendly: [], missingFromStatement: [], refundedPairs: [], matched: [],
+      possibleMatches: [], creditsUnmatched: [], creditsWithMatch: [], splitSuggestions: [],
+      notYetBilled: [], billedEarly: [], deferredOut: [],
+    },
+    cycleInfo: null, resolved: {}, collapsed: {},
+  };
+}
+
+await check('when the statement is higher than Spendly, the explainer tells the user to ADD missing charges', () => {
+  ctx.state = buildMockState();
+  ctx.window._reconciliation = _reconFixture({ statementChargesTotal: 600, spendlyLoggedTotal: 100, totalsDifference: 500, statementCreditsTotal: 0 });
+  ctx.renderReconciliationReview();
+  const out = ctx.document.getElementById('reconcileReviewScreen').innerHTML;
+  assertTrue(out.includes('What does this mean?'), 'the explainer is shown while totals differ');
+  assertTrue(out.includes('The statement is higher') && out.includes('missing from Spendly'), 'under-logged guidance points at the Add flow');
+  assertTrue(!out.includes('Spendly is higher'), 'the over-logged branch is not shown in this direction');
+});
+
+await check('when Spendly is higher than the statement, the explainer says those charges belong to a later statement', () => {
+  ctx.state = buildMockState();
+  ctx.window._reconciliation = _reconFixture({ statementChargesTotal: 100, spendlyLoggedTotal: 600, totalsDifference: -500, statementCreditsTotal: 0 });
+  ctx.renderReconciliationReview();
+  const out = ctx.document.getElementById('reconcileReviewScreen').innerHTML;
+  assertTrue(out.includes('What does this mean?'), 'the explainer is shown');
+  assertTrue(out.includes('Spendly is higher') && out.includes('Logged, not yet billed'), 'over-logged guidance points at the defer section');
+});
+
+await check('when totals line up (within $1), no explainer is shown', () => {
+  ctx.state = buildMockState();
+  ctx.window._reconciliation = _reconFixture({ statementChargesTotal: 100.5, spendlyLoggedTotal: 100, totalsDifference: 0.5, statementCreditsTotal: 0 });
+  ctx.renderReconciliationReview();
+  const out = ctx.document.getElementById('reconcileReviewScreen').innerHTML;
+  assertTrue(out.includes('✓ Totals line up'), 'the lined-up state is shown');
+  assertTrue(!out.includes('What does this mean?'), 'no explainer once the gap is within $1');
+});
+
 console.log(`\x1b[1mResults: ${pass} passed, ${fail} failed\x1b[0m`);
 if (fail > 0) {
   console.log('\nFailed tests:');

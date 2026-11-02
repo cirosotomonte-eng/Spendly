@@ -26,8 +26,8 @@ const SPENDLY_MODE = 'cloud';
 // derive its cache name and reported version from the SAME constants the app uses.
 // Previously the worker carried its own hardcoded version that was never bumped,
 // so its cache name never changed and its version never matched the running app.
-const APP_VERSION = '2.87.0';
-const BUILD_TIME = '02 Nov 2026 2:40 PM AEDT';
+const APP_VERSION = '2.88.0';
+const BUILD_TIME = '02 Nov 2026 3:00 PM AEDT';
 // Max characters shown for a statement merchant name in the reconciliation review.
 // Display-only: the full name is always kept on the data and used when the charge is added.
 const RECONCILE_NAME_DISPLAY_MAX = 10;
@@ -17801,10 +17801,27 @@ function renderReconciliationReview() {
     liveDiff = Math.round((t.statementChargesTotal - liveLogged - resolvedMissing) * 100) / 100;
   }
   const totalsCloseEnough = t && Math.abs(liveDiff) < 1; // within $1 — rounding/timing noise, not a real discrepancy
+  // Direction-aware "what do I do?" explainer, shown only while the totals still differ.
+  // liveDiff > 0 → statement is higher than what's logged (under-logged: add the missing
+  // charges); liveDiff < 0 → Spendly is higher (over-logged: those charges aren't on this
+  // statement yet, leave them for next cycle). Native <details> keeps it collapsed and JS-free.
+  const totalsHelp = (t && !totalsCloseEnough) ? (
+    '<details style="margin-top:6px">' +
+      '<summary style="font-size:11px;font-weight:600;color:var(--accent);cursor:pointer;list-style:none">What does this mean? ▾</summary>' +
+      '<div style="font-size:11px;color:var(--muted);line-height:1.5;margin-top:5px">' +
+        'Work through the sections below until this drops under $1 (small gaps are just rounding).<br>' +
+        (liveDiff > 0
+          ? '<strong style="color:var(--text)">The statement is higher</strong> — charges are on it that you haven’t logged yet. Open <strong style="color:var(--text)">“On statement, missing from Spendly”</strong> and tap + Add on each. The gap shrinks as you add them.'
+          : '<strong style="color:var(--text)">Spendly is higher</strong> — you’ve logged charges the bank hasn’t billed on this statement yet. Leave them under <strong style="color:var(--text)">“Logged, not yet billed”</strong>; they’ll land on your next statement and belong outside this total.') +
+        '<br>Still off after that? Look for a charge logged with a slightly wrong amount, a duplicate, or a refund you received but didn’t record.' +
+      '</div>' +
+    '</details>'
+  ) : '';
   const totalsBar = t ? (
     '<div style="padding:10px 16px;background:' + (totalsCloseEnough ? 'rgba(52,199,89,0.08)' : 'rgba(255,149,0,0.08)') + ';border-bottom:1px solid var(--surface2);flex-shrink:0">' +
       '<div style="font-size:12px;font-weight:700;color:' + (totalsCloseEnough ? '#34C759' : 'var(--orange)') + '">' + (totalsCloseEnough ? '✓ Totals line up' : '⚠️ Totals differ by ' + fmt(Math.abs(liveDiff))) + '</div>' +
       '<div style="font-size:11px;color:var(--muted);margin-top:1px">Statement: ' + fmt(t.statementChargesTotal) + ' · Logged in Spendly: ' + fmt(liveLogged) + (liveCredits > 0 ? ' · Credits: ' + fmt(liveCredits) : '') + '</div>' +
+      totalsHelp +
     '</div>'
   ) : '';
 
