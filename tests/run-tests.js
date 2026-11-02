@@ -5146,6 +5146,33 @@ await check('the mid-cycle caveat only appears when today is not the new start d
   assertTrue(msg.includes('part-way through the current cycle'), 'mid-cycle change includes the short/long transition caveat');
 });
 
+// ─────────────────────────────────────────────────────────────────────────
+console.log('\n── Spend tab: Daily sub-tab renders when toggled from Recurring ──');
+
+await check('toggling to Daily renders its results even when the pane was left empty (arriving from Recurring)', () => {
+  ctx.state = buildMockState();
+  if (!ctx.state.cycleDay) ctx.state.cycleDay = 1;
+  const origSetup = ctx.isSetupComplete; ctx.isSetupComplete = () => true;
+  const origRER = ctx.renderExpenseResults; let rer = 0; ctx.renderExpenseResults = () => { rer++; };
+  try {
+    ctx.setExpensesSubTab('recurring'); // sets the internal sub-tab to recurring
+    rer = 0;                            // ignore any render during setup
+    ctx.renderExpenses();               // recurring branch — must NOT populate the daily results
+    const afterRecurring = rer;
+    ctx.setExpensesSubTab('log');       // the fix: switching to Daily must render it
+    const afterToggle = rer;
+    assertEqual(afterRecurring, 0, 'returning to Spend while on Recurring leaves the daily results unrendered');
+    assertTrue(afterToggle > afterRecurring, 'toggling to Daily now renders the daily results (previously it stayed blank)');
+  } finally { ctx.isSetupComplete = origSetup; ctx.renderExpenseResults = origRER; }
+});
+
+await check('both the Spend render and the sub-tab toggle fill the Daily pane via the shared helper', () => {
+  const fs = require('fs'); const html = fs.readFileSync(APP_PATH, 'utf8');
+  assertTrue(/function renderExpensesLogPane\(\)/.test(html), 'the shared daily-pane helper exists');
+  // the one-line `else renderExpensesLogPane();` belongs to setExpensesSubTab's Daily branch
+  assertTrue(html.includes('else renderExpensesLogPane();'), 'the Daily toggle renders the pane, not just swaps visibility');
+});
+
 console.log(`\x1b[1mResults: ${pass} passed, ${fail} failed\x1b[0m`);
 if (fail > 0) {
   console.log('\nFailed tests:');

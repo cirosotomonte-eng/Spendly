@@ -26,8 +26,8 @@ const SPENDLY_MODE = 'cloud';
 // derive its cache name and reported version from the SAME constants the app uses.
 // Previously the worker carried its own hardcoded version that was never bumped,
 // so its cache name never changed and its version never matched the running app.
-const APP_VERSION = '2.90.0';
-const BUILD_TIME = '02 Nov 2026 3:44 PM AEDT';
+const APP_VERSION = '2.91.0';
+const BUILD_TIME = '02 Nov 2026 4:30 PM AEDT';
 // Max characters shown for a statement merchant name in the reconciliation review.
 // Display-only: the full name is always kept on the data and used when the charge is added.
 const RECONCILE_NAME_DISPLAY_MAX = 10;
@@ -5193,7 +5193,27 @@ function setExpensesSubTab(tab) {
   const recPane = document.getElementById('expPaneRecurring');
   if (logPane) logPane.style.display = tab === 'log' ? '' : 'none';
   if (recPane) recPane.style.display = tab === 'recurring' ? '' : 'none';
+  // Populate the pane we're switching to. The Daily pane's inner containers
+  // (#expenseResults etc.) can be empty — e.g. after returning to Spend while it was
+  // on Recurring, renderExpenses() built the log pane but never filled it — so toggling
+  // to Daily must render it, not just reveal it. Previously only Recurring re-rendered,
+  // which is why Daily showed blank until the Spend tab was re-opened.
   if (tab === 'recurring') renderRecurringPane();
+  else renderExpensesLogPane();
+}
+
+// Renders the Daily pane's contents (payment filter, "coming up" section, results) into
+// the containers already present in #expPaneLog. Shared by renderExpenses() and the
+// sub-tab toggle so both paths fill the pane identically.
+function renderExpensesLogPane() {
+  renderPaymentFilterBar();
+  const query = expenseSearchQuery.trim().toLowerCase();
+  if (!query) renderRecurringSection();
+  else { const c = document.getElementById('recurringCollapsible'); if (c) c.innerHTML = ''; }
+  requestAnimationFrame(() => {
+    const resultsEl = document.getElementById('expenseResults');
+    if (resultsEl) renderExpenseResults(resultsEl);
+  });
 }
 
 function toggleRecurringSection() {
@@ -5517,12 +5537,7 @@ function renderExpenses() {
     document.getElementById('expPaneRecurring').style.display = '';
     renderRecurringPane();
   } else {
-    renderPaymentFilterBar();
-    if (!query) renderRecurringSection();
-    requestAnimationFrame(() => {
-      const resultsEl = document.getElementById('expenseResults');
-      if (resultsEl) renderExpenseResults(resultsEl);
-    });
+    renderExpensesLogPane();
   }
 
 }
