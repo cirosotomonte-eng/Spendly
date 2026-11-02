@@ -26,8 +26,8 @@ const SPENDLY_MODE = 'cloud';
 // derive its cache name and reported version from the SAME constants the app uses.
 // Previously the worker carried its own hardcoded version that was never bumped,
 // so its cache name never changed and its version never matched the running app.
-const APP_VERSION = '2.91.0';
-const BUILD_TIME = '02 Nov 2026 4:30 PM AEDT';
+const APP_VERSION = '2.92.0';
+const BUILD_TIME = '03 Nov 2026 7:02 AM AEDT';
 // Max characters shown for a statement merchant name in the reconciliation review.
 // Display-only: the full name is always kept on the data and used when the charge is added.
 const RECONCILE_NAME_DISPLAY_MAX = 10;
@@ -4618,7 +4618,7 @@ function saveTabConfig() {
 function switchTab(tab) {
   if (tab !== 'expenses') expenseSearchQuery = '';
   if (tab !== 'accounts') { _viewingAccountId = null; _salaryCycleOffset = 0; }
-  if (tab !== 'expenses') { _expSelectMode = false; _expSelected = new Set(); const b = document.getElementById('expSelectBar'); if (b) b.remove(); }
+  if (tab !== 'expenses') { _expSelectMode = false; _expSelected = new Set(); const b = document.getElementById('expSelectBar'); if (b) b.remove(); _recSelectMode = false; _recSelected = new Set(); const rb = document.getElementById('recSelectBar'); if (rb) rb.remove(); }
   state.currentTab = tab;
   renderContent();
 }
@@ -5206,6 +5206,9 @@ function setExpensesSubTab(tab) {
 // the containers already present in #expPaneLog. Shared by renderExpenses() and the
 // sub-tab toggle so both paths fill the pane identically.
 function renderExpensesLogPane() {
+  // Switching to Daily cancels any Recurring multi-selection and removes its sticky bar.
+  if (_recSelectMode) { _recSelectMode = false; _recSelected = new Set(); }
+  const _rb = document.getElementById('recSelectBar'); if (_rb) _rb.remove();
   renderPaymentFilterBar();
   const query = expenseSearchQuery.trim().toLowerCase();
   if (!query) renderRecurringSection();
@@ -5548,11 +5551,16 @@ function renderRecurringPane() {
   if (!pane) return;
   const recs = state.recurringExpenses || [];
 
+  const selectBtn = recs.length > 0
+    ? '<button onclick="toggleRecSelectMode()" style="padding:6px 12px;border-radius:8px;border:1.5px solid var(--surface2);background:' + (_recSelectMode ? 'var(--accent)' : 'var(--surface)') + ';color:' + (_recSelectMode ? '#fff' : 'var(--muted)') + ';font-size:12px;font-weight:600;font-family:var(--font);cursor:pointer">' + (_recSelectMode ? '✕ Cancel' : 'Select') + '</button>'
+    : '';
+
   let html = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">' +
     '<div style="font-size:13px;font-weight:600;color:var(--text)">' + recs.length + ' recurring expense' + (recs.length !== 1 ? 's' : '') + '</div>' +
-    '<div style="display:flex;gap:6px">' +
-      '<button onclick="repairMissingRecurringExpenses();showToast(\'✅ Checked for missed recurring expenses\',2500)" style="background:var(--surface2);color:var(--muted);border:none;border-radius:8px;padding:7px 10px;font-size:12px;font-weight:600;font-family:var(--font);cursor:pointer" title="Apply any missed transactions for today">↻ Apply today</button>' +
-      '<button onclick="openAddRecurringInline()" style="background:var(--accent-dim);color:var(--accent);border:none;border-radius:8px;padding:7px 18px;font-size:12px;font-weight:600;font-family:var(--font);cursor:pointer">+ Add</button>' +
+    '<div style="display:flex;gap:6px;align-items:center">' + selectBtn +
+      (_recSelectMode ? '' :
+        '<button onclick="repairMissingRecurringExpenses();showToast(\'✅ Checked for missed recurring expenses\',2500)" style="background:var(--surface2);color:var(--muted);border:none;border-radius:8px;padding:7px 10px;font-size:12px;font-weight:600;font-family:var(--font);cursor:pointer" title="Apply any missed transactions for today">↻ Apply today</button>' +
+        '<button onclick="openAddRecurringInline()" style="background:var(--accent-dim);color:var(--accent);border:none;border-radius:8px;padding:7px 18px;font-size:12px;font-weight:600;font-family:var(--font);cursor:pointer">+ Add</button>') +
     '</div>' +
   '</div>';
 
@@ -5577,8 +5585,14 @@ function renderRecurringPane() {
       const pausedBadge = r.active===false ? '<span style="font-size:10px;color:var(--orange);font-weight:400"> · Paused</span>' : '';
       const dueBadge = isDueToday ? '<span style="font-size:9px;background:rgba(52,199,89,0.15);color:#34C759;border-radius:4px;padding:2px 5px;font-weight:700;margin-left:4px">TODAY</span>' : '';
       const pencilSvg = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>';
-      html += '<div class="list-item" style="justify-content:space-between;margin-bottom:8px">' +
+      // In select mode the whole row toggles selection and shows a checkbox; the edit
+      // pencil is hidden to avoid a tap that both selects and opens the editor.
+      const checkbox = _recSelectMode
+        ? '<div id="recchk-' + r.id + '" style="width:22px;height:22px;border-radius:6px;flex-shrink:0;background:' + (_recSelected.has(r.id)?'var(--accent)':'var(--surface2)') + ';border:1.5px solid var(--border);display:flex;align-items:center;justify-content:center;color:#fff;font-size:13px">' + (_recSelected.has(r.id)?'✓':'') + '</div>'
+        : '';
+      html += '<div class="list-item" style="justify-content:space-between;margin-bottom:8px' + (_recSelectMode ? ';cursor:pointer' : '') + '"' + (_recSelectMode ? ' onclick="toggleRecSel(\'' + r.id + '\')"' : '') + '>' +
         '<div style="display:flex;align-items:center;gap:12px;flex:1;min-width:0">' +
+          checkbox +
           '<div class="cat-icon">'+(cat?cat.icon:'❓')+'</div>' +
           '<div class="item-info">' +
             '<div class="item-name">' + r.name + autoOffsetBadge + pausedBadge + dueBadge + '</div>' +
@@ -5590,13 +5604,154 @@ function renderRecurringPane() {
             '<div class="item-amount">' + fmt(r.amount) + '</div>' +
             '<div style="font-size:10px;color:var(--muted)">' + (cat?cat.name:'') + '</div>' +
           '</div>' +
-          '<button onclick="openEditRecurringInline(\'' + r.id + '\')" style="background:var(--surface2);border:none;border-radius:50%;width:32px;height:32px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--muted);flex-shrink:0">' + pencilSvg + '</button>' +
+          (_recSelectMode ? '' : '<button onclick="openEditRecurringInline(\'' + r.id + '\')" style="background:var(--surface2);border:none;border-radius:50%;width:32px;height:32px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--muted);flex-shrink:0">' + pencilSvg + '</button>') +
         '</div>' +
       '</div>';
     });
     html += '</div>';
+    if (_recSelectMode) html += '<div style="height:70px"></div>';
   }
   pane.innerHTML = html;
+
+  // Sticky bulk-action bar, same lifecycle as the Daily #expSelectBar.
+  const oldRecBar = document.getElementById('recSelectBar');
+  if (oldRecBar) oldRecBar.remove();
+  if (_recSelectMode) {
+    const bar = document.createElement('div');
+    bar.id = 'recSelectBar';
+    bar.style.cssText = 'position:fixed;bottom:80px;left:0;right:0;z-index:100;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 16px;background:var(--bg);border-top:1px solid var(--surface2);box-shadow:0 -2px 12px rgba(0,0,0,0.15)';
+    bar.innerHTML = '<div style="font-size:13px;font-weight:600;color:var(--text)"><span id="recSelCount">' + _recSelected.size + ' selected</span></div>' +
+      '<button id="recSelEdit" onclick="openRecurringBulkEdit()" ' + (_recSelected.size===0?'disabled':'') + ' style="opacity:' + (_recSelected.size===0?'0.4':'1') + ';background:var(--accent);color:#fff;border:none;border-radius:10px;padding:9px 18px;font-size:13px;font-weight:700;font-family:var(--font);cursor:pointer">✏️ Edit</button>';
+    document.body.appendChild(bar);
+  }
+}
+
+function toggleRecSelectMode() {
+  _recSelectMode = !_recSelectMode;
+  _recSelected = new Set();
+  renderRecurringPane();
+}
+
+function toggleRecSel(id) {
+  if (_recSelected.has(id)) _recSelected.delete(id);
+  else _recSelected.add(id);
+  const cb = document.getElementById('recchk-' + id);
+  if (cb) { cb.style.background = _recSelected.has(id) ? 'var(--accent)' : 'var(--surface2)'; cb.textContent = _recSelected.has(id) ? '✓' : ''; }
+  const bar = document.getElementById('recSelectBar');
+  if (bar) {
+    const n = _recSelected.size;
+    const c = bar.querySelector('#recSelCount'); if (c) c.textContent = n + ' selected';
+    const e = bar.querySelector('#recSelEdit'); if (e) { e.disabled = n === 0; e.style.opacity = n === 0 ? '0.4' : '1'; }
+  }
+}
+
+// Bulk-edit sheet for recurring rules. Changes apply to the RULE, which future fired
+// instances inherit; already-fired past expenses are separate records and untouched.
+// Rules hold no goal withdrawals (those are created when a rule fires), so no coverage
+// recompute is needed here — unlike the Daily expense bulk-edit.
+function openRecurringBulkEdit() {
+  if (_recSelected.size === 0) return;
+  const n = _recSelected.size;
+  // Payment options mirror _populateRecPaymentSelect, with a leave-unchanged default.
+  const ccAccts = (state.accounts||[]).filter(a => a.type === 'credit');
+  const bankAccts = (state.accounts||[]).filter(a => a.type !== 'credit');
+  let payOpts = '<option value="">— leave unchanged —</option><optgroup label="Standard">';
+  if (ccAccts.length === 0) payOpts += '<option value="cc">💳 Credit Card</option>';
+  payOpts += '<option value="cash">💵 Cash</option><option value="other">💸 Other</option></optgroup>';
+  if (ccAccts.length > 0) { payOpts += '<optgroup label="Credit Cards">' + ccAccts.map(a => '<option value="acct:' + a.id + '">💳 ' + a.name + '</option>').join('') + '</optgroup>'; }
+  if (bankAccts.length > 0) { payOpts += '<optgroup label="Bank Accounts">' + bankAccts.map(a => '<option value="acct:' + a.id + '">' + (a.icon||'🏦') + ' ' + a.name + '</option>').join('') + '</optgroup>'; }
+  const cats = (state.categories||[]).filter(c => !c.archived);
+  const catOpts = '<option value="">— leave unchanged —</option>' + cats.map(c => '<option value="' + c.id + '">' + (c.icon ? c.icon + ' ' : '') + c.name + '</option>').join('');
+
+  const fld = (label, inner) => '<div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:6px">' + label + '</div>' + inner;
+  const selStyle = 'width:100%;padding:11px 12px;border-radius:10px;border:1.5px solid var(--surface2);background:var(--surface);color:var(--text);font-size:15px;font-family:var(--font);box-sizing:border-box;margin-bottom:16px';
+
+  const overlay = document.createElement('div');
+  overlay.id = 'recBulkEditModal';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:flex-end;justify-content:center';
+  overlay.innerHTML =
+    '<div style="background:var(--bg);border-radius:20px 20px 0 0;padding:24px 20px 36px;width:100%;max-width:480px;margin:0 auto;box-sizing:border-box;max-height:88vh;overflow-y:auto">' +
+      '<div style="font-size:16px;font-weight:700;margin-bottom:6px">Edit ' + n + ' recurring rule' + (n!==1?'s':'') + '</div>' +
+      '<div style="font-size:12px;color:var(--muted);margin-bottom:18px">Only the fields you change are applied. Changes affect future occurrences; past transactions are untouched.</div>' +
+      fld('Paid from', '<select id="recBulkPay" style="' + selStyle + '">' + payOpts + '</select>') +
+      fld('Category', '<select id="recBulkCat" onchange="_recBulkCatChanged()" style="' + selStyle + '">' + catOpts + '</select>') +
+      '<div id="recBulkGoalWrap" style="display:none">' + fld('<span style="color:var(--orange)">Savings goal · required</span>', '<select id="recBulkGoal" onchange="_recBulkValidate()" style="' + selStyle.replace('var(--surface2)','var(--orange)') + '"></select>') + '</div>' +
+      fld('Status', '<select id="recBulkActive" style="' + selStyle + '"><option value="">— leave unchanged —</option><option value="resume">▶️ Resume (active)</option><option value="pause">⏸️ Pause</option></select>') +
+      fld('Auto-offset', '<select id="recBulkOffset" style="' + selStyle + '"><option value="">— leave unchanged —</option><option value="on">🏦 On</option><option value="off">Off</option></select>') +
+      '<div style="display:flex;gap:10px">' +
+        '<button onclick="document.getElementById(\'recBulkEditModal\').remove()" style="flex:1;padding:13px;border-radius:12px;border:1.5px solid var(--surface2);background:var(--surface);color:var(--text);font-size:14px;font-weight:600;font-family:var(--font);cursor:pointer">Cancel</button>' +
+        '<button id="recBulkApplyBtn" onclick="confirmRecurringBulkEdit()" style="flex:2;padding:13px;border-radius:12px;border:none;background:var(--accent);color:#fff;font-size:14px;font-weight:700;font-family:var(--font);cursor:pointer">Apply</button>' +
+      '</div>' +
+    '</div>';
+  document.body.appendChild(overlay);
+  overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+}
+
+function _recBulkCatChanged() {
+  const catId = document.getElementById('recBulkCat')?.value;
+  const wrap = document.getElementById('recBulkGoalWrap');
+  const goalSel = document.getElementById('recBulkGoal');
+  if (!wrap || !goalSel) return;
+  const goalIds = catId ? getLinkedGoalIds(catById(catId)) : [];
+  if (catId && goalIds.length > 0) {
+    goalSel.innerHTML = (goalIds.length > 1 ? '<option value="">— choose a goal —</option>' : '') +
+      goalIds.map(gid => { const g = savingsCatById(gid); return '<option value="' + gid + '">' + (g ? ((g.icon||'🎯') + ' ' + g.name) : gid) + '</option>'; }).join('');
+    if (goalIds.length === 1) goalSel.value = goalIds[0];
+    wrap.style.display = '';
+  } else {
+    wrap.style.display = 'none';
+    goalSel.innerHTML = '';
+  }
+  _recBulkValidate();
+}
+
+function _recBulkValidate() {
+  const catId = document.getElementById('recBulkCat')?.value;
+  const goalSel = document.getElementById('recBulkGoal');
+  const btn = document.getElementById('recBulkApplyBtn');
+  if (!btn) return;
+  const goalIds = catId ? getLinkedGoalIds(catById(catId)) : [];
+  const blocked = catId && goalIds.length > 0 && !(goalSel && goalSel.value);
+  btn.disabled = blocked;
+  btn.style.opacity = blocked ? '0.4' : '1';
+  btn.style.cursor = blocked ? 'not-allowed' : 'pointer';
+}
+
+function confirmRecurringBulkEdit() {
+  const pay = document.getElementById('recBulkPay')?.value || '';
+  const cat = document.getElementById('recBulkCat')?.value || '';
+  const goal = document.getElementById('recBulkGoal')?.value || '';
+  const active = document.getElementById('recBulkActive')?.value || '';
+  const offset = document.getElementById('recBulkOffset')?.value || '';
+  if (cat) {
+    const goalIds = getLinkedGoalIds(catById(cat));
+    if (goalIds.length > 0 && !goal) { showToast('Pick a goal for that category first', 2500); return; }
+  }
+  if (!pay && !cat && !active && !offset) { showToast('Nothing to change — pick at least one field', 2500); return; }
+  document.getElementById('recBulkEditModal')?.remove();
+  let changed = 0;
+  _recSelected.forEach(id => {
+    const r = (state.recurringExpenses||[]).find(x => x.id === id);
+    if (!r) return;
+    if (pay) {
+      if (pay.startsWith('acct:')) { r.paymentMethod = 'account'; r.paymentAccountId = pay.slice(5); }
+      else { r.paymentMethod = pay; r.paymentAccountId = undefined; }
+    }
+    if (cat) {
+      r.categoryId = cat;
+      const goalIds = getLinkedGoalIds(catById(cat));
+      r.linkedGoalId = goalIds.length > 0 ? goal : undefined;
+    }
+    if (active) r.active = (active === 'resume');
+    if (offset) r.autoOffset = (offset === 'on');
+    changed++;
+  });
+  _recSelectMode = false;
+  _recSelected = new Set();
+  saveState();
+  renderRecurringPane();
+  if (typeof updateHeader === 'function') updateHeader();
+  showToast('✅ Updated ' + changed + ' recurring rule' + (changed!==1?'s':''), 2500);
 }
 
 function renderPaymentFilterBar() {
@@ -16820,6 +16975,8 @@ let _viewingAccountId = null;
 let _salaryCycleOffset = 0;
 let _expSelectMode = false;
 let _expSelected = new Set(); // 0 = current cycle, -1 = previous, etc.
+let _recSelectMode = false; // Recurring sub-tab multi-select
+let _recSelected = new Set();
 
 // ── CC batch payment ──────────────────────────────────────────────────────────
 // ── CC Refund ─────────────────────────────────────────────────────────────────

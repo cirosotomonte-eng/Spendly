@@ -5173,6 +5173,86 @@ await check('both the Spend render and the sub-tab toggle fill the Daily pane vi
   assertTrue(html.includes('else renderExpensesLogPane();'), 'the Daily toggle renders the pane, not just swaps visibility');
 });
 
+// ─────────────────────────────────────────────────────────────────────────
+console.log('\n── Recurring tab: multi-select bulk edit ──');
+
+function _recBulkEnv() {
+  const saved = {};
+  ['renderRecurringPane','saveState','updateHeader','showToast'].forEach(fn => { saved[fn] = ctx[fn]; ctx[fn] = () => {}; });
+  return saved;
+}
+function _recBulkRestore(saved) { Object.keys(saved).forEach(fn => { ctx[fn] = saved[fn]; }); }
+function _setRecBulkFields(f) {
+  ['recBulkPay','recBulkCat','recBulkGoal','recBulkActive','recBulkOffset'].forEach(id => { ctx.document.getElementById(id).value = ''; });
+  Object.keys(f).forEach(id => { ctx.document.getElementById(id).value = f[id]; });
+}
+
+await check('bulk edit applies payment account, status and auto-offset to all selected recurring rules', () => {
+  ctx.state = buildMockState();
+  ctx.state.recurringExpenses = [
+    { id: 'r1', name: 'Netflix', amount: 20, categoryId: 'cat1', paymentMethod: 'cc', active: true, autoOffset: false, frequency: 'weekly', weekday: 1 },
+    { id: 'r2', name: 'Spotify', amount: 12, categoryId: 'cat1', paymentMethod: 'cc', active: true, autoOffset: false, frequency: 'weekly', weekday: 1 },
+  ];
+  const saved = _recBulkEnv();
+  try {
+    ctx.toggleRecSelectMode(); ctx.toggleRecSel('r1'); ctx.toggleRecSel('r2');
+    _setRecBulkFields({ recBulkPay: 'acct:cc1', recBulkActive: 'pause', recBulkOffset: 'on' });
+    ctx.confirmRecurringBulkEdit();
+  } finally { _recBulkRestore(saved); }
+  ctx.state.recurringExpenses.forEach(r => {
+    assertEqual(r.paymentMethod, 'account', r.name + ' switched to an account payment method');
+    assertEqual(r.paymentAccountId, 'cc1', r.name + ' points at the chosen card');
+    assertEqual(r.active, false, r.name + ' was paused');
+    assertEqual(r.autoOffset, true, r.name + ' had auto-offset turned on');
+  });
+});
+
+await check('a standard payment method (cash) clears any previous account link', () => {
+  ctx.state = buildMockState();
+  ctx.state.recurringExpenses = [{ id: 'r1', name: 'Gym', amount: 50, categoryId: 'cat1', paymentMethod: 'account', paymentAccountId: 'cc1', active: true, frequency: 'weekly', weekday: 1 }];
+  const saved = _recBulkEnv();
+  try {
+    ctx.toggleRecSelectMode(); ctx.toggleRecSel('r1');
+    _setRecBulkFields({ recBulkPay: 'cash' });
+    ctx.confirmRecurringBulkEdit();
+  } finally { _recBulkRestore(saved); }
+  const r = ctx.state.recurringExpenses[0];
+  assertEqual(r.paymentMethod, 'cash', 'method set to cash');
+  assertTrue(!r.paymentAccountId, 'the stale account link is cleared');
+});
+
+await check('changing to a goal-linked category is blocked until a goal is chosen, then writes the goal', () => {
+  ctx.state = buildMockState();
+  ctx.state.categories.push({ id: 'catG', name: 'Travel', linkedSavingsGoalId: 'goal1' });
+  ctx.state.recurringExpenses = [{ id: 'r1', name: 'Flights fund', amount: 100, categoryId: 'cat1', paymentMethod: 'cc', active: true, frequency: 'weekly', weekday: 1 }];
+  const saved = _recBulkEnv();
+  let toasts = 0; ctx.showToast = () => { toasts++; };
+  try {
+    ctx.toggleRecSelectMode(); ctx.toggleRecSel('r1');
+    // category with a goal but no goal picked → blocked, nothing changes
+    _setRecBulkFields({ recBulkCat: 'catG', recBulkGoal: '' });
+    ctx.confirmRecurringBulkEdit();
+    assertEqual(ctx.state.recurringExpenses[0].categoryId, 'cat1', 'no change while the required goal is unset');
+    assertTrue(toasts > 0, 'the user is told to pick a goal');
+    // now pick the goal → applies
+    _setRecBulkFields({ recBulkCat: 'catG', recBulkGoal: 'goal1' });
+    ctx.confirmRecurringBulkEdit();
+  } finally { _recBulkRestore(saved); }
+  const r = ctx.state.recurringExpenses[0];
+  assertEqual(r.categoryId, 'catG', 'category applied once the goal was chosen');
+  assertEqual(r.linkedGoalId, 'goal1', 'the chosen goal is written to the rule');
+});
+
+await check('recurring multi-select UI and lifecycle cleanup are wired in source', () => {
+  const fs = require('fs'); const html = fs.readFileSync(APP_PATH, 'utf8');
+  assertTrue(/onclick="toggleRecSelectMode\(\)"/.test(html), 'the Recurring pane has a Select button');
+  assertTrue(html.includes('function openRecurringBulkEdit') && html.includes('function confirmRecurringBulkEdit'), 'the bulk-edit sheet and apply handler exist');
+  // leaving the tab or switching to Daily removes the recurring select bar
+  assertTrue(/tab !== 'expenses'[\s\S]{0,260}recSelectBar/.test(html), 'switchTab clears the recurring select bar when leaving Expenses');
+  const logPane = html.slice(html.indexOf('function renderExpensesLogPane'), html.indexOf('function renderExpensesLogPane') + 400);
+  assertTrue(/recSelectBar/.test(logPane), 'switching to Daily removes the recurring select bar');
+});
+
 console.log(`\x1b[1mResults: ${pass} passed, ${fail} failed\x1b[0m`);
 if (fail > 0) {
   console.log('\nFailed tests:');
