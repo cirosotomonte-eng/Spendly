@@ -26,8 +26,8 @@ const SPENDLY_MODE = 'cloud';
 // derive its cache name and reported version from the SAME constants the app uses.
 // Previously the worker carried its own hardcoded version that was never bumped,
 // so its cache name never changed and its version never matched the running app.
-const APP_VERSION = '2.89.0';
-const BUILD_TIME = '02 Nov 2026 3:36 PM AEDT';
+const APP_VERSION = '2.90.0';
+const BUILD_TIME = '02 Nov 2026 3:44 PM AEDT';
 // Max characters shown for a statement merchant name in the reconciliation review.
 // Display-only: the full name is always kept on the data and used when the charge is added.
 const RECONCILE_NAME_DISPLAY_MAX = 10;
@@ -7474,16 +7474,44 @@ function saveBudgetSettings() {
     const btn = document.getElementById('setCycleType' + t.charAt(0).toUpperCase() + t.slice(1));
     if (btn && btn.classList.contains('active')) cycleType = t;
   });
+  // Work out the NEW cycle config into locals first, so we can warn before committing.
+  let newCycleDay, newCycleAnchor;
+  if (cycleType === 'monthly') {
+    const _cd = parseInt(document.getElementById('setCycleDay2').value) || 1;
+    newCycleDay = Math.min(Math.max(_cd, 1), 28);
+    newCycleAnchor = '';
+  } else {
+    newCycleAnchor = document.getElementById('setCycleAnchor2').value || todayStr();
+    newCycleDay = 1;
+  }
+  // Heads-up when the tracking cycle actually changes. The cycle boundary is derived
+  // live from these settings (not stored per transaction), so a change re-buckets every
+  // past cycle into the new windows — nothing is lost, but history re-groups. And if
+  // today isn't the new cycle's start day, the current cycle becomes a one-off short/long
+  // transition. Only prompt for a real change on an already-set-up app (not onboarding).
+  const _cycleChanged = state.setupDone && (cycleType !== (state.cycleType || 'monthly') || newCycleDay !== (state.cycleDay || 1) || (newCycleAnchor || '') !== (state.cycleAnchorDate || ''));
+  let _applyCycle = true;
+  if (_cycleChanged) {
+    const _now = new Date(); _now.setHours(0,0,0,0);
+    let _midCycle;
+    if (cycleType === 'monthly') {
+      _midCycle = _now.getDate() !== newCycleDay;
+    } else {
+      const _days = cycleType === 'weekly' ? 7 : 14;
+      const _anchor = new Date((newCycleAnchor || todayStr()) + 'T00:00:00');
+      _midCycle = (Math.round((_now - _anchor) / 86400000) % _days) !== 0;
+    }
+    let _msg = 'Change your tracking cycle? This re-buckets your past cycles into the new windows — no data is lost, but your history will re-group.';
+    if (_midCycle) _msg += '\n\nYou’re part-way through the current cycle, so this one will be shorter or longer than usual. Changing on the cycle’s start day avoids that.';
+    // Cancelling keeps the cycle as-is but still saves the other settings on this screen.
+    if (!confirm(_msg)) _applyCycle = false;
+  }
   state.appName = name;
   state.budget = budget; recordBudgetHistory(budget);
-  state.cycleType = cycleType;
-  if (cycleType === 'monthly') {
-    const cycleDay = parseInt(document.getElementById('setCycleDay2').value) || 1;
-    state.cycleDay = Math.min(Math.max(cycleDay, 1), 28);
-    state.cycleAnchorDate = '';
-  } else {
-    state.cycleAnchorDate = document.getElementById('setCycleAnchor2').value || todayStr();
-    state.cycleDay = 1;
+  if (_applyCycle) {
+    state.cycleType = cycleType;
+    state.cycleDay = newCycleDay;
+    state.cycleAnchorDate = newCycleAnchor;
   }
   state.city = city;
   state.country = country;

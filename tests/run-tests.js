@@ -5083,6 +5083,69 @@ await check('the budget savings notice uses the floored projection and the plan-
   assertTrue(!/over budget/.test(noticeSlice), 'the misleading "over budget" phrasing is removed from the savings notice');
 });
 
+// ─────────────────────────────────────────────────────────────────────────
+console.log('\n── Settings: cycle-day change heads-up ──');
+
+function _setupCycleSaveEnv() {
+  // Minimal DOM + collaborators so saveBudgetSettings() can run in isolation.
+  ['setAppName2','setBudget2','setCity2','setCountry2','setMaxFutureCycles','setCycleDay2','setCycleAnchor2'].forEach(id => { ctx.document.getElementById(id).value = ''; });
+  ctx.document.getElementById('setAppName2').value = 'Spendly';
+  ctx.document.getElementById('setBudget2').value = '8000';
+  ctx.document.getElementById('setMaxFutureCycles').value = '6';
+  ctx.Intl = Intl;
+  const saved = {};
+  ['saveState','renderContent','updateHeader','closeModal','showToast','recordBudgetHistory'].forEach(fn => { saved[fn] = ctx[fn]; ctx[fn] = () => {}; });
+  return saved;
+}
+function _restoreCycleSaveEnv(saved) { Object.keys(saved).forEach(fn => { ctx[fn] = saved[fn]; }); }
+
+await check('changing the cycle day on a set-up app prompts, and cancelling keeps the cycle but still saves other settings', () => {
+  ctx.state = buildMockState();
+  ctx.state.setupDone = true; ctx.state.cycleType = 'monthly'; ctx.state.cycleDay = 1; ctx.state.budget = 5000;
+  const saved = _setupCycleSaveEnv();
+  ctx.document.getElementById('setCycleDay2').value = '15';
+  let msg = null;
+  ctx.confirm = (m) => { msg = m; return false; }; // user cancels
+  try { ctx.saveBudgetSettings(); } finally { _restoreCycleSaveEnv(saved); }
+  assertTrue(msg && msg.includes('re-buckets your past cycles'), 'the heads-up fires and explains re-bucketing');
+  assertEqual(ctx.state.cycleDay, 1, 'cancelling leaves the cycle day unchanged');
+  assertEqual(ctx.state.budget, 8000, 'the other settings on the screen are still saved');
+});
+
+await check('confirming the cycle-day change applies the new day', () => {
+  ctx.state = buildMockState();
+  ctx.state.setupDone = true; ctx.state.cycleType = 'monthly'; ctx.state.cycleDay = 1;
+  const saved = _setupCycleSaveEnv();
+  ctx.document.getElementById('setCycleDay2').value = '15';
+  ctx.confirm = () => true;
+  try { ctx.saveBudgetSettings(); } finally { _restoreCycleSaveEnv(saved); }
+  assertEqual(ctx.state.cycleDay, 15, 'the new cycle day is applied on confirm');
+});
+
+await check('no prompt when the cycle day is unchanged', () => {
+  ctx.state = buildMockState();
+  ctx.state.setupDone = true; ctx.state.cycleType = 'monthly'; ctx.state.cycleDay = 1;
+  const saved = _setupCycleSaveEnv();
+  ctx.document.getElementById('setCycleDay2').value = '1'; // same as current
+  let called = false;
+  ctx.confirm = () => { called = true; return true; };
+  try { ctx.saveBudgetSettings(); } finally { _restoreCycleSaveEnv(saved); }
+  assertTrue(!called, 'confirm is not shown when nothing about the cycle changed');
+});
+
+await check('the mid-cycle caveat only appears when today is not the new start day', () => {
+  // today is not the 15th in general; use two target days — one == today, one != today.
+  const todayDate = new Date().getDate();
+  const otherDay = todayDate === 15 ? 16 : 15; // guaranteed != today, within 1..28 for typical dates
+  ctx.state = buildMockState();
+  ctx.state.setupDone = true; ctx.state.cycleType = 'monthly'; ctx.state.cycleDay = 1;
+  const saved = _setupCycleSaveEnv();
+  ctx.document.getElementById('setCycleDay2').value = String(otherDay);
+  let msg = null; ctx.confirm = (m) => { msg = m; return false; };
+  try { ctx.saveBudgetSettings(); } finally { _restoreCycleSaveEnv(saved); }
+  assertTrue(msg.includes('part-way through the current cycle'), 'mid-cycle change includes the short/long transition caveat');
+});
+
 console.log(`\x1b[1mResults: ${pass} passed, ${fail} failed\x1b[0m`);
 if (fail > 0) {
   console.log('\nFailed tests:');
