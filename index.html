@@ -26,8 +26,8 @@ const SPENDLY_MODE = 'cloud';
 // derive its cache name and reported version from the SAME constants the app uses.
 // Previously the worker carried its own hardcoded version that was never bumped,
 // so its cache name never changed and its version never matched the running app.
-const APP_VERSION = '2.92.0';
-const BUILD_TIME = '03 Nov 2026 7:02 AM AEDT';
+const APP_VERSION = '2.93.0';
+const BUILD_TIME = '03 Nov 2026 7:34 PM AEDT';
 // Max characters shown for a statement merchant name in the reconciliation review.
 // Display-only: the full name is always kept on the data and used when the charge is added.
 const RECONCILE_NAME_DISPLAY_MAX = 10;
@@ -1874,6 +1874,19 @@ async function applyUpdate() {
     </div>
     <label>Color</label>
     <div class="color-grid" id="acctColorGrid"></div>
+    <!-- Default payment method (transaction / credit accounts only) -->
+    <div id="acctDefaultSection" style="display:none;margin-bottom:14px">
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 14px;background:var(--surface2);border-radius:10px">
+        <div>
+          <div style="font-size:13px;font-weight:600;color:var(--text)">⭐ Default payment method</div>
+          <div style="font-size:11px;color:var(--muted);margin-top:2px">New transactions default to this account. Only one account can be the default.</div>
+        </div>
+        <label style="position:relative;display:inline-block;width:44px;height:26px;flex-shrink:0">
+          <input type="checkbox" id="acctIsDefault" onchange="syncAcctDefaultToggle()" style="opacity:0;width:0;height:0">
+          <span id="acctIsDefaultToggle" style="position:absolute;cursor:pointer;top:0;left:0;right:0;bottom:0;background:var(--border);border-radius:26px;transition:0.2s"></span>
+        </label>
+      </div>
+    </div>
     <!-- Salary account options -->
     <div id="acctSalarySection" style="display:none;margin-bottom:14px">
       <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 14px;background:var(--surface2);border-radius:10px;margin-bottom:8px">
@@ -8636,9 +8649,18 @@ function openAddExpense() {
   state.editingExpenseId = null;
   _txType = 'expense';
   _expSelectedGoalId = null;
-  _expPaymentMethod = 'cc';
-  _expPaymentAccountId = null;
-  populateExpPaymentSelect('cc', null);
+  // Default the payment to the user's chosen default account when one is set; otherwise
+  // fall back to the generic 'cc' default (which auto-picks the first card, as before).
+  const _defAcct = getDefaultPaymentAccount();
+  if (_defAcct) {
+    _expPaymentMethod = 'account';
+    _expPaymentAccountId = _defAcct.id;
+    populateExpPaymentSelect('account', _defAcct.id);
+  } else {
+    _expPaymentMethod = 'cc';
+    _expPaymentAccountId = null;
+    populateExpPaymentSelect('cc', null);
+  }
   document.getElementById('expenseModalTitle').textContent = 'New transaction';
   document.getElementById('expAmount').value = '';
   document.getElementById('expAmount').oninput = _updateTxGoalInfo;
@@ -13137,8 +13159,10 @@ function openAddRecurring() {
   document.getElementById('recMonthDay').value = '';
   document.getElementById('recQuarterlyDate').value = '';
   closeModal('recurringListModal');
-  _recPaymentMethod = 'cc'; _recPaymentAccountId = null;
-  _populateRecPaymentSelect('cc', null);
+  // Default to the chosen default payment account when one is set (same as quick-add).
+  const _recDef = getDefaultPaymentAccount();
+  if (_recDef) { _recPaymentMethod = 'account'; _recPaymentAccountId = _recDef.id; _populateRecPaymentSelect('account', _recDef.id); }
+  else { _recPaymentMethod = 'cc'; _recPaymentAccountId = null; _populateRecPaymentSelect('cc', null); }
   openModal('recurringModal');
   setTimeout(()=>document.getElementById('recName').focus(),350);
 }
@@ -16344,6 +16368,9 @@ function setAcctType(type) {
   // Statement closing day only for credit cards
   const stmtSection = document.getElementById('acctStatementSection');
   if (stmtSection) stmtSection.style.display = (type === 'credit') ? '' : 'none';
+  // Default-payment toggle only for accounts you actually pay from
+  const defSection = document.getElementById('acctDefaultSection');
+  if (defSection) defSection.style.display = (type === 'transaction' || type === 'credit') ? '' : 'none';
   // Super fields
   let superSec = document.getElementById('superSection');
   if (type === 'super' && !superSec) {
@@ -16496,8 +16523,25 @@ function openAddAccount() {
   const toggle = document.getElementById('acctIsSalaryToggle');
   const wrap = document.getElementById('acctLinkedOffsetWrap');
   if (cb) { cb.checked = false; if (toggle) toggle.style.background = 'var(--border)'; if (wrap) wrap.style.display = 'none'; }
+  // Reset default-payment toggle
+  const dcb = document.getElementById('acctIsDefault');
+  if (dcb) dcb.checked = false;
+  syncAcctDefaultToggle();
   openModal('accountModal');
   setTimeout(() => document.getElementById('acctName').focus(), 350);
+}
+
+// Keeps the default-payment toggle's visual in step with its checkbox.
+function syncAcctDefaultToggle() {
+  const cb = document.getElementById('acctIsDefault');
+  const toggle = document.getElementById('acctIsDefaultToggle');
+  if (toggle) toggle.style.background = (cb && cb.checked) ? 'var(--accent)' : 'var(--border)';
+}
+
+// The account currently marked as the default payment source, if it still exists and is
+// a type you pay from. Used to pre-select the payment method when adding a transaction.
+function getDefaultPaymentAccount() {
+  return (state.accounts||[]).find(a => a.isDefaultPayment && (a.type === 'transaction' || a.type === 'credit')) || null;
 }
 
 function openEditAccount(id) {
@@ -16540,6 +16584,10 @@ function openEditAccount(id) {
     if (wrap) wrap.style.display = acct.isSalaryAccount ? '' : 'none';
     if (acct.isSalaryAccount) populateLinkedOffsetSelect(acct.linkedOffsetAccountId);
   }
+  // Restore default-payment toggle
+  const dcb = document.getElementById('acctIsDefault');
+  if (dcb) dcb.checked = !!acct.isDefaultPayment;
+  syncAcctDefaultToggle();
   openModal('accountModal');
 }
 
@@ -16576,16 +16624,25 @@ function saveAccount() {
     const sd = parseInt(sdRaw, 10);
     if (sd >= 1 && sd <= 31) statementDay = sd;
   }
+  // Default payment method — only meaningful for accounts you pay from (transaction/
+  // credit). Captured once here; single-default is enforced below.
+  const isDefault = (_acctType === 'transaction' || _acctType === 'credit') && !!(document.getElementById('acctIsDefault')?.checked);
+  let savedAccountId;
   if (_editingAccountId) {
     const idx = state.accounts.findIndex(a => a.id === _editingAccountId);
     const isSalaryE = !!(document.getElementById('acctIsSalary')?.checked);
     const linkedOffsetE = isSalaryE ? (document.getElementById('acctLinkedOffset')?.value || '') : '';
-    if (idx >= 0) state.accounts[idx] = { ...state.accounts[idx], name, type: _acctType, icon, color, openingBalance, openingDate, isSalaryAccount: isSalaryE, linkedOffsetAccountId: linkedOffsetE||null, ...(_acctType === 'credit' ? { statementDay } : {}), ...superFields };
+    if (idx >= 0) state.accounts[idx] = { ...state.accounts[idx], name, type: _acctType, icon, color, openingBalance, openingDate, isSalaryAccount: isSalaryE, linkedOffsetAccountId: linkedOffsetE||null, isDefaultPayment: isDefault, ...(_acctType === 'credit' ? { statementDay } : {}), ...superFields };
+    savedAccountId = _editingAccountId;
   } else {
     const isSalary = !!(document.getElementById('acctIsSalary')?.checked);
     const linkedOffset = isSalary ? (document.getElementById('acctLinkedOffset')?.value || '') : '';
-    state.accounts.push({ id: uid(), name, type: _acctType, icon, color, openingBalance, openingDate, isSalaryAccount: isSalary, linkedOffsetAccountId: linkedOffset||null, ...(_acctType === 'credit' ? { statementDay } : {}), ...superFields });
+    savedAccountId = uid();
+    state.accounts.push({ id: savedAccountId, name, type: _acctType, icon, color, openingBalance, openingDate, isSalaryAccount: isSalary, linkedOffsetAccountId: linkedOffset||null, isDefaultPayment: isDefault, ...(_acctType === 'credit' ? { statementDay } : {}), ...superFields });
   }
+  // Enforce a single default: if this account was marked default, clear the flag on
+  // every other account so there is never more than one.
+  if (isDefault) state.accounts.forEach(a => { if (a.id !== savedAccountId) a.isDefaultPayment = false; });
   saveState(); closeModal('accountModal'); renderContent();
 }
 

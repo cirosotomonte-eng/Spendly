@@ -5253,6 +5253,62 @@ await check('recurring multi-select UI and lifecycle cleanup are wired in source
   assertTrue(/recSelectBar/.test(logPane), 'switching to Daily removes the recurring select bar');
 });
 
+// ─────────────────────────────────────────────────────────────────────────
+console.log('\n── Accounts: default payment method ──');
+
+await check('getDefaultPaymentAccount returns the flagged payable account, ignores non-payable types, and is null when none', () => {
+  ctx.state = buildMockState();
+  assertTrue(!ctx.getDefaultPaymentAccount(), 'no default by default');
+  // an offset/savings account flagged default is ignored — you do not pay from it
+  ctx.state.accounts.find(a => a.id === 'offset1').isDefaultPayment = true;
+  assertTrue(!ctx.getDefaultPaymentAccount(), 'a non-payable type is never treated as the default');
+  // a transaction account is valid
+  ctx.state.accounts.find(a => a.id === 'offset1').isDefaultPayment = false;
+  ctx.state.accounts.find(a => a.id === 'salary1').isDefaultPayment = true;
+  assertEqual(ctx.getDefaultPaymentAccount().id, 'salary1', 'the flagged transaction account is the default');
+});
+
+await check('saving an account as default clears the flag on every other account (only one default)', () => {
+  ctx.state = buildMockState();
+  ctx.state.accounts = [
+    { id: 'a1', name: 'Everyday', type: 'transaction', isDefaultPayment: true },
+    { id: 'a2', name: 'Amex', type: 'credit', isDefaultPayment: false },
+  ];
+  const saved = {}; ['saveState','closeModal','renderContent','buildColorGridFor','getSelectedColorFrom','populateLinkedOffsetSelect'].forEach(fn => { saved[fn] = ctx[fn]; ctx[fn] = () => {}; });
+  try {
+    ctx.openEditAccount('a2');                 // sets _editingAccountId='a2', _acctType='credit'
+    ctx.document.getElementById('acctName').value = 'Amex';
+    ctx.document.getElementById('acctIsDefault').checked = true;
+    ctx.saveAccount();
+  } finally { Object.keys(saved).forEach(fn => { ctx[fn] = saved[fn]; }); }
+  assertEqual(ctx.getDefaultPaymentAccount().id, 'a2', 'the newly-saved account is now the default');
+  assertTrue(!ctx.state.accounts.find(a => a.id === 'a1').isDefaultPayment, 'the previous default was cleared');
+  assertEqual(ctx.state.accounts.filter(a => a.isDefaultPayment).length, 1, 'exactly one default exists');
+});
+
+await check('opening a new transaction pre-selects the default account (even a non-card one)', () => {
+  ctx.state = buildMockState();
+  ctx.state.accounts.find(a => a.id === 'salary1').isDefaultPayment = true; // a transaction account, not a card
+  const saved = {}; ['openModal','populateCatSelect','setExpTaxToggle','setTxType'].forEach(fn => { saved[fn] = ctx[fn]; ctx[fn] = () => {}; });
+  try { ctx.openAddExpense(); } finally { Object.keys(saved).forEach(fn => { ctx[fn] = saved[fn]; }); }
+  const selHtml = ctx.document.getElementById('expPaymentSelect').innerHTML;
+  assertTrue(selHtml.includes('value="acct:salary1" selected'), 'the payment dropdown defaults to the chosen account, not the first card');
+});
+
+await check('with no default set, a new transaction still falls back to the first card (unchanged behaviour)', () => {
+  ctx.state = buildMockState(); // cc1 exists, no default flagged
+  const saved = {}; ['openModal','populateCatSelect','setExpTaxToggle','setTxType'].forEach(fn => { saved[fn] = ctx[fn]; ctx[fn] = () => {}; });
+  try { ctx.openAddExpense(); } finally { Object.keys(saved).forEach(fn => { ctx[fn] = saved[fn]; }); }
+  const selHtml = ctx.document.getElementById('expPaymentSelect').innerHTML;
+  assertTrue(selHtml.includes('value="acct:cc1" selected'), 'falls back to auto-selecting the first credit card');
+});
+
+await check('recurring add also honours the default payment account (source)', () => {
+  const fs = require('fs'); const html = fs.readFileSync(APP_PATH, 'utf8');
+  assertTrue(html.includes('const _recDef = getDefaultPaymentAccount();'), 'openAddRecurring pre-selects the default payment account');
+  assertTrue(html.includes('const _defAcct = getDefaultPaymentAccount();'), 'openAddExpense pre-selects the default payment account');
+});
+
 console.log(`\x1b[1mResults: ${pass} passed, ${fail} failed\x1b[0m`);
 if (fail > 0) {
   console.log('\nFailed tests:');
