@@ -5381,6 +5381,91 @@ await check('the protected-saving flag is wired through the form, save, and both
   assertTrue(html.includes('const _protectedUpcoming'), 'the budget sub-tab accounts for protected upcoming savings');
 });
 
+// ─────────────────────────────────────────────────────────────────────────
+console.log('\n── Gift-card savings tracker (discount + points + logged expense) ──');
+
+await check('computeGiftCardDeal: discount, amount paid, and points (rate × paid + bonus) from the paid-with card', () => {
+  ctx.state = buildMockState();
+  const cc = ctx.state.accounts.find(a => a.id === 'cc1'); cc.pointsProgram = 'qantas'; cc.pointsPerDollar = 1;
+  const d = ctx.computeGiftCardDeal({ originalBalance: 100, discountPct: 5, paidWithAccountId: 'cc1', bonusPoints: 500 });
+  assertEqual(d.discountAmount, 5, 'discount = 5% of 100');
+  assertEqual(d.amountPaid, 95, 'amount paid = face − discount');
+  assertEqual(d.basePoints, 95, 'base points = rate (1) × amount paid (95)');
+  assertEqual(d.totalPoints, 595, 'total = base + bonus (95 + 500)');
+  assertEqual(d.program, 'qantas', 'program comes from the card');
+});
+
+await check('computeGiftCardDeal: points track the amount PAID (after discount), at the card rate', () => {
+  ctx.state = buildMockState();
+  const cc = ctx.state.accounts.find(a => a.id === 'cc1'); cc.pointsProgram = 'virgin'; cc.pointsPerDollar = 2;
+  const d = ctx.computeGiftCardDeal({ originalBalance: 250, discountPct: 8, paidWithAccountId: 'cc1', bonusPoints: 0 });
+  assertEqual(d.amountPaid, 230, '250 − 8% = 230');
+  assertEqual(d.basePoints, 460, '2 pts × 230 paid');
+  assertEqual(d.program, 'virgin', 'Velocity program from the card');
+});
+
+await check('computeGiftCardDeal: no paid-with card → discount still computed, no points/program', () => {
+  ctx.state = buildMockState();
+  const d = ctx.computeGiftCardDeal({ originalBalance: 100, discountPct: 10 });
+  assertEqual(d.discountAmount, 10, 'discount still works');
+  assertEqual(d.amountPaid, 90, 'paid = 90');
+  assertEqual(d.basePoints, 0, 'no card → no earned points');
+  assertEqual(d.program, '', 'no program');
+});
+
+await check('buying a gift card logs ONE linked expense for the amount paid, on the paid-with card', () => {
+  ctx.state = buildMockState();
+  const cc = ctx.state.accounts.find(a => a.id === 'cc1'); cc.pointsProgram = 'qantas'; cc.pointsPerDollar = 1;
+  const gc = { id: 'gc1', name: 'Woolworths', originalBalance: 100, discountPct: 5, paidWithAccountId: 'cc1', bonusPoints: 0, expenseCategoryId: 'cat1', purchaseDate: '2026-11-15' };
+  ctx.state.giftCards = [gc];
+  ctx._syncGiftCardExpense(gc);
+  assertTrue(!!gc.linkedExpenseId, 'the card now has a linked expense');
+  const e = ctx.state.expenses.find(x => x.id === gc.linkedExpenseId);
+  assertEqual(e.amount, 95, 'expense = amount paid (95), not the face value');
+  assertEqual(e.paymentAccountId, 'cc1', 'charged to the paid-with card');
+  assertEqual(e.categoryId, 'cat1', 'uses the chosen category');
+  assertEqual(e.date, '2026-11-15', 'dated the purchase date');
+  assertEqual(e.linkedGiftCardId, 'gc1', 'the expense points back at the card');
+});
+
+await check('editing the card updates the same expense (no duplicate); clearing the card removes it (no orphan)', () => {
+  ctx.state = buildMockState();
+  const cc = ctx.state.accounts.find(a => a.id === 'cc1'); cc.pointsPerDollar = 1;
+  const gc = { id: 'gc1', name: 'Woolworths', originalBalance: 100, discountPct: 5, paidWithAccountId: 'cc1', bonusPoints: 0, expenseCategoryId: 'cat1', purchaseDate: '2026-11-15' };
+  ctx.state.giftCards = [gc];
+  ctx._syncGiftCardExpense(gc);
+  gc.discountPct = 10; ctx._syncGiftCardExpense(gc); // now paid = 90
+  const linked = ctx.state.expenses.filter(x => x.linkedGiftCardId === 'gc1');
+  assertEqual(linked.length, 1, 'still exactly one linked expense');
+  assertEqual(linked[0].amount, 90, 'updated to the new amount paid');
+  gc.paidWithAccountId = ''; ctx._syncGiftCardExpense(gc); // no longer a tracked purchase
+  assertTrue(!ctx.state.expenses.some(x => x.linkedGiftCardId === 'gc1'), 'the expense is removed when the purchase is no longer logged');
+  assertTrue(!gc.linkedExpenseId, 'the link is cleared');
+});
+
+await check('a credit card persists its rewards program and earn rate on save', () => {
+  ctx.state = buildMockState();
+  ctx.state.accounts = [{ id: 'a2', name: 'Amex', type: 'credit' }];
+  const saved = {}; ['saveState','closeModal','renderContent','buildColorGridFor','getSelectedColorFrom','populateLinkedOffsetSelect'].forEach(fn => { saved[fn] = ctx[fn]; ctx[fn] = () => {}; });
+  try {
+    ctx.openEditAccount('a2');
+    ctx.document.getElementById('acctName').value = 'Amex';
+    ctx.document.getElementById('acctPointsProgram').value = 'qantas';
+    ctx.document.getElementById('acctPointsPerDollar').value = '1.5';
+    ctx.saveAccount();
+  } finally { Object.keys(saved).forEach(fn => { ctx[fn] = saved[fn]; }); }
+  const a = ctx.state.accounts.find(x => x.id === 'a2');
+  assertEqual(a.pointsProgram, 'qantas', 'program saved');
+  assertEqual(a.pointsPerDollar, 1.5, 'earn rate saved');
+});
+
+await check('deleting a gift card removes its linked purchase expense (source)', () => {
+  const fs = require('fs'); const html = fs.readFileSync(APP_PATH, 'utf8');
+  const del = html.slice(html.indexOf('function deleteGiftCard'), html.indexOf('function deleteGiftCard') + 400);
+  assertTrue(/linkedExpenseId/.test(del) && /state\.expenses\s*=\s*\(state\.expenses\|\|\[\]\)\.filter/.test(del), 'deleteGiftCard filters out the linked expense');
+  assertTrue(html.includes('id="gcDiscountPct"') && html.includes('id="gcPaidWith"') && html.includes('id="gcBonusPoints"'), 'the deal fields exist on the form');
+});
+
 console.log(`\x1b[1mResults: ${pass} passed, ${fail} failed\x1b[0m`);
 if (fail > 0) {
   console.log('\nFailed tests:');

@@ -26,8 +26,8 @@ const SPENDLY_MODE = 'cloud';
 // derive its cache name and reported version from the SAME constants the app uses.
 // Previously the worker carried its own hardcoded version that was never bumped,
 // so its cache name never changed and its version never matched the running app.
-const APP_VERSION = '2.94.0';
-const BUILD_TIME = '15 Nov 2026 10:18 AM AEDT';
+const APP_VERSION = '2.95.0';
+const BUILD_TIME = '15 Nov 2026 10:47 AM AEDT';
 // Max characters shown for a statement merchant name in the reconciliation review.
 // Display-only: the full name is always kept on the data and used when the charge is added.
 const RECONCILE_NAME_DISPLAY_MAX = 10;
@@ -1879,6 +1879,18 @@ async function applyUpdate() {
       <input type="number" inputmode="numeric" id="acctStatementDay" min="1" max="31" placeholder="e.g. 17">
       <div style="font-size:11px;color:var(--muted);margin-top:4px;line-height:1.5">The day your statement closes each month (a charge made on this day is included). Used to group this card's charges onto the right statement for payment. Your budget cycle is unaffected.</div>
     </div>
+    <!-- Rewards (credit cards only) — used to estimate points earned on gift-card buys -->
+    <div id="acctRewardsSection" style="display:none;margin-bottom:14px">
+      <label>Rewards program <span style="font-size:10px;color:var(--muted)">(optional)</span></label>
+      <select id="acctPointsProgram" style="margin-bottom:10px">
+        <option value="">None</option>
+        <option value="qantas">✈️ Qantas Points</option>
+        <option value="virgin">🔴 Virgin (Velocity) Points</option>
+      </select>
+      <label>Earn rate — points per $1</label>
+      <input type="number" inputmode="decimal" id="acctPointsPerDollar" step="0.01" min="0" placeholder="e.g. 1">
+      <div style="font-size:11px;color:var(--muted);margin-top:4px;line-height:1.5">Used to estimate the points you earn when you buy a gift card paid with this card.</div>
+    </div>
     <label>Color</label>
     <div class="color-grid" id="acctColorGrid"></div>
     <!-- Default payment method (transaction / credit accounts only) -->
@@ -1982,8 +1994,27 @@ async function applyUpdate() {
     <div id="gcBalanceSection">
       <label>Current balance ($)</label>
       <input type="number" inputmode="decimal" id="gcBalance" placeholder="e.g. 50.00" step="0.01" min="0">
-      <label>Original value ($) <span style="font-size:10px;color:var(--muted)">(optional)</span></label>
-      <input type="number" inputmode="decimal" id="gcOriginal" placeholder="e.g. 100.00" step="0.01" min="0">
+      <label>Face value ($) <span style="font-size:10px;color:var(--muted)">(the gift card's original amount)</span></label>
+      <input type="number" inputmode="decimal" id="gcOriginal" placeholder="e.g. 100.00" step="0.01" min="0" oninput="_gcRecalcDeal()">
+    </div>
+    <!-- Purchase & savings — the "deal" economics of buying a discounted gift card -->
+    <div id="gcDealSection">
+      <label>Discount %</label>
+      <input type="number" inputmode="decimal" id="gcDiscountPct" placeholder="e.g. 5" step="0.1" min="0" max="100" oninput="_gcRecalcDeal()">
+      <label>Paid with <span style="font-size:10px;color:var(--muted)">(earns points by the card's rate)</span></label>
+      <select id="gcPaidWith" onchange="_gcRecalcDeal()"></select>
+      <label>Bonus points <span style="font-size:10px;color:var(--muted)">(any extra promo points)</span></label>
+      <input type="number" inputmode="numeric" id="gcBonusPoints" placeholder="e.g. 500" step="1" min="0" oninput="_gcRecalcDeal()">
+      <div id="gcDealReadout" style="font-size:12px;line-height:1.6;background:var(--surface2);border-radius:10px;padding:10px 12px;margin:2px 0 14px"></div>
+      <label>Bought from <span style="font-size:10px;color:var(--muted)">(website / retailer)</span></label>
+      <input type="text" id="gcSource" placeholder="e.g. Qantas Shopping, Shopback">
+      <label>Purchase date</label>
+      <input type="date" id="gcPurchaseDate">
+      <div id="gcExpenseCatWrap">
+        <label>Log purchase as expense in</label>
+        <select id="gcExpenseCat"></select>
+        <div style="font-size:11px;color:var(--muted);margin-top:4px;line-height:1.5">The amount you paid is logged as an expense on the card above, in this category.</div>
+      </div>
     </div>
     <div id="gcCodeSection" style="display:none">
       <label>Promo / Voucher code</label>
@@ -14835,6 +14866,91 @@ function _allocCard(label, amount, color, desc) {
 
 // ── Gift Cards / Wallet ───────────────────────────────────────────────────────
 let editingGcId = null;
+
+// Pure economics of a discounted gift-card buy. faceValue is the card's original amount
+// (stored as originalBalance); discount comes off that; points are the paid-with card's
+// earn rate × amount paid, plus any manual bonus. Program comes from the card.
+function computeGiftCardDeal(gc) {
+  const face = parseFloat(gc.originalBalance != null ? gc.originalBalance : gc.faceValue) || 0;
+  const pct = parseFloat(gc.discountPct) || 0;
+  const discountAmount = Math.round(face * pct / 100 * 100) / 100;
+  const amountPaid = Math.round((face - discountAmount) * 100) / 100;
+  const card = gc.paidWithAccountId ? accountById(gc.paidWithAccountId) : null;
+  const rate = card ? (parseFloat(card.pointsPerDollar) || 0) : 0;
+  const program = card ? (card.pointsProgram || '') : '';
+  const basePoints = Math.round(rate * amountPaid);
+  const bonusPoints = parseInt(gc.bonusPoints) || 0;
+  const totalPoints = basePoints + bonusPoints;
+  return { face, pct, discountAmount, amountPaid, program, rate, basePoints, bonusPoints, totalPoints };
+}
+
+function _populateGcPaidWith(selectedId) {
+  const sel = document.getElementById('gcPaidWith');
+  if (!sel) return;
+  const cards = (state.accounts||[]).filter(a => a.type === 'credit');
+  sel.innerHTML = '<option value="">— none / not tracked —</option>' +
+    cards.map(a => '<option value="' + a.id + '"' + (a.id===selectedId?' selected':'') + '>💳 ' + a.name + (a.pointsProgram ? ' · ' + (a.pointsProgram==='qantas'?'Qantas':'Virgin') + ' ' + (a.pointsPerDollar||0) + 'pt/$' : '') + '</option>').join('');
+}
+
+function _populateGcExpenseCat(selectedId) {
+  const sel = document.getElementById('gcExpenseCat');
+  if (!sel) return;
+  const cats = (state.categories||[]).filter(c => !c.archived);
+  sel.innerHTML = cats.map(c => '<option value="' + c.id + '"' + (c.id===selectedId?' selected':'') + '>' + (c.icon?c.icon+' ':'') + c.name + '</option>').join('');
+}
+
+// Live readout under the deal fields.
+function _gcRecalcDeal() {
+  const el = document.getElementById('gcDealReadout');
+  if (!el) return;
+  const d = computeGiftCardDeal({
+    originalBalance: document.getElementById('gcOriginal')?.value,
+    discountPct: document.getElementById('gcDiscountPct')?.value,
+    paidWithAccountId: document.getElementById('gcPaidWith')?.value || '',
+    bonusPoints: document.getElementById('gcBonusPoints')?.value,
+  });
+  const progLabel = d.program === 'qantas' ? '✈️ Qantas pts' : d.program === 'virgin' ? '🔴 Velocity pts' : 'points';
+  let h = '💸 Discount: <strong style="color:#34C759">' + fmt(d.discountAmount) + '</strong>' + (d.face > 0 ? ' (' + (d.pct||0) + '% of ' + fmt(d.face) + ')' : '') +
+          '<br>💳 You pay: <strong style="color:var(--text)">' + fmt(d.amountPaid) + '</strong>';
+  if (d.program && d.rate > 0) {
+    h += '<br>⭐ Points: <strong style="color:var(--accent)">' + d.totalPoints.toLocaleString() + '</strong> ' + progLabel + ' <span style="color:var(--muted)">(' + d.basePoints.toLocaleString() + ' earned + ' + d.bonusPoints.toLocaleString() + ' bonus)</span>';
+  } else if (d.bonusPoints > 0) {
+    h += '<br>⭐ Points: <strong style="color:var(--accent)">' + d.totalPoints.toLocaleString() + '</strong> <span style="color:var(--muted)">(bonus only — set a rewards rate on the card for earned points)</span>';
+  }
+  el.innerHTML = h;
+}
+
+// Create / update / remove the expense that logs the amount paid for a gift card. The
+// expense is linked back to the card so editing the card keeps it in step and deleting
+// the card removes it — no orphaned purchase expense is ever left behind.
+function _syncGiftCardExpense(gc) {
+  const d = computeGiftCardDeal(gc);
+  const shouldLog = !!gc.paidWithAccountId && d.amountPaid > 0.005 && !!gc.expenseCategoryId && !!gc.purchaseDate;
+  const existing = gc.linkedExpenseId ? (state.expenses||[]).find(e => e.id === gc.linkedExpenseId) : null;
+  if (!shouldLog) {
+    if (existing) state.expenses = state.expenses.filter(e => e.id !== gc.linkedExpenseId);
+    gc.linkedExpenseId = undefined;
+    return;
+  }
+  const fields = {
+    amount: d.amountPaid,
+    name: gc.name + ' (gift card)',
+    categoryId: gc.expenseCategoryId,
+    date: gc.purchaseDate,
+    transactionType: 'expense',
+    paymentMethod: 'account',
+    paymentAccountId: gc.paidWithAccountId,
+    linkedGiftCardId: gc.id,
+    goalCoveredAmount: 0,
+  };
+  if (existing) {
+    Object.assign(existing, fields);
+  } else {
+    const expId = uid();
+    state.expenses.push(Object.assign({ id: expId }, fields));
+    gc.linkedExpenseId = expId;
+  }
+}
 let editingGcTxId = null;
 let gcTxCardId = null;
 let gcTypeState = 'giftcard';
@@ -14858,6 +14974,9 @@ function setGcType(type) {
   const isPromoOrVoucher = type === 'promo' || type === 'voucher';
   document.getElementById('gcCodeSection').style.display = isPromoOrVoucher ? 'block' : 'none';
   document.getElementById('gcBalanceSection').style.display = type === 'promo' ? 'none' : 'block';
+  // The purchase/savings fields apply to bought gift cards & vouchers, not promo codes or store credit
+  const dealSec = document.getElementById('gcDealSection');
+  if (dealSec) dealSec.style.display = (type === 'giftcard' || type === 'voucher') ? 'block' : 'none';
 }
 
 function setGcUsage(usage) {
@@ -14920,6 +15039,14 @@ function openAddGiftCard() {
   document.getElementById('gcImagePreview').style.display = 'none';
   document.getElementById('gcImagePreview').dataset.src = '';
   document.getElementById('gcImageFile').value = '';
+  // Deal fields
+  document.getElementById('gcDiscountPct').value = '';
+  document.getElementById('gcBonusPoints').value = '';
+  document.getElementById('gcSource').value = '';
+  document.getElementById('gcPurchaseDate').value = todayStr();
+  _populateGcPaidWith('');
+  _populateGcExpenseCat('');
+  _gcRecalcDeal();
   buildColorGridFor('gcColorGrid', GC_COLORS[Math.floor(Math.random()*GC_COLORS.length)]);
   setGcType('giftcard');
   setGcUsage('both');
@@ -14958,6 +15085,14 @@ function openEditGiftCard(id) {
     preview.dataset.src = '';
   }
   document.getElementById('gcImageFile').value = '';
+  // Deal fields
+  document.getElementById('gcDiscountPct').value = gc.discountPct || '';
+  document.getElementById('gcBonusPoints').value = gc.bonusPoints || '';
+  document.getElementById('gcSource').value = gc.source || '';
+  document.getElementById('gcPurchaseDate').value = gc.purchaseDate || '';
+  _populateGcPaidWith(gc.paidWithAccountId || '');
+  _populateGcExpenseCat(gc.expenseCategoryId || '');
+  _gcRecalcDeal();
   openModal('giftCardModal');
 }
 
@@ -14973,20 +15108,34 @@ function saveGiftCard() {
   const color = getSelectedColorFrom('gcColorGrid');
   const preview = document.getElementById('gcImagePreview');
   const image = preview.dataset.src || '';
+  // Deal fields
+  const discountPct = parseFloat(document.getElementById('gcDiscountPct').value) || 0;
+  const bonusPoints = parseInt(document.getElementById('gcBonusPoints').value) || 0;
+  const source = document.getElementById('gcSource').value.trim();
+  const purchaseDate = document.getElementById('gcPurchaseDate').value || '';
+  const paidWithAccountId = document.getElementById('gcPaidWith').value || '';
+  const expenseCategoryId = document.getElementById('gcExpenseCat').value || '';
+  const deal = { discountPct, bonusPoints, source, purchaseDate, paidWithAccountId, expenseCategoryId };
   // Auto icon based on type
   const icons = { giftcard:'🎁', voucher:'🎟️', promo:'🏷️', credit:'💳' };
   if (!state.giftCards) state.giftCards = [];
+  let gc;
   if (editingGcId) {
     const idx = state.giftCards.findIndex(c=>c.id===editingGcId);
-    if (idx>=0) state.giftCards[idx] = { ...state.giftCards[idx], name, type:gcTypeState, balance, originalBalance, code, expiryDate, notes, color, usageType:gcUsageState, image: image || state.giftCards[idx].image };
+    if (idx>=0) { state.giftCards[idx] = { ...state.giftCards[idx], name, type:gcTypeState, balance, originalBalance, code, expiryDate, notes, color, usageType:gcUsageState, image: image || state.giftCards[idx].image, ...deal }; gc = state.giftCards[idx]; }
   } else {
-    state.giftCards.push({ id:uid(), name, type:gcTypeState, balance, originalBalance, code, expiryDate, notes, color, usageType:gcUsageState, image, used:false, transactions:[] });
+    gc = { id:uid(), name, type:gcTypeState, balance, originalBalance, code, expiryDate, notes, color, usageType:gcUsageState, image, used:false, transactions:[], ...deal };
+    state.giftCards.push(gc);
   }
+  if (gc) _syncGiftCardExpense(gc); // create/update/remove the linked purchase expense
   saveState(); closeModal('giftCardModal'); renderContent();
 }
 
 function deleteGiftCard() {
   if (!editingGcId) return;
+  const gc = gcById(editingGcId);
+  // Remove the linked purchase expense too — no orphaned expense left behind.
+  if (gc && gc.linkedExpenseId) state.expenses = (state.expenses||[]).filter(e => e.id !== gc.linkedExpenseId);
   state.giftCards = (state.giftCards||[]).filter(c=>c.id!==editingGcId);
   saveState(); closeModal('giftCardModal'); renderContent();
 }
@@ -15155,6 +15304,19 @@ function renderGiftCards() {
     '</div>' +
   '</div>';
 
+  // Savings & points earned from buying discounted gift cards (across all cards).
+  let _totalSaved = 0, _qPts = 0, _vPts = 0;
+  allCards.forEach(c => { const d = computeGiftCardDeal(c); _totalSaved += d.discountAmount; if (d.program === 'qantas') _qPts += d.totalPoints; else if (d.program === 'virgin') _vPts += d.totalPoints; });
+  if (_totalSaved > 0.005 || _qPts > 0 || _vPts > 0) {
+    const bits = ['<div><span style="font-size:20px;font-weight:800;color:#34C759">' + fmtF(_totalSaved) + '</span> <span style="font-size:11px;color:var(--muted)">saved</span></div>'];
+    if (_qPts > 0) bits.push('<div><span style="font-size:16px;font-weight:700;color:var(--accent)">✈️ ' + _qPts.toLocaleString() + '</span> <span style="font-size:11px;color:var(--muted)">Qantas pts</span></div>');
+    if (_vPts > 0) bits.push('<div><span style="font-size:16px;font-weight:700;color:var(--accent)">🔴 ' + _vPts.toLocaleString() + '</span> <span style="font-size:11px;color:var(--muted)">Velocity pts</span></div>');
+    html += '<div style="background:var(--surface);border-radius:var(--r);padding:12px 14px;margin-bottom:16px">' +
+      '<div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:6px">💚 Savings from gift cards</div>' +
+      '<div style="display:flex;gap:18px;flex-wrap:wrap;align-items:baseline">' + bits.join('') + '</div>' +
+    '</div>';
+  }
+
   const renderCard = (gc) => {
     const txs = (gc.transactions||[]).slice().sort((a,b)=>b.date.localeCompare(a.date));
     const expiryDate = gc.expiryDate ? new Date(gc.expiryDate+'T00:00:00') : null;
@@ -15201,6 +15363,17 @@ function renderGiftCards() {
         '<span style="font-size:15px;font-weight:700;letter-spacing:0.1em;color:var(--text)">' + gc.code + '</span>' +
         '<button onclick="navigator.clipboard&&navigator.clipboard.writeText(\'' + gc.code + '\').then(()=>{this.textContent=\'Copied!\';setTimeout(()=>this.textContent=\'Copy\',1500)})" style="background:var(--accent-dim);color:var(--accent);border:none;border-radius:6px;padding:4px 10px;font-size:11px;font-weight:600;font-family:var(--font);cursor:pointer">Copy</button>' +
       '</div>';
+    }
+
+    // Purchase deal — savings, points, source, date
+    const _d = computeGiftCardDeal(gc);
+    if (_d.discountAmount > 0.005 || _d.totalPoints > 0 || gc.source || gc.purchaseDate) {
+      const bits = [];
+      if (_d.discountAmount > 0.005) bits.push('💸 Saved <strong style="color:#34C759">' + fmtF(_d.discountAmount) + '</strong>' + (_d.pct ? ' (' + _d.pct + '%)' : ''));
+      if (_d.totalPoints > 0) { const pl = _d.program==='qantas'?'Qantas':_d.program==='virgin'?'Velocity':'pts'; bits.push('⭐ <strong style="color:var(--accent)">' + _d.totalPoints.toLocaleString() + '</strong> ' + pl); }
+      if (gc.source) bits.push('🛒 ' + gc.source);
+      if (gc.purchaseDate) bits.push('📅 ' + gc.purchaseDate);
+      card += '<div style="margin:0 14px 10px;font-size:11px;color:var(--muted);line-height:1.6">' + bits.join(' · ') + '</div>';
     }
 
     // Expiry + usage info
@@ -16420,6 +16593,9 @@ function setAcctType(type) {
   // Statement closing day only for credit cards
   const stmtSection = document.getElementById('acctStatementSection');
   if (stmtSection) stmtSection.style.display = (type === 'credit') ? '' : 'none';
+  // Rewards (program + earn rate) only for credit cards
+  const rwdSection = document.getElementById('acctRewardsSection');
+  if (rwdSection) rwdSection.style.display = (type === 'credit') ? '' : 'none';
   // Default-payment toggle only for accounts you actually pay from
   const defSection = document.getElementById('acctDefaultSection');
   if (defSection) defSection.style.display = (type === 'transaction' || type === 'credit') ? '' : 'none';
@@ -16566,6 +16742,8 @@ function openAddAccount() {
   document.getElementById('acctOpeningBalance').value = '';
   document.getElementById('acctOpeningDate').value = todayStr();
   const _sdAdd = document.getElementById('acctStatementDay'); if (_sdAdd) _sdAdd.value = '';
+  const _ppAdd = document.getElementById('acctPointsProgram'); if (_ppAdd) _ppAdd.value = '';
+  const _prAdd = document.getElementById('acctPointsPerDollar'); if (_prAdd) _prAdd.value = '';
   document.getElementById('acctSaveBtn').textContent = 'Save account';
   document.getElementById('acctDeleteBtn').style.display = 'none';
   buildColorGridFor('acctColorGrid', PALETTE[Math.floor(Math.random()*PALETTE.length)]);
@@ -16604,6 +16782,8 @@ function openEditAccount(id) {
   document.getElementById('acctOpeningBalance').value = acct.openingBalance || '';
   document.getElementById('acctOpeningDate').value = acct.openingDate || '';
   const _sdEdit = document.getElementById('acctStatementDay'); if (_sdEdit) _sdEdit.value = acct.statementDay || '';
+  const _ppEdit = document.getElementById('acctPointsProgram'); if (_ppEdit) _ppEdit.value = acct.pointsProgram || '';
+  const _prEdit = document.getElementById('acctPointsPerDollar'); if (_prEdit) _prEdit.value = acct.pointsPerDollar || '';
   document.getElementById('acctSaveBtn').textContent = 'Update account';
   document.getElementById('acctDeleteBtn').style.display = 'block';
   buildColorGridFor('acctColorGrid', acct.color);
@@ -16676,6 +16856,10 @@ function saveAccount() {
     const sd = parseInt(sdRaw, 10);
     if (sd >= 1 && sd <= 31) statementDay = sd;
   }
+  // Rewards program + earn rate (credit cards only) — drives gift-card points estimates.
+  const creditRewards = _acctType === 'credit'
+    ? { pointsProgram: document.getElementById('acctPointsProgram')?.value || '', pointsPerDollar: parseFloat(document.getElementById('acctPointsPerDollar')?.value) || 0 }
+    : {};
   // Default payment method — only meaningful for accounts you pay from (transaction/
   // credit). Captured once here; single-default is enforced below.
   const isDefault = (_acctType === 'transaction' || _acctType === 'credit') && !!(document.getElementById('acctIsDefault')?.checked);
@@ -16684,13 +16868,13 @@ function saveAccount() {
     const idx = state.accounts.findIndex(a => a.id === _editingAccountId);
     const isSalaryE = !!(document.getElementById('acctIsSalary')?.checked);
     const linkedOffsetE = isSalaryE ? (document.getElementById('acctLinkedOffset')?.value || '') : '';
-    if (idx >= 0) state.accounts[idx] = { ...state.accounts[idx], name, type: _acctType, icon, color, openingBalance, openingDate, isSalaryAccount: isSalaryE, linkedOffsetAccountId: linkedOffsetE||null, isDefaultPayment: isDefault, ...(_acctType === 'credit' ? { statementDay } : {}), ...superFields };
+    if (idx >= 0) state.accounts[idx] = { ...state.accounts[idx], name, type: _acctType, icon, color, openingBalance, openingDate, isSalaryAccount: isSalaryE, linkedOffsetAccountId: linkedOffsetE||null, isDefaultPayment: isDefault, ...(_acctType === 'credit' ? { statementDay, ...creditRewards } : {}), ...superFields };
     savedAccountId = _editingAccountId;
   } else {
     const isSalary = !!(document.getElementById('acctIsSalary')?.checked);
     const linkedOffset = isSalary ? (document.getElementById('acctLinkedOffset')?.value || '') : '';
     savedAccountId = uid();
-    state.accounts.push({ id: savedAccountId, name, type: _acctType, icon, color, openingBalance, openingDate, isSalaryAccount: isSalary, linkedOffsetAccountId: linkedOffset||null, isDefaultPayment: isDefault, ...(_acctType === 'credit' ? { statementDay } : {}), ...superFields });
+    state.accounts.push({ id: savedAccountId, name, type: _acctType, icon, color, openingBalance, openingDate, isSalaryAccount: isSalary, linkedOffsetAccountId: linkedOffset||null, isDefaultPayment: isDefault, ...(_acctType === 'credit' ? { statementDay, ...creditRewards } : {}), ...superFields });
   }
   // Enforce a single default: if this account was marked default, clear the flag on
   // every other account so there is never more than one.
