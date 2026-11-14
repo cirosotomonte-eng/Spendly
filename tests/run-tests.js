@@ -5459,6 +5459,26 @@ await check('a credit card persists its rewards program and earn rate on save', 
   assertEqual(a.pointsPerDollar, 1.5, 'earn rate saved');
 });
 
+await check('logExpense:false records the card (saving/points) but creates NO expense; toggling it off later removes an existing one', () => {
+  ctx.state = buildMockState();
+  const cc = ctx.state.accounts.find(a => a.id === 'cc1'); cc.pointsProgram = 'qantas'; cc.pointsPerDollar = 1;
+  // an old card, already tracked elsewhere — should not create an expense
+  const gc = { id: 'gcOld', name: 'Old card', originalBalance: 100, discountPct: 5, paidWithAccountId: 'cc1', bonusPoints: 0, expenseCategoryId: 'cat1', purchaseDate: '2026-01-10', logExpense: false };
+  ctx.state.giftCards = [gc];
+  ctx._syncGiftCardExpense(gc);
+  assertTrue(!gc.linkedExpenseId, 'no expense is created when logging is off');
+  assertTrue(!ctx.state.expenses.some(e => e.linkedGiftCardId === 'gcOld'), 'no linked expense exists');
+  // but the saving/points still compute for the summary
+  const d = ctx.computeGiftCardDeal(gc);
+  assertEqual(d.discountAmount, 5, 'the saving is still tracked');
+  assertEqual(d.totalPoints, 95, 'the points are still tracked');
+  // now turn logging ON → expense appears; then OFF again → it is removed
+  gc.logExpense = true; ctx._syncGiftCardExpense(gc);
+  assertTrue(!!gc.linkedExpenseId, 'turning logging on creates the expense');
+  gc.logExpense = false; ctx._syncGiftCardExpense(gc);
+  assertTrue(!gc.linkedExpenseId && !ctx.state.expenses.some(e => e.linkedGiftCardId === 'gcOld'), 'turning logging off removes the existing expense');
+});
+
 await check('deleting a gift card removes its linked purchase expense (source)', () => {
   const fs = require('fs'); const html = fs.readFileSync(APP_PATH, 'utf8');
   const del = html.slice(html.indexOf('function deleteGiftCard'), html.indexOf('function deleteGiftCard') + 400);

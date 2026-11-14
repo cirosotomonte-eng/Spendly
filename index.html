@@ -26,8 +26,8 @@ const SPENDLY_MODE = 'cloud';
 // derive its cache name and reported version from the SAME constants the app uses.
 // Previously the worker carried its own hardcoded version that was never bumped,
 // so its cache name never changed and its version never matched the running app.
-const APP_VERSION = '2.95.0';
-const BUILD_TIME = '15 Nov 2026 10:47 AM AEDT';
+const APP_VERSION = '2.96.0';
+const BUILD_TIME = '15 Nov 2026 10:52 AM AEDT';
 // Max characters shown for a statement merchant name in the reconciliation review.
 // Display-only: the full name is always kept on the data and used when the charge is added.
 const RECONCILE_NAME_DISPLAY_MAX = 10;
@@ -2010,8 +2010,15 @@ async function applyUpdate() {
       <input type="text" id="gcSource" placeholder="e.g. Qantas Shopping, Shopback">
       <label>Purchase date</label>
       <input type="date" id="gcPurchaseDate">
+      <div style="display:flex;align-items:flex-start;gap:10px;margin:2px 0 10px">
+        <div id="gcLogExpenseCheck" onclick="toggleGcLogExpense()" style="width:22px;height:22px;border-radius:6px;background:var(--accent);border:2px solid var(--accent);display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:13px;color:#fff;flex-shrink:0;margin-top:1px">✓</div>
+        <div>
+          <div style="font-size:13px">Log purchase as an expense</div>
+          <div style="font-size:11px;color:var(--muted);margin-top:1px">Turn off for cards you bought in the past and already recorded elsewhere — the saving &amp; points are still tracked.</div>
+        </div>
+      </div>
       <div id="gcExpenseCatWrap">
-        <label>Log purchase as expense in</label>
+        <label>Expense category</label>
         <select id="gcExpenseCat"></select>
         <div style="font-size:11px;color:var(--muted);margin-top:4px;line-height:1.5">The amount you paid is logged as an expense on the card above, in this category.</div>
       </div>
@@ -14925,7 +14932,7 @@ function _gcRecalcDeal() {
 // the card removes it — no orphaned purchase expense is ever left behind.
 function _syncGiftCardExpense(gc) {
   const d = computeGiftCardDeal(gc);
-  const shouldLog = !!gc.paidWithAccountId && d.amountPaid > 0.005 && !!gc.expenseCategoryId && !!gc.purchaseDate;
+  const shouldLog = gc.logExpense !== false && !!gc.paidWithAccountId && d.amountPaid > 0.005 && !!gc.expenseCategoryId && !!gc.purchaseDate;
   const existing = gc.linkedExpenseId ? (state.expenses||[]).find(e => e.id === gc.linkedExpenseId) : null;
   if (!shouldLog) {
     if (existing) state.expenses = state.expenses.filter(e => e.id !== gc.linkedExpenseId);
@@ -14955,8 +14962,25 @@ let editingGcTxId = null;
 let gcTxCardId = null;
 let gcTypeState = 'giftcard';
 let gcUsageState = 'both';
+let gcLogExpenseState = true; // whether saving the card logs a purchase expense
 
 const GC_COLORS = ['#4F8EF7','#f060b0','#f0a860','#34C759','#b060f0','#ff5c5c','#f0d860','#888888'];
+
+function toggleGcLogExpense() {
+  gcLogExpenseState = !gcLogExpenseState;
+  _syncGcLogExpenseCheck();
+}
+
+function _syncGcLogExpenseCheck() {
+  const el = document.getElementById('gcLogExpenseCheck');
+  if (el) {
+    el.textContent = gcLogExpenseState ? '✓' : '';
+    el.style.background = gcLogExpenseState ? 'var(--accent)' : 'var(--surface3)';
+    el.style.border = '2px solid ' + (gcLogExpenseState ? 'var(--accent)' : 'var(--border)');
+  }
+  const wrap = document.getElementById('gcExpenseCatWrap');
+  if (wrap) wrap.style.display = gcLogExpenseState ? 'block' : 'none';
+}
 
 function gcById(id) { return (state.giftCards||[]).find(c=>c.id===id); }
 
@@ -15046,6 +15070,8 @@ function openAddGiftCard() {
   document.getElementById('gcPurchaseDate').value = todayStr();
   _populateGcPaidWith('');
   _populateGcExpenseCat('');
+  gcLogExpenseState = true;
+  _syncGcLogExpenseCheck();
   _gcRecalcDeal();
   buildColorGridFor('gcColorGrid', GC_COLORS[Math.floor(Math.random()*GC_COLORS.length)]);
   setGcType('giftcard');
@@ -15092,6 +15118,10 @@ function openEditGiftCard(id) {
   document.getElementById('gcPurchaseDate').value = gc.purchaseDate || '';
   _populateGcPaidWith(gc.paidWithAccountId || '');
   _populateGcExpenseCat(gc.expenseCategoryId || '');
+  // Reflect whether this card logs an expense. Legacy cards (no flag) infer from whether
+  // they already have a linked expense, so editing one never silently creates a new one.
+  gcLogExpenseState = (gc.logExpense !== undefined) ? !!gc.logExpense : !!gc.linkedExpenseId;
+  _syncGcLogExpenseCheck();
   _gcRecalcDeal();
   openModal('giftCardModal');
 }
@@ -15115,7 +15145,7 @@ function saveGiftCard() {
   const purchaseDate = document.getElementById('gcPurchaseDate').value || '';
   const paidWithAccountId = document.getElementById('gcPaidWith').value || '';
   const expenseCategoryId = document.getElementById('gcExpenseCat').value || '';
-  const deal = { discountPct, bonusPoints, source, purchaseDate, paidWithAccountId, expenseCategoryId };
+  const deal = { discountPct, bonusPoints, source, purchaseDate, paidWithAccountId, expenseCategoryId, logExpense: gcLogExpenseState };
   // Auto icon based on type
   const icons = { giftcard:'🎁', voucher:'🎟️', promo:'🏷️', credit:'💳' };
   if (!state.giftCards) state.giftCards = [];
