@@ -26,8 +26,8 @@ const SPENDLY_MODE = 'cloud';
 // derive its cache name and reported version from the SAME constants the app uses.
 // Previously the worker carried its own hardcoded version that was never bumped,
 // so its cache name never changed and its version never matched the running app.
-const APP_VERSION = '2.93.0';
-const BUILD_TIME = '03 Nov 2026 7:34 PM AEDT';
+const APP_VERSION = '2.94.0';
+const BUILD_TIME = '15 Nov 2026 10:18 AM AEDT';
 // Max characters shown for a statement merchant name in the reconciliation review.
 // Display-only: the full name is always kept on the data and used when the charge is added.
 const RECONCILE_NAME_DISPLAY_MAX = 10;
@@ -1787,6 +1787,13 @@ async function applyUpdate() {
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
       <div id="recSavingActiveCheck" onclick="toggleRecSavingActive()" style="width:22px;height:22px;border-radius:6px;background:var(--accent);border:2px solid var(--accent);display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:13px;color:#fff;flex-shrink:0">&#10003;</div>
       <span style="font-size:13px">Active</span>
+    </div>
+    <div style="display:flex;align-items:flex-start;gap:10px;margin-bottom:14px">
+      <div id="recSavingProtectedCheck" onclick="toggleRecSavingProtected()" style="width:22px;height:22px;border-radius:6px;background:var(--surface3);border:2px solid var(--border);display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:13px;color:#fff;flex-shrink:0;margin-top:1px"></div>
+      <div>
+        <div style="font-size:13px">🔒 Always save full amount</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:1px">Don't reduce this saving when you're over budget — the shortfall comes out of your other savings instead.</div>
+      </div>
     </div>
     <label>Pay from account (optional)</label>
     <div id="recSavingSourceAccountHint" style="font-size:11px;color:var(--muted);line-height:1.5;margin-top:-8px;margin-bottom:8px;padding:0 2px"></div>
@@ -6248,7 +6255,7 @@ function renderDashboard() {
       let t = '<div style="background:var(--surface);border-radius:var(--r);padding:14px;margin-bottom:14px">' +
         '<div style="font-size:12px;font-weight:700;color:var(--text);margin-bottom:2px">💚 Savings this cycle</div>' +
         (_ovS > 0.005
-          ? '<div style="font-size:11px;color:var(--orange);margin-bottom:10px;line-height:1.5">You\'re ' + fmt(_ovS) + ' over budget — each saving is trimmed proportionally to what you can actually fund.</div>'
+          ? '<div style="font-size:11px;color:var(--orange);margin-bottom:10px;line-height:1.5">You\'re ' + fmt(_ovS) + ' over budget — unprotected savings are trimmed proportionally to what you can actually fund' + (_sb.protectedTotal > 0.005 ? '. 🔒 Protected savings stay at their full amount' : '') + '.</div>'
           : '<div style="font-size:11px;color:#34C759;margin-bottom:10px;line-height:1.5">✓ On track to fund every saving in full.</div>') +
         '<div style="display:grid;grid-template-columns:1fr auto auto;gap:6px 10px;font-size:11px;align-items:center">' +
           '<div style="color:var(--muted);font-weight:600">Goal</div>' +
@@ -6259,6 +6266,7 @@ function renderDashboard() {
         t += '<div style="color:var(--text);display:flex;align-items:center;gap:5px;min-width:0">' +
               '<span style="flex-shrink:0">' + (r.status === 'fired' ? '✓' : '⏳') + '</span>' +
               '<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + r.goalName + '</span>' +
+              (r.protected ? '<span style="flex-shrink:0" title="Always saved in full">🔒</span>' : '') +
               '<span style="color:var(--muted);flex-shrink:0;font-size:10px">' + _mName(r.date) + '</span>' +
             '</div>' +
             '<div style="text-align:right;color:var(--muted)">' + fmt(r.scheduled) + '</div>' +
@@ -6267,7 +6275,13 @@ function renderDashboard() {
       t += '<div style="grid-column:1/2;border-top:1px solid var(--border);padding-top:7px;margin-top:2px;font-weight:700;color:var(--text)">Total</div>' +
            '<div style="text-align:right;border-top:1px solid var(--border);padding-top:7px;margin-top:2px;font-weight:700;color:var(--text)">' + fmt(_sb.target) + '</div>' +
            '<div style="text-align:right;border-top:1px solid var(--border);padding-top:7px;margin-top:2px;font-weight:700;color:' + (_ovS > 0.005 ? 'var(--orange)' : '#34C759') + '">' + fmt(_sb.adjustedTotal) + '</div>';
-      t += '</div></div>';
+      t += '</div>';
+      // Overspend that the (non-protected) savings can't absorb — floored at $0, the rest
+      // of the gap has to come from somewhere other than savings.
+      if (_sb.uncovered > 0.005) {
+        t += '<div style="margin-top:10px;padding:9px 11px;background:rgba(255,59,48,0.08);border:1px solid rgba(255,59,48,0.25);border-radius:8px;font-size:11px;color:var(--red);line-height:1.5">⚠️ <strong>' + fmt(_sb.uncovered) + '</strong> of your overspend can\'t come out of savings — your other goals are already at $0' + (_sb.protectedTotal > 0.005 ? ' and your 🔒 protected savings are locked' : '') + '. You\'ll need to cover this from somewhere else.</div>';
+      }
+      t += '</div>';
       html += t;
     }
   }
@@ -7275,14 +7289,23 @@ function renderGoals() {
     // moved into goals (firedRecSavingsTotal) is locked in and can't be un-saved, so
     // the projection floors at what's fired and only eats into the upcoming portion.
     const _gap = freeToSpend < 0 ? Math.abs(freeToSpend) : 0;
-    const _projectedSavings = firedRecSavingsTotal + Math.max(0, upcomingRecSavingsOnly - _gap);
+    // Protected ("always save full amount") upcoming savings are locked alongside the
+    // already-fired amount, so the gap can only erode the UNPROTECTED upcoming savings.
+    // Anything the gap can't take from that pool is "uncovered" — it must come from
+    // somewhere other than savings.
+    const _protectedUpcoming = getUpcomingRecurringSavings().reduce((s,u) => s + (u.r.protectedFromAdjustment ? u.r.amount : 0), 0);
+    const _upcomingAdjustable = Math.max(0, upcomingRecSavingsOnly - _protectedUpcoming);
+    const _projectedSavings = firedRecSavingsTotal + _protectedUpcoming + Math.max(0, _upcomingAdjustable - _gap);
+    const _uncoveredGap = Math.max(0, _gap - _upcomingAdjustable);
     html += '<div style="background:rgba(52,199,89,0.08);border:1.5px solid rgba(52,199,89,0.25);border-radius:12px;padding:10px 14px;margin-bottom:14px;font-size:11px;line-height:1.6;color:var(--muted)">' +
       '💚 <strong style="color:var(--text)">' + fmt(upcomingRecSavingsTotal) + '</strong> savings target · ' +
       '<span style="color:#34C759">' + fmt(firedRecSavingsTotal) + ' fired</span>' +
       (upcomingRecSavingsOnly > 0 ? ' · <span style="color:var(--muted)">' + fmt(upcomingRecSavingsOnly) + ' upcoming</span>' : '') +
+      (_protectedUpcoming > 0.005 ? ' · <span style="color:var(--accent)">🔒 ' + fmt(_protectedUpcoming) + ' protected</span>' : '') +
       (_gap > 0.005
         ? '<div style="margin-top:7px;padding-top:7px;border-top:1px solid rgba(52,199,89,0.2);color:var(--muted)">' +
             '⚠️ Your savings plan is <strong style="color:var(--orange)">' + fmt(_gap) + '</strong> more than your remaining budget, so you\'re on track to save <strong style="color:' + (_projectedSavings > 0 ? 'var(--text)' : 'var(--red)') + '">' + fmt(_projectedSavings) + '</strong> of your ' + fmt(upcomingRecSavingsTotal) + ' target.' +
+            (_uncoveredGap > 0.005 ? '<br><span style="color:var(--red)">⚠️ <strong>' + fmt(_uncoveredGap) + '</strong> of it can\'t come out of savings — you\'ll need to cover that from somewhere else.</span>' : '') +
           '</div>'
         : '<div style="margin-top:7px;padding-top:7px;border-top:1px solid rgba(52,199,89,0.2)">' +
             '✓ On track to save your full <strong style="color:#34C759">' + fmt(upcomingRecSavingsTotal) + '</strong> target.' +
@@ -13297,6 +13320,7 @@ let editingRecurringSavingId = null;
 let recSavingFreqState = 'weekly';
 let recSavingWeekdayState = 1;
 let recSavingActiveState = true;
+let recSavingProtectedState = false; // "always save full amount" — exempt from over-budget adjustment
 let recSavingOriginalSnapshot = null;
 
 function setRecSavingFreq(freq) {
@@ -13341,6 +13365,20 @@ function toggleRecSavingActive() {
     el.style.background = recSavingActiveState ? 'var(--accent)' : 'var(--surface3)';
     el.style.border = '2px solid ' + (recSavingActiveState ? 'var(--accent)' : 'var(--border)');
   }
+}
+
+function toggleRecSavingProtected() {
+  recSavingProtectedState = !recSavingProtectedState;
+  _syncRecSavingProtectedCheck();
+  if (typeof checkRecSavingChanged === 'function') checkRecSavingChanged();
+}
+
+function _syncRecSavingProtectedCheck() {
+  const el = document.getElementById('recSavingProtectedCheck');
+  if (!el) return;
+  el.textContent = recSavingProtectedState ? '✓' : '';
+  el.style.background = recSavingProtectedState ? 'var(--accent)' : 'var(--surface3)';
+  el.style.border = '2px solid ' + (recSavingProtectedState ? 'var(--accent)' : 'var(--border)');
 }
 
 function updateRecSavingGoalInfo() {
@@ -13404,6 +13442,7 @@ function checkRecSavingChanged() {
 function openAddRecurringSaving() {
   editingRecurringSavingId = null;
   recSavingActiveState = true;
+  recSavingProtectedState = false;
   recSavingFreqState = 'weekly';
   recSavingWeekdayState = 1;
   document.getElementById('recSavingModalTitle').textContent = 'New recurring saving';
@@ -13414,6 +13453,7 @@ function openAddRecurringSaving() {
   btn.textContent = 'Save'; btn.disabled = true; btn.style.opacity = '0.4';
   const check = document.getElementById('recSavingActiveCheck');
   check.textContent = '✓'; check.style.background = 'var(--accent)'; check.style.border = '2px solid var(--accent)';
+  _syncRecSavingProtectedCheck();
   populateRecSavingGoalSelect('');
   document.getElementById('recSavingGoalInfo').style.display = 'none';
   document.getElementById('recSavingXweeksNum').value = '';
@@ -13433,6 +13473,7 @@ function openEditRecurringSaving(id) {
   if (!rec) return;
   editingRecurringSavingId = id;
   recSavingActiveState = rec.active !== false;
+  recSavingProtectedState = !!rec.protectedFromAdjustment;
   recSavingFreqState = rec.frequency || 'weekly';
   recSavingWeekdayState = rec.weekday !== undefined ? rec.weekday : 1;
   document.getElementById('recSavingModalTitle').textContent = 'Edit recurring saving';
@@ -13445,6 +13486,7 @@ function openEditRecurringSaving(id) {
   check.textContent = recSavingActiveState ? '✓' : '';
   check.style.background = recSavingActiveState ? 'var(--accent)' : 'var(--surface3)';
   check.style.border = '2px solid ' + (recSavingActiveState ? 'var(--accent)' : 'var(--border)');
+  _syncRecSavingProtectedCheck();
   populateRecSavingGoalSelect(rec.savingsGoalId || '');
   if (rec.frequency === 'xweeks') { document.getElementById('recSavingXweeksNum').value = rec.xweeksNum || ''; document.getElementById('recSavingXweeksDate').value = rec.nextDate || ''; }
   else if (rec.frequency === 'monthly') document.getElementById('recSavingMonthDay').value = rec.monthDay || '';
@@ -13500,6 +13542,7 @@ function saveRecurringSaving() {
     name, amount, savingsGoalId,
     frequency: recSavingFreqState,
     active: recSavingActiveState,
+    protectedFromAdjustment: recSavingProtectedState,
     weekday: recSavingFreqState === 'weekly' ? recSavingWeekdayState : undefined,
     monthDay: recSavingFreqState === 'monthly' ? parseInt(document.getElementById('recSavingMonthDay').value) : undefined,
     xweeksNum: recSavingFreqState === 'xweeks' ? parseInt(document.getElementById('recSavingXweeksNum').value) : undefined,
@@ -13919,6 +13962,7 @@ function getCycleSavingsBreakdown(overspend) {
   const csStr = dateToStr(cycleStart), ceStr = dateToStr(cycleEnd);
   const rows = [];
 
+  const _ruleProtected = recId => { const rule = (state.recurringSavings||[]).find(r => r.id === recId); return !!(rule && rule.protectedFromAdjustment); };
   // Fired: recorded deposits with a recurringId in this cycle
   (state.savingsDeposits||[]).forEach(d => {
     if (!d.recurringId) return;
@@ -13927,7 +13971,7 @@ function getCycleSavingsBreakdown(overspend) {
     if (cd < csStr || cd > ceStr) return;
     const g = savingsCatById(d.catId);
     rows.push({ goalId: d.catId, goalName: g ? g.name : 'Goal', goalIcon: g ? (g.icon||'🎯') : '🎯',
-      date: cd, status: 'fired', scheduled: d.amount });
+      date: cd, status: 'fired', scheduled: d.amount, protected: _ruleProtected(d.recurringId) });
   });
   // Fired-but-still-pending payment items (committed, not yet paid)
   (state.pendingPayments||[]).forEach(p => {
@@ -13938,25 +13982,33 @@ function getCycleSavingsBreakdown(overspend) {
     if (!rule) return;
     const g = savingsCatById(rule.savingsGoalId);
     rows.push({ goalId: rule.savingsGoalId, goalName: g ? g.name : 'Goal', goalIcon: g ? (g.icon||'🎯') : '🎯',
-      date: p.dueDate, status: 'fired', scheduled: p.amount });
+      date: p.dueDate, status: 'fired', scheduled: p.amount, protected: !!rule.protectedFromAdjustment });
   });
   // Upcoming: scheduled occurrences not yet fired
   getUpcomingRecurringSavings().forEach(u => {
     rows.push({ goalId: u.r.savingsGoalId, goalName: u.goal ? u.goal.name : 'Goal',
-      goalIcon: u.goal ? (u.goal.icon||'🎯') : '🎯', date: u.date, status: 'upcoming', scheduled: u.r.amount });
+      goalIcon: u.goal ? (u.goal.icon||'🎯') : '🎯', date: u.date, status: 'upcoming', scheduled: u.r.amount, protected: !!u.r.protectedFromAdjustment });
   });
 
   rows.sort((a,b) => a.date.localeCompare(b.date) || a.goalName.localeCompare(b.goalName));
 
   const target = Math.round(rows.reduce((s,r) => s + r.scheduled, 0) * 100) / 100;
-  // Proportional adjustment across every row. Guard against target 0.
+  // Protected savings ("always save full amount") are never trimmed — the overspend is
+  // absorbed only by the rest, proportionally among them. If the non-protected pool can't
+  // cover the whole overspend, those rows floor at $0 and the remainder is "uncovered":
+  // it has to be paid from somewhere other than savings. Guard against an empty pool.
+  const adjustablePool = Math.round(rows.filter(r => !r.protected).reduce((s,r) => s + r.scheduled, 0) * 100) / 100;
+  const absorbed = Math.min(overspend, adjustablePool);
   rows.forEach(r => {
-    const share = target > 0 ? (r.scheduled / target) * overspend : 0;
+    if (r.protected) { r.adjusted = Math.round(r.scheduled * 100) / 100; return; }
+    const share = adjustablePool > 0 ? (r.scheduled / adjustablePool) * absorbed : 0;
     r.adjusted = Math.round(Math.max(0, r.scheduled - share) * 100) / 100;
   });
   const adjustedTotal = Math.round(rows.reduce((s,r) => s + r.adjusted, 0) * 100) / 100;
+  const protectedTotal = Math.round(rows.filter(r => r.protected).reduce((s,r) => s + r.scheduled, 0) * 100) / 100;
+  const uncovered = Math.round(Math.max(0, overspend - adjustablePool) * 100) / 100;
 
-  return { rows, target, overspend: Math.min(overspend, target), adjustedTotal };
+  return { rows, target, overspend: Math.min(overspend, target), adjustedTotal, uncovered, protectedTotal, adjustablePool };
 }
 
 function monthlyEquivalent(r) {

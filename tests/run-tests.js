@@ -5075,7 +5075,9 @@ await check('projected savings = fired + max(0, upcoming − gap): a gap bigger 
 
 await check('the budget savings notice uses the floored projection and the plan-vs-budget wording in source', () => {
   const fs = require('fs'); const html = fs.readFileSync(APP_PATH, 'utf8');
-  assertTrue(/const _projectedSavings = firedRecSavingsTotal \+ Math\.max\(0, upcomingRecSavingsOnly - _gap\);/.test(html), 'projection floors at fired and only eats into upcoming');
+  // v2.94: fired AND protected-upcoming are locked; the gap only erodes the unprotected
+  // upcoming pool. With nothing protected this is identical to the v2.89 floor-at-fired form.
+  assertTrue(/const _projectedSavings = firedRecSavingsTotal \+ _protectedUpcoming \+ Math\.max\(0, _upcomingAdjustable - _gap\);/.test(html), 'projection locks fired + protected and only eats into the unprotected upcoming pool');
   assertTrue(html.includes('more than your remaining budget'), 'copy reframes the gap as plan-vs-remaining-budget');
   // the misleading "over budget" phrasing is gone from this specific notice
   const noticeStart = html.indexOf('savings target · ');
@@ -5307,6 +5309,76 @@ await check('recurring add also honours the default payment account (source)', (
   const fs = require('fs'); const html = fs.readFileSync(APP_PATH, 'utf8');
   assertTrue(html.includes('const _recDef = getDefaultPaymentAccount();'), 'openAddRecurring pre-selects the default payment account');
   assertTrue(html.includes('const _defAcct = getDefaultPaymentAccount();'), 'openAddExpense pre-selects the default payment account');
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+console.log('\n── Protected recurring savings (not adjusted when over budget) ──');
+
+function _setupProtectedSavings(ctx, holidayFired) {
+  ctx.state = buildMockState();
+  const cs = ctx.dateToStr(ctx.getCycleRange(0).cycleStart);
+  ctx.state.savingsCategories.push({ id: 'gMort', name: 'Mortgage', icon: '🏠', status: 'active', linkedAccountId: 'offset1' });
+  ctx.state.savingsCategories.push({ id: 'gHol', name: 'Holiday', icon: '✈️', status: 'active', linkedAccountId: 'offset1' });
+  // a protected rule (mortgage) and an ordinary one (holiday). No schedule fields → no
+  // upcoming occurrences are generated, so the fixture is just these two fired rows.
+  ctx.state.recurringSavings.push({ id: 'rMort', savingsGoalId: 'gMort', amount: 500, active: true, protectedFromAdjustment: true });
+  ctx.state.recurringSavings.push({ id: 'rHol', savingsGoalId: 'gHol', amount: 500, active: true, protectedFromAdjustment: false });
+  ctx.state.savingsDeposits.push({ id: 'dM', catId: 'gMort', recurringId: 'rMort', amount: 500, date: cs, cycleDate: cs, type: 'deposit' });
+  ctx.state.savingsDeposits.push({ id: 'dH', catId: 'gHol', recurringId: 'rHol', amount: holidayFired, date: cs, cycleDate: cs, type: 'deposit' });
+  return cs;
+}
+
+await check('a protected saving keeps its full amount; the overspend is absorbed only by the unprotected savings', () => {
+  _setupProtectedSavings(ctx, 500);
+  const b = ctx.getCycleSavingsBreakdown(300);
+  const mort = b.rows.find(r => r.goalName === 'Mortgage');
+  const hol = b.rows.find(r => r.goalName === 'Holiday');
+  assertEqual(mort.adjusted, 500, 'the protected mortgage saving is never trimmed');
+  assertTrue(mort.protected === true, 'the mortgage row is flagged protected');
+  assertEqual(hol.adjusted, 200, 'the whole 300 overspend comes out of the holiday saving (500 - 300)');
+  assertEqual(b.protectedTotal, 500, 'protectedTotal reports the locked amount');
+  assertEqual(b.adjustablePool, 500, 'only the unprotected saving is in the adjustable pool');
+  assertEqual(b.uncovered, 0, 'the pool covers the overspend, so nothing is uncovered');
+});
+
+await check('when the unprotected pool cannot absorb the overspend, the remainder is reported as uncovered and protected savings are never clawed back', () => {
+  _setupProtectedSavings(ctx, 500);
+  const b = ctx.getCycleSavingsBreakdown(800); // pool is only 500
+  const mort = b.rows.find(r => r.goalName === 'Mortgage');
+  const hol = b.rows.find(r => r.goalName === 'Holiday');
+  assertEqual(hol.adjusted, 0, 'the unprotected saving floors at $0');
+  assertEqual(mort.adjusted, 500, 'the protected saving stays full even though the gap is unmet');
+  assertEqual(b.uncovered, 300, 'the 300 that the pool could not absorb is uncovered (800 - 500)');
+  assertEqual(b.adjustedTotal, 500, 'only the protected saving remains');
+});
+
+await check('with nothing protected, the breakdown is unchanged (overspend still spread across all rows)', () => {
+  _setupProtectedSavings(ctx, 500);
+  ctx.state.recurringSavings.forEach(r => { r.protectedFromAdjustment = false; });
+  const b = ctx.getCycleSavingsBreakdown(300);
+  // 500/1000*300 = 150 off each → 350 each
+  assertTrue(b.rows.every(r => Math.abs(r.adjusted - 350) < 0.005), 'both rows trimmed proportionally when none are protected');
+  assertEqual(b.uncovered, 0, 'no uncovered amount when the full plan is adjustable');
+});
+
+await check('budget sub-tab projection locks fired + protected-upcoming and reports the uncovered gap', () => {
+  // Mirrors the in-app formula.
+  const fired = 2000, protectedUp = 500, upcomingOnly = 1500; // upcomingOnly includes the 500 protected
+  const adjustable = Math.max(0, upcomingOnly - protectedUp); // 1000
+  const proj = (gap) => fired + protectedUp + Math.max(0, adjustable - gap);
+  const uncovered = (gap) => Math.max(0, gap - adjustable);
+  assertEqual(proj(400), 3100, 'a small gap only trims the unprotected upcoming pool (2000+500+600)');
+  assertEqual(uncovered(400), 0, 'no uncovered gap while the pool absorbs it');
+  assertEqual(proj(1200), 2500, 'a gap beyond the pool floors at fired + protected (2000+500)');
+  assertEqual(uncovered(1200), 200, 'the 200 the pool cannot absorb is uncovered (1200 - 1000)');
+});
+
+await check('the protected-saving flag is wired through the form, save, and both surfaces (source)', () => {
+  const fs = require('fs'); const html = fs.readFileSync(APP_PATH, 'utf8');
+  assertTrue(html.includes('function toggleRecSavingProtected'), 'the form toggle exists');
+  assertTrue(html.includes('protectedFromAdjustment: recSavingProtectedState'), 'save persists the flag onto the rule');
+  assertTrue(/rows\.filter\(r => !r\.protected\)/.test(html), 'the breakdown excludes protected rows from the adjustable pool');
+  assertTrue(html.includes('const _protectedUpcoming'), 'the budget sub-tab accounts for protected upcoming savings');
 });
 
 console.log(`\x1b[1mResults: ${pass} passed, ${fail} failed\x1b[0m`);
