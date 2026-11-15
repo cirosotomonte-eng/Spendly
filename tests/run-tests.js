@@ -5516,6 +5516,13 @@ await check('the Wallet savings summary is net of fees (source)', () => {
   assertTrue(/d\.bonusProgram === 'virgin'\) _vPts \+= d\.bonusPoints/.test(html), 'the summary tallies bonus points under their own program');
 });
 
+await check('the gift-card savings summary puts net saved and points on separate rows', () => {
+  const fs = require('fs'); const html = fs.readFileSync(APP_PATH, 'utf8');
+  // the points row is its own div (separated by a top border), not inline with "net saved"
+  assertTrue(/const savedRow =/.test(html) && /ptsBits\.length \?/.test(html), 'net saved and points are built as two rows');
+  assertTrue(/ptsBits[\s\S]{0,200}border-top:1px solid var\(--surface2\)/.test(html), 'the points row sits on its own line under a divider');
+});
+
 await check('the credit-card rewards field is labelled "Average earn rate"', () => {
   const fs = require('fs'); const html = fs.readFileSync(APP_PATH, 'utf8');
   assertTrue(html.includes('Average earn rate — points per $1'), 'the label reads "Average earn rate"');

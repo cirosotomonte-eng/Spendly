@@ -26,8 +26,8 @@ const SPENDLY_MODE = 'cloud';
 // derive its cache name and reported version from the SAME constants the app uses.
 // Previously the worker carried its own hardcoded version that was never bumped,
 // so its cache name never changed and its version never matched the running app.
-const APP_VERSION = '2.98.0';
-const BUILD_TIME = '15 Nov 2026 11:48 AM AEDT';
+const APP_VERSION = '2.98.1';
+const BUILD_TIME = '15 Nov 2026 12:07 PM AEDT';
 // Max characters shown for a statement merchant name in the reconciliation review.
 // Display-only: the full name is always kept on the data and used when the charge is added.
 const RECONCILE_NAME_DISPLAY_MAX = 10;
@@ -15377,12 +15377,15 @@ function renderGiftCards() {
   if (_anyDeal) {
     const savedCol = _netSaved >= 0 ? '#34C759' : 'var(--red)';
     const savedStr = (_netSaved < 0 ? '−' : '') + fmtF(Math.abs(_netSaved));
-    const bits = ['<div><span style="font-size:20px;font-weight:800;color:' + savedCol + '">' + savedStr + '</span> <span style="font-size:11px;color:var(--muted)">net saved</span></div>'];
-    if (_qPts > 0) bits.push('<div><span style="font-size:16px;font-weight:700;color:var(--accent)">✈️ ' + _qPts.toLocaleString() + '</span> <span style="font-size:11px;color:var(--muted)">Qantas pts</span></div>');
-    if (_vPts > 0) bits.push('<div><span style="font-size:16px;font-weight:700;color:var(--accent)">🔴 ' + _vPts.toLocaleString() + '</span> <span style="font-size:11px;color:var(--muted)">Velocity pts</span></div>');
+    // Row 1: the net saving. Row 2: points, split by program.
+    const savedRow = '<div><span style="font-size:20px;font-weight:800;color:' + savedCol + '">' + savedStr + '</span> <span style="font-size:11px;color:var(--muted)">net saved</span></div>';
+    const ptsBits = [];
+    if (_qPts > 0) ptsBits.push('<div><span style="font-size:16px;font-weight:700;color:var(--accent)">✈️ ' + _qPts.toLocaleString() + '</span> <span style="font-size:11px;color:var(--muted)">Qantas pts</span></div>');
+    if (_vPts > 0) ptsBits.push('<div><span style="font-size:16px;font-weight:700;color:var(--accent)">🔴 ' + _vPts.toLocaleString() + '</span> <span style="font-size:11px;color:var(--muted)">Velocity pts</span></div>');
     html += '<div style="background:var(--surface);border-radius:var(--r);padding:12px 14px;margin-bottom:16px">' +
       '<div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:6px">💚 Savings from gift cards <span style="text-transform:none;letter-spacing:0">(after fees)</span></div>' +
-      '<div style="display:flex;gap:18px;flex-wrap:wrap;align-items:baseline">' + bits.join('') + '</div>' +
+      '<div>' + savedRow + '</div>' +
+      (ptsBits.length ? '<div style="display:flex;gap:18px;flex-wrap:wrap;align-items:baseline;margin-top:8px;padding-top:8px;border-top:1px solid var(--surface2)">' + ptsBits.join('') + '</div>' : '') +
     '</div>';
   }
 
