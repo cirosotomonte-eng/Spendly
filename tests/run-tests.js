@@ -5516,6 +5516,30 @@ await check('the Wallet savings summary is net of fees (source)', () => {
   assertTrue(/d\.bonusProgram === 'virgin'\) _vPts \+= d\.bonusPoints/.test(html), 'the summary tallies bonus points under their own program');
 });
 
+await check('marking a gift card used stamps a date; un-marking clears it; re-marking keeps the original', () => {
+  ctx.state = buildMockState();
+  const gc = { id: 'g1', used: false };
+  ctx._setGcUsed(gc, true);
+  assertTrue(gc.used === true && !!gc.usedDate, 'marking used stamps a usedDate');
+  const first = gc.usedDate;
+  ctx._setGcUsed(gc, true);
+  assertEqual(gc.usedDate, first, 're-marking keeps the original used date');
+  ctx._setGcUsed(gc, false);
+  assertTrue(gc.used === false && !gc.usedDate, 'un-marking clears the used date');
+});
+
+await check('used gift cards sort most-recently-used first, undated ones last', () => {
+  const cards = [
+    { id: 'a', used: true, expired: false, usedDate: '2026-11-10T00:00:00Z' },
+    { id: 'b', used: true, expired: false, usedDate: '2026-11-15T00:00:00Z' },
+    { id: 'c', used: true, expired: false }, // legacy, no usedDate
+  ];
+  const exhausted = cards.filter(c => c.used && !c.expired).sort((a,b) => (b.usedDate||'').localeCompare(a.usedDate||''));
+  assertEqual(exhausted.map(c => c.id).join(','), 'b,a,c', 'newest-used at the top, undated at the bottom');
+  const fs = require('fs'); const html = fs.readFileSync(APP_PATH, 'utf8');
+  assertTrue(/c\.used && !c\.expired\)\.sort\(\(a,b\) => \(b\.usedDate\|\|''\)\.localeCompare\(a\.usedDate\|\|''\)\)/.test(html), 'renderGiftCards sorts the used section by usedDate');
+});
+
 await check('the app opens on the Home (dashboard) tab, not Spend', () => {
   const fs = require('fs'); const html = fs.readFileSync(APP_PATH, 'utf8');
   // every boot path (post-loadState) sets dashboard, and none lands on expenses

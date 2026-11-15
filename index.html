@@ -26,8 +26,8 @@ const SPENDLY_MODE = 'cloud';
 // derive its cache name and reported version from the SAME constants the app uses.
 // Previously the worker carried its own hardcoded version that was never bumped,
 // so its cache name never changed and its version never matched the running app.
-const APP_VERSION = '2.99.0';
-const BUILD_TIME = '15 Nov 2026 12:20 PM AEDT';
+const APP_VERSION = '2.100.0';
+const BUILD_TIME = '15 Nov 2026 5:02 PM AEDT';
 // Max characters shown for a statement merchant name in the reconciliation review.
 // Display-only: the full name is always kept on the data and used when the charge is added.
 const RECONCILE_NAME_DISPLAY_MAX = 10;
@@ -15207,9 +15207,16 @@ function deleteGiftCard() {
   saveState(); closeModal('giftCardModal'); renderContent();
 }
 
+// Stamp (or clear) the moment a card becomes/stops being used, so the Used section can be
+// ordered by when it was marked used. Called from every place that flips gc.used.
+function _setGcUsed(gc, used) {
+  if (used) { gc.used = true; if (!gc.usedDate) gc.usedDate = new Date().toISOString(); }
+  else { gc.used = false; gc.usedDate = undefined; }
+}
+
 function markGcUsed(id) {
   const gc = gcById(id); if (!gc) return;
-  gc.used = !gc.used;
+  _setGcUsed(gc, !gc.used);
   saveState(); renderContent();
 }
 
@@ -15258,7 +15265,7 @@ function saveGcTx() {
   } else {
     gc.transactions.push({ id:uid(), amount, desc, date });
     gc.balance = Math.max(gc.balance - amount, 0);
-    if (gc.balance === 0) gc.used = true;
+    if (gc.balance === 0) _setGcUsed(gc, true);
   }
   saveState(); closeModal('gcTxModal'); renderContent();
 }
@@ -15269,7 +15276,7 @@ function deleteGcTx() {
   const tx = (gc.transactions||[]).find(t=>t.id===editingGcTxId);
   if (tx) gc.balance = Math.min(gc.balance + tx.amount, gc.originalBalance || gc.balance + tx.amount);
   gc.transactions = (gc.transactions||[]).filter(t=>t.id!==editingGcTxId);
-  if (gc.balance > 0) gc.used = false;
+  if (gc.balance > 0) _setGcUsed(gc, false);
   saveState(); closeModal('gcTxModal'); renderContent();
 }
 
@@ -15349,8 +15356,10 @@ function renderGiftCards() {
     const dB = b.expiryDate ? new Date(b.expiryDate+'T00:00:00') - today : Infinity;
     return dA - dB;
   });
-  // Split used into exhausted (balance=0, fully used) and expired (had balance but expired)
-  const exhausted = cards.filter(c=>c.used && !c.expired);
+  // Split used into exhausted (balance=0, fully used) and expired (had balance but expired).
+  // Exhausted cards are ordered by when they were marked used, most recent at the top;
+  // legacy used cards without a usedDate fall to the bottom of the section.
+  const exhausted = cards.filter(c=>c.used && !c.expired).sort((a,b) => (b.usedDate||'').localeCompare(a.usedDate||''));
   const expired   = cards.filter(c=>c.used && c.expired);
   const used = [...exhausted, ...expired]; // keep for backward compat
 
