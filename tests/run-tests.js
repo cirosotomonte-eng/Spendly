@@ -5459,6 +5459,11 @@ await check('a credit card persists its rewards program and earn rate on save', 
   assertEqual(a.pointsPerDollar, 1.5, 'earn rate saved');
 });
 
+await check('the credit-card rewards field is labelled "Average earn rate"', () => {
+  const fs = require('fs'); const html = fs.readFileSync(APP_PATH, 'utf8');
+  assertTrue(html.includes('Average earn rate — points per $1'), 'the label reads "Average earn rate"');
+});
+
 await check('logExpense:false records the card (saving/points) but creates NO expense; toggling it off later removes an existing one', () => {
   ctx.state = buildMockState();
   const cc = ctx.state.accounts.find(a => a.id === 'cc1'); cc.pointsProgram = 'qantas'; cc.pointsPerDollar = 1;
