@@ -5459,6 +5459,44 @@ await check('a credit card persists its rewards program and earn rate on save', 
   assertEqual(a.pointsPerDollar, 1.5, 'earn rate saved');
 });
 
+await check('a purchase fee adds to the amount paid and nets off the saving', () => {
+  ctx.state = buildMockState();
+  const d = ctx.computeGiftCardDeal({ originalBalance: 250, discountPct: 0, fee: 7 });
+  assertEqual(d.fee, 7, 'fee captured');
+  assertEqual(d.amountPaid, 257, 'amount paid = face − discount + fee');
+  assertEqual(d.netSaving, -7, 'net saving = discount − fee (a fee-only buy is a net cost)');
+});
+
+await check("the prepaid→Woolworths churn nets to the user's $3.41 profit per card", () => {
+  ctx.state = buildMockState();
+  const amex = ctx.state.accounts.find(a => a.id === 'cc1'); amex.pointsProgram = 'virgin'; amex.pointsPerDollar = 0;
+  // Leg 1: $250 prepaid + $7 fee on Amex, 1000 Virgin bonus points
+  const prepaid = ctx.computeGiftCardDeal({ originalBalance: 250, discountPct: 0, fee: 7, paidWithAccountId: 'cc1', bonusPoints: 1000 });
+  assertEqual(prepaid.amountPaid, 257, 'prepaid costs $257');
+  assertEqual(prepaid.netSaving, -7, 'prepaid is a $7 net cost before the discount leg');
+  assertEqual(prepaid.totalPoints, 1000, '1000 Virgin bonus points');
+  // Leg 2: Woolworths card, $260.25 face at 4% → $10.41 discount, no fee
+  const woolies = ctx.computeGiftCardDeal({ originalBalance: 260.25, discountPct: 4, fee: 0 });
+  assertEqual(woolies.discountAmount, 10.41, '4% of 260.25 = 10.41 saved');
+  assertEqual(woolies.netSaving, 10.41, 'no fee on this leg');
+  assertTrue(Math.abs((prepaid.netSaving + woolies.netSaving) - 3.41) < 0.005, 'the pair nets to $3.41 profit (10.41 − 7)');
+});
+
+await check('the logged expense is the fee-inclusive amount paid', () => {
+  ctx.state = buildMockState();
+  const gc = { id: 'gcP', name: 'Prepaid MC', originalBalance: 250, discountPct: 0, fee: 7, paidWithAccountId: 'cc1', bonusPoints: 1000, expenseCategoryId: 'cat1', purchaseDate: '2026-11-15', logExpense: true };
+  ctx.state.giftCards = [gc];
+  ctx._syncGiftCardExpense(gc);
+  const e = ctx.state.expenses.find(x => x.id === gc.linkedExpenseId);
+  assertEqual(e.amount, 257, 'the Amex charge logged is face − discount + fee (257)');
+});
+
+await check('the Wallet savings summary is net of fees (source)', () => {
+  const fs = require('fs'); const html = fs.readFileSync(APP_PATH, 'utf8');
+  assertTrue(html.includes('id="gcFee"'), 'the purchase-fee field exists on the form');
+  assertTrue(/_netSaved \+= d\.netSaving/.test(html), 'the summary totals net saving (discount − fee)');
+});
+
 await check('the credit-card rewards field is labelled "Average earn rate"', () => {
   const fs = require('fs'); const html = fs.readFileSync(APP_PATH, 'utf8');
   assertTrue(html.includes('Average earn rate — points per $1'), 'the label reads "Average earn rate"');
