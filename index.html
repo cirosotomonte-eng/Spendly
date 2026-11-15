@@ -26,8 +26,8 @@ const SPENDLY_MODE = 'cloud';
 // derive its cache name and reported version from the SAME constants the app uses.
 // Previously the worker carried its own hardcoded version that was never bumped,
 // so its cache name never changed and its version never matched the running app.
-const APP_VERSION = '2.98.2';
-const BUILD_TIME = '15 Nov 2026 12:11 PM AEDT';
+const APP_VERSION = '2.99.0';
+const BUILD_TIME = '15 Nov 2026 12:20 PM AEDT';
 // Max characters shown for a statement merchant name in the reconciliation review.
 // Display-only: the full name is always kept on the data and used when the charge is added.
 const RECONCILE_NAME_DISPLAY_MAX = 10;
@@ -22713,7 +22713,7 @@ async function init() {
       // Supabase (either fresh login or silent token refresh). No need to PIN again.
       try { sessionStorage.setItem('spendly_pin_bypassed', '1'); } catch(e) {}
       await loadState();
-      state.currentTab = 'expenses';
+      state.currentTab = 'dashboard';
       updateHeader();
       renderContent();
       initVersionDisplay();
@@ -22744,7 +22744,7 @@ async function init() {
     }, 4000);
     try {
       await loadState();
-      state.currentTab = 'expenses';
+      state.currentTab = 'dashboard';
       updateHeader();
       renderContent();
       initVersionDisplay();

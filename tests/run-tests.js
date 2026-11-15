@@ -5516,6 +5516,13 @@ await check('the Wallet savings summary is net of fees (source)', () => {
   assertTrue(/d\.bonusProgram === 'virgin'\) _vPts \+= d\.bonusPoints/.test(html), 'the summary tallies bonus points under their own program');
 });
 
+await check('the app opens on the Home (dashboard) tab, not Spend', () => {
+  const fs = require('fs'); const html = fs.readFileSync(APP_PATH, 'utf8');
+  // every boot path (post-loadState) sets dashboard, and none lands on expenses
+  assertTrue(!/await loadState\(\);\s*\n\s*state\.currentTab = 'expenses';/.test(html), 'no startup path opens on the Spend tab');
+  assertTrue(/await loadState\(\);\s*\n\s*state\.currentTab = 'dashboard';/.test(html), 'startup opens on the Home/dashboard tab');
+});
+
 await check('program points use brand-coloured badge icons (Qantas Q / Velocity V)', () => {
   const fs = require('fs'); const html = fs.readFileSync(APP_PATH, 'utf8');
   assertTrue(/function _programIcon/.test(html), 'a program-icon helper exists');
