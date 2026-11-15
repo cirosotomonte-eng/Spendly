@@ -5516,6 +5516,14 @@ await check('the Wallet savings summary is net of fees (source)', () => {
   assertTrue(/d\.bonusProgram === 'virgin'\) _vPts \+= d\.bonusPoints/.test(html), 'the summary tallies bonus points under their own program');
 });
 
+await check('the header shows a projected-savings strip (current cycle), driven by the breakdown adjusted total', () => {
+  const fs = require('fs'); const html = fs.readFileSync(APP_PATH, 'utf8');
+  assertTrue(html.includes('id="projSaveStrip"') && html.includes('id="projSaveAmount"'), 'the header strip markup exists');
+  assertTrue(/isCurrentCycle\(\) && budget > 0/.test(html), 'the strip only shows on the current cycle with a budget');
+  assertTrue(/const _ov = remain < 0 \? Math\.abs\(remain\) : 0;[\s\S]{0,80}getCycleSavingsBreakdown\(_ov\)/.test(html), 'overspend (negative remain) drives the breakdown');
+  assertTrue(/amtEl\.textContent = fmt\(_sb\.adjustedTotal\)/.test(html), 'the strip shows the adjusted (projected) savings total');
+});
+
 await check('the Savings-this-cycle section shows target % and projected % of budget', () => {
   const fs = require('fs'); const html = fs.readFileSync(APP_PATH, 'utf8');
   assertTrue(/\(_sb\.target \/ budget\) \* 100/.test(html), 'target % = savings target ÷ budget');

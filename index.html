@@ -26,8 +26,8 @@ const SPENDLY_MODE = 'cloud';
 // derive its cache name and reported version from the SAME constants the app uses.
 // Previously the worker carried its own hardcoded version that was never bumped,
 // so its cache name never changed and its version never matched the running app.
-const APP_VERSION = '2.102.0';
-const BUILD_TIME = '15 Nov 2026 5:20 PM AEDT';
+const APP_VERSION = '2.103.0';
+const BUILD_TIME = '16 Nov 2026 7:40 AM AEDT';
 // Max characters shown for a statement merchant name in the reconciliation review.
 // Display-only: the full name is always kept on the data and used when the charge is added.
 const RECONCILE_NAME_DISPLAY_MAX = 10;
@@ -875,6 +875,14 @@ async function applyUpdate() {
       <div style="text-align:right">
         <div class="num-label" id="budgetCycleLabel">Monthly budget</div>
         <div style="font-size:24px;font-weight:700;letter-spacing:-0.5px;color:var(--muted)" id="budgetDisplay">—</div>
+      </div>
+    </div>
+    <!-- Projected savings for the current cycle — visible on every tab, shrinks as you spend -->
+    <div id="projSaveStrip" style="display:none;margin-top:10px;background:var(--surface);border-radius:12px;padding:10px 14px;align-items:center;justify-content:space-between;border:1px solid var(--border)">
+      <div style="font-size:12px;font-weight:600;color:var(--text)">💚 On track to save</div>
+      <div style="text-align:right;display:flex;align-items:baseline;gap:7px">
+        <span id="projSaveNote" style="font-size:11px;color:var(--muted)"></span>
+        <span id="projSaveAmount" style="font-size:19px;font-weight:800;color:#34C759">—</span>
       </div>
     </div>
 
@@ -4386,6 +4394,29 @@ function updateHeader() {
   } else {
     remainEl.textContent = '—';
     remainEl.style.color = 'var(--muted)';
+  }
+
+  // Projected savings strip — current cycle only. Uses the same overspend as "Left to
+  // spend" (negative remain), so the figure drops live as you spend into your savings.
+  const projStrip = document.getElementById('projSaveStrip');
+  if (projStrip) {
+    let show = false;
+    if (isCurrentCycle() && budget > 0) {
+      const _ov = remain < 0 ? Math.abs(remain) : 0;
+      const _sb = getCycleSavingsBreakdown(_ov);
+      if (_sb.target > 0.005) {
+        const amtEl = document.getElementById('projSaveAmount');
+        const noteEl = document.getElementById('projSaveNote');
+        const drop = _sb.target - _sb.adjustedTotal;
+        const trimmed = drop > 0.005;
+        if (amtEl) { amtEl.textContent = fmt(_sb.adjustedTotal); amtEl.style.color = trimmed ? 'var(--orange)' : '#34C759'; }
+        if (noteEl) noteEl.innerHTML = trimmed
+          ? '<span style="color:var(--orange)">↓ ' + fmt(drop) + '</span> of ' + fmt(_sb.target)
+          : 'full plan';
+        show = true;
+      }
+    }
+    projStrip.style.display = show ? 'flex' : 'none';
   }
 
   // Deferred-charge visibility — without this, a cycle's "Left to spend"
