@@ -5516,6 +5516,14 @@ await check('the Wallet savings summary is net of fees (source)', () => {
   assertTrue(/d\.bonusProgram === 'virgin'\) _vPts \+= d\.bonusPoints/.test(html), 'the summary tallies bonus points under their own program');
 });
 
+await check('program points use brand-coloured badge icons (Qantas Q / Velocity V)', () => {
+  const fs = require('fs'); const html = fs.readFileSync(APP_PATH, 'utf8');
+  assertTrue(/function _programIcon/.test(html), 'a program-icon helper exists');
+  assertTrue(/#E40000[\s\S]{0,40}>Q</.test(html), 'Qantas badge is red with a Q');
+  assertTrue(/#D0006F[\s\S]{0,40}>V</.test(html), 'Velocity badge is magenta with a V');
+  assertTrue(html.includes("_programIcon('qantas', 18)") && html.includes("_programIcon('virgin', 18)"), 'the savings summary uses the badges');
+});
+
 await check('the gift-card savings summary puts net saved and points on separate rows', () => {
   const fs = require('fs'); const html = fs.readFileSync(APP_PATH, 'utf8');
   // the points row is its own div (separated by a top border), not inline with "net saved"

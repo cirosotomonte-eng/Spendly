@@ -26,8 +26,8 @@ const SPENDLY_MODE = 'cloud';
 // derive its cache name and reported version from the SAME constants the app uses.
 // Previously the worker carried its own hardcoded version that was never bumped,
 // so its cache name never changed and its version never matched the running app.
-const APP_VERSION = '2.98.1';
-const BUILD_TIME = '15 Nov 2026 12:07 PM AEDT';
+const APP_VERSION = '2.98.2';
+const BUILD_TIME = '15 Nov 2026 12:11 PM AEDT';
 // Max characters shown for a statement merchant name in the reconciliation review.
 // Display-only: the full name is always kept on the data and used when the charge is added.
 const RECONCILE_NAME_DISPLAY_MAX = 10;
@@ -14948,6 +14948,16 @@ function _gcRecalcDeal() {
 
 function _gcProgLabel(p) { return p === 'qantas' ? 'Qantas' : p === 'virgin' ? 'Velocity' : 'pts'; }
 
+// Brand-coloured badge for a points program (not the official trademarked logos):
+// Qantas red "Q", Velocity magenta "V". size is the badge px.
+function _programIcon(p, size) {
+  const s = size || 16;
+  const common = 'display:inline-flex;align-items:center;justify-content:center;width:' + s + 'px;height:' + s + 'px;border-radius:' + Math.round(s*0.28) + 'px;color:#fff;font-weight:800;font-size:' + Math.round(s*0.62) + 'px;line-height:1;vertical-align:-' + Math.round(s*0.22) + 'px';
+  if (p === 'qantas') return '<span style="' + common + ';background:#E40000">Q</span>';
+  if (p === 'virgin') return '<span style="' + common + ';background:#D0006F">V</span>';
+  return '⭐';
+}
+
 // Create / update / remove the expense that logs the amount paid for a gift card. The
 // expense is linked back to the card so editing the card keeps it in step and deleting
 // the card removes it — no orphaned purchase expense is ever left behind.
@@ -15380,8 +15390,8 @@ function renderGiftCards() {
     // Row 1: the net saving. Row 2: points, split by program.
     const savedRow = '<div><span style="font-size:20px;font-weight:800;color:' + savedCol + '">' + savedStr + '</span> <span style="font-size:11px;color:var(--muted)">net saved</span></div>';
     const ptsBits = [];
-    if (_qPts > 0) ptsBits.push('<div><span style="font-size:16px;font-weight:700;color:var(--accent)">✈️ ' + _qPts.toLocaleString() + '</span> <span style="font-size:11px;color:var(--muted)">Qantas pts</span></div>');
-    if (_vPts > 0) ptsBits.push('<div><span style="font-size:16px;font-weight:700;color:var(--accent)">🔴 ' + _vPts.toLocaleString() + '</span> <span style="font-size:11px;color:var(--muted)">Velocity pts</span></div>');
+    if (_qPts > 0) ptsBits.push('<div style="display:flex;align-items:center;gap:6px">' + _programIcon('qantas', 18) + '<span><span style="font-size:16px;font-weight:700;color:var(--text)">' + _qPts.toLocaleString() + '</span> <span style="font-size:11px;color:var(--muted)">Qantas pts</span></span></div>');
+    if (_vPts > 0) ptsBits.push('<div style="display:flex;align-items:center;gap:6px">' + _programIcon('virgin', 18) + '<span><span style="font-size:16px;font-weight:700;color:var(--text)">' + _vPts.toLocaleString() + '</span> <span style="font-size:11px;color:var(--muted)">Velocity pts</span></span></div>');
     html += '<div style="background:var(--surface);border-radius:var(--r);padding:12px 14px;margin-bottom:16px">' +
       '<div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:6px">💚 Savings from gift cards <span style="text-transform:none;letter-spacing:0">(after fees)</span></div>' +
       '<div>' + savedRow + '</div>' +
@@ -15443,8 +15453,8 @@ function renderGiftCards() {
       const bits = [];
       if (_d.discountAmount > 0.005) bits.push('💸 Saved <strong style="color:#34C759">' + fmtF(_d.discountAmount) + '</strong>' + (_d.pct ? ' (' + _d.pct + '%)' : ''));
       if (_d.fee > 0.005) bits.push('🏷️ ' + fmtF(_d.fee) + ' fee · Net <strong style="color:' + (_d.netSaving >= 0 ? '#34C759' : 'var(--red)') + '">' + (_d.netSaving < 0 ? '−' : '') + fmtF(Math.abs(_d.netSaving)) + '</strong>');
-      if (_d.basePoints > 0 && _d.baseProgram) bits.push('⭐ <strong style="color:var(--accent)">' + _d.basePoints.toLocaleString() + '</strong> ' + _gcProgLabel(_d.baseProgram));
-      if (_d.bonusPoints > 0) bits.push('⭐ <strong style="color:var(--accent)">' + _d.bonusPoints.toLocaleString() + '</strong> ' + (_d.bonusProgram ? _gcProgLabel(_d.bonusProgram) + ' ' : '') + 'bonus');
+      if (_d.basePoints > 0 && _d.baseProgram) bits.push(_programIcon(_d.baseProgram, 13) + ' <strong style="color:var(--accent)">' + _d.basePoints.toLocaleString() + '</strong> ' + _gcProgLabel(_d.baseProgram));
+      if (_d.bonusPoints > 0) bits.push((_d.bonusProgram ? _programIcon(_d.bonusProgram, 13) + ' ' : '⭐ ') + '<strong style="color:var(--accent)">' + _d.bonusPoints.toLocaleString() + '</strong> ' + (_d.bonusProgram ? _gcProgLabel(_d.bonusProgram) + ' ' : '') + 'bonus');
       if (gc.source) bits.push('🛒 ' + gc.source);
       if (gc.purchaseDate) bits.push('📅 ' + gc.purchaseDate);
       card += '<div style="margin:0 14px 10px;font-size:11px;color:var(--muted);line-height:1.6">' + bits.join(' · ') + '</div>';
