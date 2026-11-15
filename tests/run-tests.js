@@ -5522,6 +5522,7 @@ await check('the header shows a projected-savings strip (current cycle), driven 
   assertTrue(/isCurrentCycle\(\) && budget > 0/.test(html), 'the strip only shows on the current cycle with a budget');
   assertTrue(/const _ov = remain < 0 \? Math\.abs\(remain\) : 0;[\s\S]{0,80}getCycleSavingsBreakdown\(_ov\)/.test(html), 'overspend (negative remain) drives the breakdown');
   assertTrue(/amtEl\.textContent = fmt\(_sb\.adjustedTotal\)/.test(html), 'the strip shows the adjusted (projected) savings total');
+  assertTrue(html.includes('💚 On track to save:') && /\(down by ' \+ fmt\(drop\)/.test(html), 'reads "On track to save: amount (down by x)"');
 });
 
 await check('the Savings-this-cycle section shows target % and projected % of budget', () => {
