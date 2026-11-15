@@ -26,8 +26,8 @@ const SPENDLY_MODE = 'cloud';
 // derive its cache name and reported version from the SAME constants the app uses.
 // Previously the worker carried its own hardcoded version that was never bumped,
 // so its cache name never changed and its version never matched the running app.
-const APP_VERSION = '2.101.1';
-const BUILD_TIME = '15 Nov 2026 5:14 PM AEDT';
+const APP_VERSION = '2.102.0';
+const BUILD_TIME = '15 Nov 2026 5:20 PM AEDT';
 // Max characters shown for a statement merchant name in the reconciliation review.
 // Display-only: the full name is always kept on the data and used when the charge is added.
 const RECONCILE_NAME_DISPLAY_MAX = 10;
@@ -6322,6 +6322,23 @@ function renderDashboard() {
            '<div style="text-align:right;border-top:1px solid var(--border);padding-top:7px;margin-top:2px;font-weight:700;color:var(--text)">' + fmt(_sb.target) + '</div>' +
            '<div style="text-align:right;border-top:1px solid var(--border);padding-top:7px;margin-top:2px;font-weight:700;color:' + (_ovS > 0.005 ? 'var(--orange)' : '#34C759') + '">' + fmt(_sb.adjustedTotal) + '</div>';
       t += '</div>';
+      // Savings as a % of the cycle budget: what you aimed to save (target ÷ budget) vs
+      // what you're on track to save after spending (adjusted ÷ budget).
+      if (budget > 0) {
+        const _tgtPct = (_sb.target / budget) * 100;
+        const _actPct = (_sb.adjustedTotal / budget) * 100;
+        const _pp = v => (Math.round(v * 10) / 10) + '%';
+        t += '<div style="display:flex;gap:10px;margin-top:12px">' +
+          '<div style="flex:1;background:var(--surface2);border-radius:10px;padding:9px 10px;text-align:center">' +
+            '<div style="font-size:17px;font-weight:800;color:var(--text)">' + _pp(_tgtPct) + '</div>' +
+            '<div style="font-size:10px;color:var(--muted);margin-top:1px">of budget targeted</div>' +
+          '</div>' +
+          '<div style="flex:1;background:var(--surface2);border-radius:10px;padding:9px 10px;text-align:center">' +
+            '<div style="font-size:17px;font-weight:800;color:' + (_ovS > 0.005 ? 'var(--orange)' : '#34C759') + '">' + _pp(_actPct) + '</div>' +
+            '<div style="font-size:10px;color:var(--muted);margin-top:1px">on track to save</div>' +
+          '</div>' +
+        '</div>';
+      }
       // Overspend that the (non-protected) savings can't absorb — floored at $0, the rest
       // of the gap has to come from somewhere other than savings.
       if (_sb.uncovered > 0.005) {

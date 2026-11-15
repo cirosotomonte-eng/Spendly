@@ -5516,6 +5516,13 @@ await check('the Wallet savings summary is net of fees (source)', () => {
   assertTrue(/d\.bonusProgram === 'virgin'\) _vPts \+= d\.bonusPoints/.test(html), 'the summary tallies bonus points under their own program');
 });
 
+await check('the Savings-this-cycle section shows target % and projected % of budget', () => {
+  const fs = require('fs'); const html = fs.readFileSync(APP_PATH, 'utf8');
+  assertTrue(/\(_sb\.target \/ budget\) \* 100/.test(html), 'target % = savings target ÷ budget');
+  assertTrue(/\(_sb\.adjustedTotal \/ budget\) \* 100/.test(html), 'projected % = adjusted savings ÷ budget');
+  assertTrue(html.includes('of budget targeted') && html.includes('on track to save'), 'both percentage labels render');
+});
+
 await check('both finished-card sections (used + expired) collapse by default and only render rows when expanded', () => {
   const fs = require('fs'); const html = fs.readFileSync(APP_PATH, 'utf8');
   assertTrue(/let _gcUsedExpanded = false;/.test(html) && /let _gcExpiredExpanded = false;/.test(html), 'both sections start collapsed');
