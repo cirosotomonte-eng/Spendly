@@ -26,8 +26,8 @@ const SPENDLY_MODE = 'cloud';
 // derive its cache name and reported version from the SAME constants the app uses.
 // Previously the worker carried its own hardcoded version that was never bumped,
 // so its cache name never changed and its version never matched the running app.
-const APP_VERSION = '2.97.0';
-const BUILD_TIME = '15 Nov 2026 11:22 AM AEDT';
+const APP_VERSION = '2.98.0';
+const BUILD_TIME = '15 Nov 2026 11:48 AM AEDT';
 // Max characters shown for a statement merchant name in the reconciliation review.
 // Display-only: the full name is always kept on the data and used when the charge is added.
 const RECONCILE_NAME_DISPLAY_MAX = 10;
@@ -2007,6 +2007,12 @@ async function applyUpdate() {
       <select id="gcPaidWith" onchange="_gcRecalcDeal()"></select>
       <label>Bonus points <span style="font-size:10px;color:var(--muted)">(any extra promo points)</span></label>
       <input type="number" inputmode="numeric" id="gcBonusPoints" placeholder="e.g. 500" step="1" min="0" oninput="_gcRecalcDeal()">
+      <label>Bonus points program</label>
+      <select id="gcBonusProgram" onchange="_gcRecalcDeal()">
+        <option value="">Same as the card above</option>
+        <option value="qantas">✈️ Qantas</option>
+        <option value="virgin">🔴 Virgin (Velocity)</option>
+      </select>
       <div id="gcDealReadout" style="font-size:12px;line-height:1.6;background:var(--surface2);border-radius:10px;padding:10px 12px;margin:2px 0 14px"></div>
       <label>Bought from <span style="font-size:10px;color:var(--muted)">(website / retailer)</span></label>
       <input type="text" id="gcSource" placeholder="e.g. Qantas Shopping, Shopback">
@@ -14890,11 +14896,16 @@ function computeGiftCardDeal(gc) {
   const netSaving = Math.round((discountAmount - fee) * 100) / 100;
   const card = gc.paidWithAccountId ? accountById(gc.paidWithAccountId) : null;
   const rate = card ? (parseFloat(card.pointsPerDollar) || 0) : 0;
+  // Base points earn into the paid-with card's program. Bonus points can earn into a
+  // DIFFERENT program (e.g. an Amex Qantas card, but a retailer's bonus is Virgin), so the
+  // bonus program is its own field; empty means "same as the card".
   const program = card ? (card.pointsProgram || '') : '';
+  const baseProgram = program;
+  const bonusProgram = gc.bonusProgram || baseProgram;
   const basePoints = Math.round(rate * amountPaid);
   const bonusPoints = parseInt(gc.bonusPoints) || 0;
   const totalPoints = basePoints + bonusPoints;
-  return { face, pct, discountAmount, fee, amountPaid, netSaving, program, rate, basePoints, bonusPoints, totalPoints };
+  return { face, pct, discountAmount, fee, amountPaid, netSaving, program, baseProgram, bonusProgram, rate, basePoints, bonusPoints, totalPoints };
 }
 
 function _populateGcPaidWith(selectedId) {
@@ -14922,19 +14933,20 @@ function _gcRecalcDeal() {
     fee: document.getElementById('gcFee')?.value,
     paidWithAccountId: document.getElementById('gcPaidWith')?.value || '',
     bonusPoints: document.getElementById('gcBonusPoints')?.value,
+    bonusProgram: document.getElementById('gcBonusProgram')?.value || '',
   });
-  const progLabel = d.program === 'qantas' ? '✈️ Qantas pts' : d.program === 'virgin' ? '🔴 Velocity pts' : 'points';
   let h = '💸 Discount: <strong style="color:#34C759">' + fmt(d.discountAmount) + '</strong>' + (d.face > 0 ? ' (' + (d.pct||0) + '% of ' + fmt(d.face) + ')' : '') +
           (d.fee > 0.005 ? '<br>🏷️ Fee: <strong style="color:var(--text)">' + fmt(d.fee) + '</strong>' : '') +
           '<br>💳 You pay: <strong style="color:var(--text)">' + fmt(d.amountPaid) + '</strong>' +
           (d.fee > 0.005 ? '<br>📈 Net saving: <strong style="color:' + (d.netSaving >= 0 ? '#34C759' : 'var(--red)') + '">' + (d.netSaving < 0 ? '−' : '') + fmt(Math.abs(d.netSaving)) + '</strong>' : '');
-  if (d.program && d.rate > 0) {
-    h += '<br>⭐ Points: <strong style="color:var(--accent)">' + d.totalPoints.toLocaleString() + '</strong> ' + progLabel + ' <span style="color:var(--muted)">(' + d.basePoints.toLocaleString() + ' earned + ' + d.bonusPoints.toLocaleString() + ' bonus)</span>';
-  } else if (d.bonusPoints > 0) {
-    h += '<br>⭐ Points: <strong style="color:var(--accent)">' + d.totalPoints.toLocaleString() + '</strong> <span style="color:var(--muted)">(bonus only — set a rewards rate on the card for earned points)</span>';
-  }
+  const ptParts = [];
+  if (d.basePoints > 0 && d.baseProgram) ptParts.push('<strong style="color:var(--accent)">' + d.basePoints.toLocaleString() + '</strong> ' + _gcProgLabel(d.baseProgram) + ' earned');
+  if (d.bonusPoints > 0) ptParts.push('<strong style="color:var(--accent)">' + d.bonusPoints.toLocaleString() + '</strong> ' + (d.bonusProgram ? _gcProgLabel(d.bonusProgram) + ' ' : '') + 'bonus');
+  if (ptParts.length) h += '<br>⭐ ' + ptParts.join(' · ');
   el.innerHTML = h;
 }
+
+function _gcProgLabel(p) { return p === 'qantas' ? 'Qantas' : p === 'virgin' ? 'Velocity' : 'pts'; }
 
 // Create / update / remove the expense that logs the amount paid for a gift card. The
 // expense is linked back to the card so editing the card keeps it in step and deleting
@@ -15076,6 +15088,7 @@ function openAddGiftCard() {
   document.getElementById('gcDiscountPct').value = '';
   document.getElementById('gcFee').value = '';
   document.getElementById('gcBonusPoints').value = '';
+  document.getElementById('gcBonusProgram').value = '';
   document.getElementById('gcSource').value = '';
   document.getElementById('gcPurchaseDate').value = todayStr();
   _populateGcPaidWith('');
@@ -15125,6 +15138,7 @@ function openEditGiftCard(id) {
   document.getElementById('gcDiscountPct').value = gc.discountPct || '';
   document.getElementById('gcFee').value = gc.fee || '';
   document.getElementById('gcBonusPoints').value = gc.bonusPoints || '';
+  document.getElementById('gcBonusProgram').value = gc.bonusProgram || '';
   document.getElementById('gcSource').value = gc.source || '';
   document.getElementById('gcPurchaseDate').value = gc.purchaseDate || '';
   _populateGcPaidWith(gc.paidWithAccountId || '');
@@ -15153,11 +15167,12 @@ function saveGiftCard() {
   const discountPct = parseFloat(document.getElementById('gcDiscountPct').value) || 0;
   const fee = parseFloat(document.getElementById('gcFee').value) || 0;
   const bonusPoints = parseInt(document.getElementById('gcBonusPoints').value) || 0;
+  const bonusProgram = document.getElementById('gcBonusProgram').value || '';
   const source = document.getElementById('gcSource').value.trim();
   const purchaseDate = document.getElementById('gcPurchaseDate').value || '';
   const paidWithAccountId = document.getElementById('gcPaidWith').value || '';
   const expenseCategoryId = document.getElementById('gcExpenseCat').value || '';
-  const deal = { discountPct, fee, bonusPoints, source, purchaseDate, paidWithAccountId, expenseCategoryId, logExpense: gcLogExpenseState };
+  const deal = { discountPct, fee, bonusPoints, bonusProgram, source, purchaseDate, paidWithAccountId, expenseCategoryId, logExpense: gcLogExpenseState };
   // Auto icon based on type
   const icons = { giftcard:'🎁', voucher:'🎟️', promo:'🏷️', credit:'💳' };
   if (!state.giftCards) state.giftCards = [];
@@ -15350,7 +15365,14 @@ function renderGiftCards() {
   // headline is NET of purchase fees (discount − fee), so churns that pay a fee for points
   // show the true profit.
   let _netSaved = 0, _qPts = 0, _vPts = 0, _anyDeal = false;
-  allCards.forEach(c => { const d = computeGiftCardDeal(c); if (d.discountAmount > 0.005 || d.fee > 0.005 || d.totalPoints > 0) _anyDeal = true; _netSaved += d.netSaving; if (d.program === 'qantas') _qPts += d.totalPoints; else if (d.program === 'virgin') _vPts += d.totalPoints; });
+  allCards.forEach(c => {
+    const d = computeGiftCardDeal(c);
+    if (d.discountAmount > 0.005 || d.fee > 0.005 || d.totalPoints > 0) _anyDeal = true;
+    _netSaved += d.netSaving;
+    // Base points earn in the card's program; bonus points in their own (may differ).
+    if (d.baseProgram === 'qantas') _qPts += d.basePoints; else if (d.baseProgram === 'virgin') _vPts += d.basePoints;
+    if (d.bonusProgram === 'qantas') _qPts += d.bonusPoints; else if (d.bonusProgram === 'virgin') _vPts += d.bonusPoints;
+  });
   _netSaved = Math.round(_netSaved * 100) / 100;
   if (_anyDeal) {
     const savedCol = _netSaved >= 0 ? '#34C759' : 'var(--red)';
@@ -15418,7 +15440,8 @@ function renderGiftCards() {
       const bits = [];
       if (_d.discountAmount > 0.005) bits.push('💸 Saved <strong style="color:#34C759">' + fmtF(_d.discountAmount) + '</strong>' + (_d.pct ? ' (' + _d.pct + '%)' : ''));
       if (_d.fee > 0.005) bits.push('🏷️ ' + fmtF(_d.fee) + ' fee · Net <strong style="color:' + (_d.netSaving >= 0 ? '#34C759' : 'var(--red)') + '">' + (_d.netSaving < 0 ? '−' : '') + fmtF(Math.abs(_d.netSaving)) + '</strong>');
-      if (_d.totalPoints > 0) { const pl = _d.program==='qantas'?'Qantas':_d.program==='virgin'?'Velocity':'pts'; bits.push('⭐ <strong style="color:var(--accent)">' + _d.totalPoints.toLocaleString() + '</strong> ' + pl); }
+      if (_d.basePoints > 0 && _d.baseProgram) bits.push('⭐ <strong style="color:var(--accent)">' + _d.basePoints.toLocaleString() + '</strong> ' + _gcProgLabel(_d.baseProgram));
+      if (_d.bonusPoints > 0) bits.push('⭐ <strong style="color:var(--accent)">' + _d.bonusPoints.toLocaleString() + '</strong> ' + (_d.bonusProgram ? _gcProgLabel(_d.bonusProgram) + ' ' : '') + 'bonus');
       if (gc.source) bits.push('🛒 ' + gc.source);
       if (gc.purchaseDate) bits.push('📅 ' + gc.purchaseDate);
       card += '<div style="margin:0 14px 10px;font-size:11px;color:var(--muted);line-height:1.6">' + bits.join(' · ') + '</div>';

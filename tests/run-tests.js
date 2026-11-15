@@ -5459,6 +5459,23 @@ await check('a credit card persists its rewards program and earn rate on save', 
   assertEqual(a.pointsPerDollar, 1.5, 'earn rate saved');
 });
 
+await check('bonus points can earn into a different program than the card (Amex=Qantas, Coles bonus=Virgin)', () => {
+  ctx.state = buildMockState();
+  const amex = ctx.state.accounts.find(a => a.id === 'cc1'); amex.pointsProgram = 'qantas'; amex.pointsPerDollar = 1;
+  const d = ctx.computeGiftCardDeal({ originalBalance: 250, discountPct: 0, fee: 7, paidWithAccountId: 'cc1', bonusPoints: 1000, bonusProgram: 'virgin' });
+  assertEqual(d.baseProgram, 'qantas', 'base points earn into the card program (Qantas)');
+  assertEqual(d.basePoints, 257, 'base = rate 1 × 257 paid');
+  assertEqual(d.bonusProgram, 'virgin', 'bonus points earn into the overridden program (Virgin)');
+  assertEqual(d.bonusPoints, 1000, '1000 bonus points');
+});
+
+await check('bonus program defaults to the card program when not overridden', () => {
+  ctx.state = buildMockState();
+  const amex = ctx.state.accounts.find(a => a.id === 'cc1'); amex.pointsProgram = 'qantas'; amex.pointsPerDollar = 1;
+  const d = ctx.computeGiftCardDeal({ originalBalance: 100, paidWithAccountId: 'cc1', bonusPoints: 500 });
+  assertEqual(d.bonusProgram, 'qantas', 'bonus inherits the card program when no override is set');
+});
+
 await check('a purchase fee adds to the amount paid and nets off the saving', () => {
   ctx.state = buildMockState();
   const d = ctx.computeGiftCardDeal({ originalBalance: 250, discountPct: 0, fee: 7 });
@@ -5494,7 +5511,9 @@ await check('the logged expense is the fee-inclusive amount paid', () => {
 await check('the Wallet savings summary is net of fees (source)', () => {
   const fs = require('fs'); const html = fs.readFileSync(APP_PATH, 'utf8');
   assertTrue(html.includes('id="gcFee"'), 'the purchase-fee field exists on the form');
+  assertTrue(html.includes('id="gcBonusProgram"'), 'the bonus-program field exists on the form');
   assertTrue(/_netSaved \+= d\.netSaving/.test(html), 'the summary totals net saving (discount − fee)');
+  assertTrue(/d\.bonusProgram === 'virgin'\) _vPts \+= d\.bonusPoints/.test(html), 'the summary tallies bonus points under their own program');
 });
 
 await check('the credit-card rewards field is labelled "Average earn rate"', () => {
