@@ -26,8 +26,8 @@ const SPENDLY_MODE = 'cloud';
 // derive its cache name and reported version from the SAME constants the app uses.
 // Previously the worker carried its own hardcoded version that was never bumped,
 // so its cache name never changed and its version never matched the running app.
-const APP_VERSION = '2.100.0';
-const BUILD_TIME = '15 Nov 2026 5:02 PM AEDT';
+const APP_VERSION = '2.101.0';
+const BUILD_TIME = '15 Nov 2026 5:08 PM AEDT';
 // Max characters shown for a statement merchant name in the reconciliation review.
 // Display-only: the full name is always kept on the data and used when the charge is added.
 const RECONCILE_NAME_DISPLAY_MAX = 10;
@@ -15207,6 +15207,29 @@ function deleteGiftCard() {
   saveState(); closeModal('giftCardModal'); renderContent();
 }
 
+let _gcUsedExpanded = false;        // the whole Used/Expired section — collapsed by default
+let _gcExpandedUsed = new Set();    // individual used cards expanded to full detail
+
+function toggleGcUsedSection() { _gcUsedExpanded = !_gcUsedExpanded; renderContent(); }
+function toggleGcUsedCard(id) {
+  if (_gcExpandedUsed.has(id)) _gcExpandedUsed.delete(id); else _gcExpandedUsed.add(id);
+  renderContent();
+}
+
+// Compact one-line representation of a used card: colour dot, name, original value and the
+// date it was marked used. Tapping it expands the full card below.
+function _gcSlimRow(gc) {
+  const expanded = _gcExpandedUsed.has(gc.id);
+  const val = gc.originalBalance || gc.balance || 0;
+  const usedLabel = gc.usedDate ? 'Used ' + new Date(gc.usedDate).toLocaleDateString('en-AU',{day:'numeric',month:'short'}) : 'Used';
+  return '<div onclick="toggleGcUsedCard(\'' + gc.id + '\')" style="display:flex;align-items:center;gap:10px;padding:9px 12px;background:var(--surface);border-radius:10px;margin-bottom:6px;cursor:pointer;opacity:0.75">' +
+    '<div style="width:10px;height:10px;border-radius:3px;background:' + (gc.color||'#888') + ';flex-shrink:0"></div>' +
+    '<div style="flex:1;min-width:0;font-size:13px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-decoration:line-through;text-decoration-color:var(--muted)">' + gc.name + '</div>' +
+    '<div style="font-size:11px;color:var(--muted);flex-shrink:0;white-space:nowrap">' + fmt(val) + ' · ' + usedLabel + '</div>' +
+    '<div style="font-size:11px;color:var(--muted);flex-shrink:0">' + (expanded ? '▾' : '▸') + '</div>' +
+  '</div>';
+}
+
 // Stamp (or clear) the moment a card becomes/stops being used, so the Used section can be
 // ordered by when it was marked used. Called from every place that flips gc.used.
 function _setGcUsed(gc, used) {
@@ -15510,8 +15533,14 @@ function renderGiftCards() {
     active.forEach(gc => { html += renderCard(gc); });
   }
   if (exhausted.length > 0) {
-    html += '<div class="section-label" style="margin-top:8px">Used / Expired</div>';
-    exhausted.forEach(gc => { html += renderCard(gc); });
+    // Collapsed by default — a tappable header reveals slim rows; each row expands to the full card.
+    html += '<div class="section-label" onclick="toggleGcUsedSection()" style="margin-top:8px;display:flex;align-items:center;justify-content:space-between;cursor:pointer">' +
+      '<span>Used / Expired (' + exhausted.length + ')</span>' +
+      '<span style="font-size:12px;color:var(--muted)">' + (_gcUsedExpanded ? '▾ hide' : '▸ show') + '</span>' +
+    '</div>';
+    if (_gcUsedExpanded) {
+      exhausted.forEach(gc => { html += _gcSlimRow(gc); if (_gcExpandedUsed.has(gc.id)) html += renderCard(gc); });
+    }
   }
   if (expired.length > 0) {
     html += '<div class="section-label" style="margin-top:8px;color:var(--muted)">Expired (unused balance)</div>';

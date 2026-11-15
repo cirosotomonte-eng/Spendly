@@ -5516,6 +5516,23 @@ await check('the Wallet savings summary is net of fees (source)', () => {
   assertTrue(/d\.bonusProgram === 'virgin'\) _vPts \+= d\.bonusPoints/.test(html), 'the summary tallies bonus points under their own program');
 });
 
+await check('the Used/Expired section is collapsed by default and its rows only render when expanded', () => {
+  const fs = require('fs'); const html = fs.readFileSync(APP_PATH, 'utf8');
+  assertTrue(/let _gcUsedExpanded = false;/.test(html), 'the used section starts collapsed');
+  assertTrue(html.includes('function toggleGcUsedSection') && html.includes('function toggleGcUsedCard'), 'the section and per-card toggles exist');
+  assertTrue(/if \(_gcUsedExpanded\) \{\s*exhausted\.forEach/.test(html), 'used rows only render when the section is expanded');
+});
+
+await check('the collapsed used-card row shows name, original value and the used date, and expands on tap', () => {
+  ctx.state = buildMockState();
+  const gc = { id: 'g1', name: 'Woolworths', color: '#34C759', originalBalance: 100, balance: 0, used: true, usedDate: '2026-11-15T12:00:00Z' };
+  const row = ctx._gcSlimRow(gc);
+  assertTrue(row.includes('Woolworths'), 'shows the card name');
+  assertTrue(/\$100/.test(row), 'shows the original value, not the $0 balance');
+  assertTrue(/Used \d{1,2} \w{3}/.test(row), 'shows the date it was marked used');
+  assertTrue(row.includes("toggleGcUsedCard('g1')"), 'tapping the row expands the full card');
+});
+
 await check('marking a gift card used stamps a date; un-marking clears it; re-marking keeps the original', () => {
   ctx.state = buildMockState();
   const gc = { id: 'g1', used: false };
