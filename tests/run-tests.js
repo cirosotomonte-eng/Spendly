@@ -5516,11 +5516,26 @@ await check('the Wallet savings summary is net of fees (source)', () => {
   assertTrue(/d\.bonusProgram === 'virgin'\) _vPts \+= d\.bonusPoints/.test(html), 'the summary tallies bonus points under their own program');
 });
 
-await check('the Used/Expired section is collapsed by default and its rows only render when expanded', () => {
+await check('both finished-card sections (used + expired) collapse by default and only render rows when expanded', () => {
   const fs = require('fs'); const html = fs.readFileSync(APP_PATH, 'utf8');
-  assertTrue(/let _gcUsedExpanded = false;/.test(html), 'the used section starts collapsed');
-  assertTrue(html.includes('function toggleGcUsedSection') && html.includes('function toggleGcUsedCard'), 'the section and per-card toggles exist');
-  assertTrue(/if \(_gcUsedExpanded\) \{\s*exhausted\.forEach/.test(html), 'used rows only render when the section is expanded');
+  assertTrue(/let _gcUsedExpanded = false;/.test(html) && /let _gcExpiredExpanded = false;/.test(html), 'both sections start collapsed');
+  assertTrue(html.includes('function toggleGcUsedSection') && html.includes('function toggleGcExpiredSection'), 'both section toggles exist');
+  assertTrue(/if \(_gcUsedExpanded\) exhausted\.forEach/.test(html) && /if \(_gcExpiredExpanded\) expired\.forEach/.test(html), 'rows render only when each section is expanded');
+});
+
+await check('an expired card collapses to a slim row showing balance lost and the expiry date', () => {
+  ctx.state = buildMockState();
+  const gc = { id: 'ge', name: 'Lost card', color: '#888', balance: 20, expired: true, used: true, expiryDate: '2026-10-31' };
+  const row = ctx._gcSlimRow(gc);
+  assertTrue(row.includes('Lost card'), 'shows the name');
+  assertTrue(/\$20/.test(row) && row.includes('lost'), 'shows the balance that was lost');
+  assertTrue(/Expired \d{1,2} \w{3}/.test(row), 'shows the expiry date');
+});
+
+await check('the collapsed rows use a larger, readable font', () => {
+  const fs = require('fs'); const html = fs.readFileSync(APP_PATH, 'utf8');
+  const slim = html.slice(html.indexOf('function _gcSlimRow'), html.indexOf('function _gcSlimRow') + 1400);
+  assertTrue(/font-size:15px;font-weight:600;color:var\(--text\)/.test(slim), 'the card name is 15px');
 });
 
 await check('the collapsed used-card row shows name, original value and the used date, and expands on tap', () => {
