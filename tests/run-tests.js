@@ -5620,6 +5620,16 @@ await check('the rate-history render marks current=effective and future=schedule
   assertTrue(/reconcileMortgageRate\(\);/.test(html.slice(html.indexOf('function updateHeader'), html.indexOf('function updateHeader') + 120)), 'updateHeader reconciles the rate each render');
 });
 
+await check('an automatic update check fetches the deployed version and shows the banner on a mismatch', () => {
+  const fs = require('fs'); const html = fs.readFileSync(APP_PATH, 'utf8');
+  assertTrue(/function checkForUpdateBanner/.test(html), 'the auto-check function exists');
+  assertTrue(/cache: 'no-store'/.test(html) && /text\.match\(\/APP_VERSION = /.test(html), 'it fetches the deployed file with no-store and reads its version');
+  assertTrue(/!== APP_VERSION\) showUpdateBanner\(\)/.test(html), 'a version mismatch triggers the banner');
+  // fires on load, on reopen (visibility), and periodically
+  assertTrue(/setTimeout\(checkForUpdateBanner/.test(html) && /setInterval\(checkForUpdateBanner/.test(html) && /visibilitychange'[\s\S]{0,80}checkForUpdateBanner\(\)/.test(html), 'checked on load, timer and reopen');
+  assertTrue(/function dismissUpdateBanner/.test(html) && html.includes('onclick="dismissUpdateBanner()"'), 'the banner can be dismissed for the session');
+});
+
 await check('the header shows a projected-savings strip (current cycle), driven by the breakdown adjusted total', () => {
   const fs = require('fs'); const html = fs.readFileSync(APP_PATH, 'utf8');
   assertTrue(html.includes('id="projSaveStrip"') && html.includes('id="projSaveAmount"'), 'the header strip markup exists');
