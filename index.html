@@ -26,8 +26,8 @@ const SPENDLY_MODE = 'cloud';
 // derive its cache name and reported version from the SAME constants the app uses.
 // Previously the worker carried its own hardcoded version that was never bumped,
 // so its cache name never changed and its version never matched the running app.
-const APP_VERSION = '2.107.0';
-const BUILD_TIME = '17 Nov 2026 7:52 PM AEDT';
+const APP_VERSION = '2.108.0';
+const BUILD_TIME = '17 Nov 2026 8:04 PM AEDT';
 // Max characters shown for a statement merchant name in the reconciliation review.
 // Display-only: the full name is always kept on the data and used when the charge is added.
 const RECONCILE_NAME_DISPLAY_MAX = 10;
@@ -11326,6 +11326,41 @@ function getRepaymentExtraPaid() {
   return { extra: Math.round(extra * 100) / 100, sinceDate: entries[lowIdx].fromDate, lowest };
 }
 
+// Projects the weekly minimum repayment under successive +0.25% rate rises, to find when it
+// would overtake what you actually pay. Anchors the remaining loan term on your latest known
+// (rate, minimum, balance), then re-prices the minimum at each higher rate — the bank keeps
+// the payoff date and lifts the repayment, which is what this models.
+function getRateRiseForecast() {
+  const mg = state.mortgage || {};
+  const step = 0.25, maxSteps = 8;
+  const B = (getEstimatedBalance().balance) || mg.currentBalance || 0;
+  if (!(B > 0)) return null;
+  // Anchor = latest rate entry that has a recorded weekly minimum (a scheduled future entry
+  // counts — you want to forecast forward from where the rate is heading).
+  const withMin = (mg.rateHistory || []).filter(r => r.minWeeklyRepayment > 0).slice().sort((a,b) => a.fromDate.localeCompare(b.fromDate));
+  let baseRate, baseMin;
+  if (withMin.length) { const anchor = withMin[withMin.length - 1]; baseRate = anchor.rate; baseMin = anchor.minWeeklyRepayment; }
+  else if (mg.interestRate > 0 && getCurrentMinRepayment() > 0) { baseRate = mg.interestRate; baseMin = getCurrentMinRepayment(); }
+  else return null;
+  const rw0 = baseRate / 100 / 52;
+  const ratioArg = 1 - (B * rw0) / baseMin; // must be in (0,1) for the term to be derivable
+  if (!(ratioArg > 0 && ratioArg < 1)) return null;
+  const n = -Math.log(ratioArg) / Math.log(1 + rw0); // remaining term in weeks
+  if (!(n > 0 && isFinite(n))) return null;
+  const actual = mg.weeklyRepayment || 0;
+  const rows = [];
+  let crossoverStep = null;
+  for (let k = 1; k <= maxSteps; k++) {
+    const rate = baseRate + k * step;
+    const rw = rate / 100 / 52;
+    const min = B * rw / (1 - Math.pow(1 + rw, -n));
+    const overActual = actual > 0 && min > actual;
+    if (overActual && crossoverStep === null) crossoverStep = k;
+    rows.push({ k, rate: Math.round(rate * 100) / 100, min: Math.round(min * 100) / 100, overActual });
+  }
+  return { baseRate: Math.round(baseRate * 100) / 100, baseMin: Math.round(baseMin * 100) / 100, actual, rows, crossoverStep, step };
+}
+
 // Keeps mg.interestRate pointing at the effective (today-or-earlier) rate, so a scheduled
 // future rate neither takes effect early nor is missed once its date arrives. Returns true
 // if it changed the stored rate.
@@ -12330,6 +12365,37 @@ function renderMortgage() {
       _row('vs your lowest', _rs.vsLowest, _rs.lowest) +
       _totalBlock +
     '</div>';
+  }
+
+  // ── Rate rise forecast — when a rising minimum would overtake what you pay ─────
+  const _fc = getRateRiseForecast();
+  if (_fc && _fc.rows.length) {
+    const _cross = _fc.crossoverStep ? _fc.rows.find(r => r.k === _fc.crossoverStep) : null;
+    let fh = '<div style="background:var(--surface);border-radius:var(--r);padding:14px;margin-bottom:8px">' +
+      '<div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:4px">Rate rise forecast</div>' +
+      '<div style="font-size:11px;color:var(--muted);line-height:1.5;margin-bottom:10px">From your latest minimum ' + fmt(_fc.baseMin) + '/wk at ' + _fc.baseRate + '%. Each rise is +' + _fc.step + '%' + (_fc.actual > 0 ? '. You currently pay ' + fmt(_fc.actual) + '/wk.' : '.') + '</div>';
+    if (_fc.actual > 0) {
+      if (_cross) {
+        const gapWk = _cross.min - _fc.actual;
+        fh += '<div style="padding:10px 12px;background:rgba(255,149,0,0.08);border:1px solid rgba(255,149,0,0.25);border-radius:10px;margin-bottom:10px;font-size:12px;line-height:1.5">⚠️ Your ' + fmt(_fc.actual) + '/wk is overtaken at <strong>+' + _cross.k + ' rise' + (_cross.k !== 1 ? 's' : '') + '</strong> (' + _cross.rate + '%) → minimum <strong>' + fmt(_cross.min) + '/wk</strong>, a <strong style="color:var(--orange)">+' + fmt(gapWk * 52 / 12) + '/mo</strong> gap to cover.</div>';
+      } else {
+        fh += '<div style="padding:10px 12px;background:rgba(52,199,89,0.08);border:1px solid rgba(52,199,89,0.25);border-radius:10px;margin-bottom:10px;font-size:12px;line-height:1.5;color:#34C759">✓ Even +' + _fc.rows.length + ' rises stays under your ' + fmt(_fc.actual) + '/wk — your current payment keeps you covered.</div>';
+      }
+    }
+    fh += '<div style="display:grid;grid-template-columns:auto 1fr auto;gap:5px 10px;align-items:center;font-size:12px">' +
+      '<div style="font-size:10px;color:var(--muted);font-weight:600">RISES</div>' +
+      '<div style="font-size:10px;color:var(--muted);font-weight:600">RATE</div>' +
+      '<div style="font-size:10px;color:var(--muted);font-weight:600;text-align:right">WEEKLY MIN</div>';
+    _fc.rows.forEach(r => {
+      const over = r.overActual;
+      fh += '<div style="color:var(--muted)">+' + r.k + '</div>' +
+        '<div style="color:' + (over ? 'var(--orange)' : 'var(--text)') + '">' + r.rate + '%</div>' +
+        '<div style="text-align:right;font-weight:700;color:' + (over ? 'var(--orange)' : 'var(--text)') + '">' + fmt(r.min) + (over && _fc.actual > 0 ? ' <span style="font-size:10px;font-weight:600">(+' + fmt(r.min - _fc.actual) + ')</span>' : '') + '</div>';
+    });
+    fh += '</div>' +
+      '<div style="font-size:10px;color:var(--muted);margin-top:8px;line-height:1.4">Estimate — assumes your current balance and remaining term; the bank re-prices the minimum to keep the same payoff date.</div>' +
+    '</div>';
+    html += fh;
   }
 
   // ── Monthly interest log ──────────────────────────────────────────────────

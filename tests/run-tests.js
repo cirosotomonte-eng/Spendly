@@ -5516,6 +5516,38 @@ await check('the Wallet savings summary is net of fees (source)', () => {
   assertTrue(/d\.bonusProgram === 'virgin'\) _vPts \+= d\.bonusPoints/.test(html), 'the summary tallies bonus points under their own program');
 });
 
+await check('getRateRiseForecast projects a rising minimum and finds when it overtakes the actual payment', () => {
+  ctx.state = buildMockState();
+  ctx.state.mortgage = {
+    loanAmount: 500000, termYears: 30,
+    currentBalance: 400000, balanceAsOf: ctx.todayStr(),
+    interestRate: 5.35, weeklyRepayment: 875,
+    rateHistory: [{ rate: 5.35, fromDate: '2020-01-01', minWeeklyRepayment: 848 }],
+  };
+  const fc = ctx.getRateRiseForecast();
+  assertTrue(!!fc && fc.rows.length === 8, 'forecast produced with 8 rise rows');
+  assertEqual(fc.baseRate, 5.35, 'anchored on the latest known rate');
+  assertEqual(fc.baseMin, 848, 'anchored on the latest known minimum');
+  assertEqual(fc.actual, 875, 'compares against your actual weekly payment');
+  for (let i = 1; i < fc.rows.length; i++) assertTrue(fc.rows[i].min > fc.rows[i-1].min, 'the minimum rises with each rate rise');
+  assertTrue(fc.rows[0].min > 848 && fc.rows[0].min < 900, 'first rise steps the minimum up sensibly from 848');
+  const firstOver = fc.rows.find(r => r.min > 875);
+  assertEqual(fc.crossoverStep, firstOver ? firstOver.k : null, 'crossover = first rise whose minimum exceeds the $875 payment');
+  assertTrue(fc.crossoverStep >= 1, 'with these numbers the payment is eventually overtaken');
+});
+
+await check('getRateRiseForecast returns null without a balance or an anchor minimum', () => {
+  ctx.state = buildMockState();
+  ctx.state.mortgage = { interestRate: 5.0, rateHistory: [] }; // no balance, no min
+  assertTrue(ctx.getRateRiseForecast() === null, 'no forecast without the inputs it needs');
+});
+
+await check('the rate-rise forecast panel is wired (source)', () => {
+  const fs = require('fs'); const html = fs.readFileSync(APP_PATH, 'utf8');
+  assertTrue(/function getRateRiseForecast/.test(html), 'the forecast helper exists');
+  assertTrue(html.includes('Rate rise forecast') && html.includes('is overtaken at'), 'the panel and crossover callout render');
+});
+
 await check('getRepaymentExtraPaid sums cumulative extra vs the lowest since the lowest-date', () => {
   ctx.state = buildMockState();
   ctx.state.mortgage = { rateHistory: [
