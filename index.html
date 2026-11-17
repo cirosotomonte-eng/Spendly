@@ -26,8 +26,8 @@ const SPENDLY_MODE = 'cloud';
 // derive its cache name and reported version from the SAME constants the app uses.
 // Previously the worker carried its own hardcoded version that was never bumped,
 // so its cache name never changed and its version never matched the running app.
-const APP_VERSION = '2.111.0';
-const BUILD_TIME = '17 Nov 2026 8:49 PM AEDT';
+const APP_VERSION = '2.112.0';
+const BUILD_TIME = '17 Nov 2026 8:55 PM AEDT';
 // Max characters shown for a statement merchant name in the reconciliation review.
 // Display-only: the full name is always kept on the data and used when the charge is added.
 const RECONCILE_NAME_DISPLAY_MAX = 10;
@@ -4278,15 +4278,32 @@ const DAILY_QUOTES = [
 ];
 
 
-function getDailyQuote() {
-  const today = new Date();
-  const seed = today.getFullYear() * 10000 + (today.getMonth() + 1) * 100 + today.getDate();
-  // Spread seed across the full quote range using a simple hash so nearby days don't cluster on the same author
-  let h = seed;
-  h = ((h >>> 16) ^ h) * 0x45d9f3b | 0;
-  h = ((h >>> 16) ^ h) * 0x45d9f3b | 0;
-  h = (h >>> 16) ^ h;
-  const idx = Math.abs(h) % DAILY_QUOTES.length;
+// Deterministically shuffled order of quote indices, built once. The old logic
+// hashed the date and took hash % N, which samples WITH replacement — so quotes
+// collided (repeated) after only ~√N ≈ 25 days (birthday paradox), not after a
+// year. Instead we shuffle the pool once with a fixed-seed PRNG (identical order
+// on every reload and device) and then step through it one position per day, so a
+// quote only recurs after the whole pool is exhausted (~N days ≈ 13 months).
+let _quoteOrder = null;
+function getDailyQuote(_dayOverride) {
+  const N = DAILY_QUOTES.length;
+  if (!_quoteOrder || _quoteOrder.length !== N) {
+    _quoteOrder = Array.from({ length: N }, (_, i) => i);
+    let s = 0x9e3779b1 >>> 0; // fixed seed → stable, reproducible shuffle
+    const rnd = () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; };
+    for (let i = N - 1; i > 0; i--) { // Fisher–Yates
+      const j = Math.floor(rnd() * (i + 1));
+      const t = _quoteOrder[i]; _quoteOrder[i] = _quoteOrder[j]; _quoteOrder[j] = t;
+    }
+  }
+  // Sequential day ordinal (days since the Unix epoch). _dayOverride lets tests
+  // walk consecutive days deterministically.
+  let dayOrdinal = _dayOverride;
+  if (dayOrdinal === undefined) {
+    const today = new Date();
+    dayOrdinal = Math.floor(Date.UTC(today.getFullYear(), today.getMonth(), today.getDate()) / 86400000);
+  }
+  const idx = _quoteOrder[((dayOrdinal % N) + N) % N];
   return DAILY_QUOTES[idx];
 }
 

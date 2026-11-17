@@ -5891,6 +5891,23 @@ await check('home Savings section lists active goals A→Z by name', () => {
     'goals render in ascending alphabetical order: Apple → Delta → mango → Zephyr');
 });
 
+// ── v2.112.0 — Daily quote cycles the whole pool before any repeat ────────
+await check('getDailyQuote() shows no repeat for a year (cycles the full pool)', () => {
+  // Walk consecutive day ordinals and find when day 0's quote first recurs.
+  const first = ctx.getDailyQuote(0);
+  let period = 0;
+  for (let d = 1; d <= 1000; d++) {
+    if (ctx.getDailyQuote(d) === first) { period = d; break; }
+  }
+  assertTrue(period >= 365, 'no quote repeats for at least a year (recurs after ' + period + ' days)');
+  // Over one full cycle every day shows a distinct quote (sampling without replacement).
+  const seen = new Set();
+  for (let d = 0; d < period; d++) seen.add(ctx.getDailyQuote(d));
+  assertTrue(seen.size === period, 'every day in the cycle shows a distinct quote (' + seen.size + '/' + period + ')');
+  // The shuffle is stable: same day ordinal always yields the same quote.
+  assertTrue(ctx.getDailyQuote(42) === ctx.getDailyQuote(42), 'a given day is deterministic');
+});
+
 console.log(`\x1b[1mResults: ${pass} passed, ${fail} failed\x1b[0m`);
 if (fail > 0) {
   console.log('\nFailed tests:');
