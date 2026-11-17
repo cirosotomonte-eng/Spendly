@@ -5826,6 +5826,50 @@ await check('deleting a gift card removes its linked purchase expense (source)',
   assertTrue(html.includes('id="gcDiscountPct"') && html.includes('id="gcPaidWith"') && html.includes('id="gcBonusPoints"'), 'the deal fields exist on the form');
 });
 
+// ── v2.110.0 — Home tab section order, all active goals, pending section ──
+await check('dashboard assembles sections in the requested order (source)', () => {
+  const fs = require('fs'); const html = fs.readFileSync(APP_PATH, 'utf8');
+  // The single assembly line is the invariant for the home-tab order.
+  assertTrue(
+    html.includes('html += secPulse + secNext7 + secSaveCycle + secSavings + secOffset + secMortgage + secPending;'),
+    'order is pulse → next7 → saveCycle → savings → offset → mortgage → pending'
+  );
+  // The savings snapshot no longer truncates to the top 4 goals.
+  const dash = html.slice(html.indexOf('function renderDashboard'), html.indexOf('function renderAnalytics'));
+  assertTrue(!/\}\)\.slice\(0, 4\);/.test(dash), 'goalsWithData keeps every active goal (no .slice(0, 4))');
+  assertTrue(/let secPending = '';/.test(dash) && dash.includes('⏳ Pending payments'), 'a dedicated pending-payments section exists');
+});
+
+await check('dashboard renders every active goal and the pending section in order (functional)', () => {
+  ctx.state = buildMockState();
+  ctx.state.viewingCycleOffset = 0;
+  // Six active goals — more than the old 4-goal cap — all must appear.
+  ctx.state.savingsCategories = ['Alpha','Bravo','Charlie','Delta','Echo','Foxtrot'].map((n, i) => ({
+    id: 'g' + i, name: n + ' Fund', icon: '🎯', status: 'active', target: 1000 * (i + 1)
+  }));
+  // Two pending payments awaiting review.
+  ctx.state.pendingPayments = [
+    { id: 'pp1', status: 'pending', dueDate: '2026-12-01', amount: 120, goalId: 'g0', note: 'Rego saver' },
+    { id: 'pp2', status: 'pending', dueDate: '2026-11-20', amount: 80,  goalId: 'g1', note: 'Gift saver' },
+  ];
+  ctx.renderDashboard();
+  const out = ctx.document.getElementById('content').innerHTML;
+  // Every active goal is shown (no truncation).
+  ['Alpha Fund','Bravo Fund','Charlie Fund','Delta Fund','Echo Fund','Foxtrot Fund'].forEach(name => {
+    assertTrue(out.includes(name), 'home tab shows goal "' + name + '"');
+  });
+  // The pending-payments section and both items render.
+  assertTrue(out.includes('⏳ Pending payments'), 'pending-payments section renders');
+  assertTrue(out.includes('Rego saver') && out.includes('Gift saver'), 'both pending items render');
+  // Relative order of the reliably-rendered sections matches the request.
+  const iPulse   = out.indexOf('📈 Spending pulse');
+  const iNext7   = out.indexOf('📅 Next 7 days');
+  const iSavings = out.indexOf('💰 Savings');
+  const iPending = out.indexOf('⏳ Pending payments');
+  assertTrue(iPulse >= 0 && iNext7 > iPulse && iSavings > iNext7 && iPending > iSavings,
+    'order on screen: Spending pulse → Next 7 days → Savings → Pending payments');
+});
+
 console.log(`\x1b[1mResults: ${pass} passed, ${fail} failed\x1b[0m`);
 if (fail > 0) {
   console.log('\nFailed tests:');

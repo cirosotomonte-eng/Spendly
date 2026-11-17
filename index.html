@@ -26,8 +26,8 @@ const SPENDLY_MODE = 'cloud';
 // derive its cache name and reported version from the SAME constants the app uses.
 // Previously the worker carried its own hardcoded version that was never bumped,
 // so its cache name never changed and its version never matched the running app.
-const APP_VERSION = '2.109.1';
-const BUILD_TIME = '17 Nov 2026 8:32 PM AEDT';
+const APP_VERSION = '2.110.0';
+const BUILD_TIME = '17 Nov 2026 8:45 PM AEDT';
 // Max characters shown for a statement merchant name in the reconciliation review.
 // Display-only: the full name is always kept on the data and used when the charge is added.
 const RECONCILE_NAME_DISPLAY_MAX = 10;
@@ -6307,7 +6307,7 @@ function renderDashboard() {
     if (a.g.target && !b.g.target) return -1;
     if (!a.g.target && b.g.target) return 1;
     return b.pct - a.pct;
-  }).slice(0, 4);
+  }); // show ALL active goals on the home tab (no truncation)
 
   const totalAllSavings = (state.savingsDeposits||[]).reduce((s,d) =>
     s + (d.type==='withdrawal'||d.type==='bill-payment' ? -d.amount : d.amount), 0);
@@ -6322,8 +6322,8 @@ function renderDashboard() {
 
   // Cycle summary removed — header already shows Left to Spend, Days Left and Daily Limit
 
-  // ── 2. SPENDING PULSE ──────────────────────────────────────────────────
-  html += '<div style="background:var(--surface);border-radius:var(--r);padding:14px 16px;margin-bottom:12px">' +
+  // ── 1. SPENDING PULSE ──────────────────────────────────────────────────
+  let secPulse = '<div style="background:var(--surface);border-radius:var(--r);padding:14px 16px;margin-bottom:12px">' +
     '<div style="font-size:12px;font-weight:700;color:var(--text);margin-bottom:10px">📈 Spending pulse</div>' +
     '<div style="display:flex;gap:12px">' +
       '<div style="flex:1;background:var(--surface2);border-radius:10px;padding:10px 12px">' +
@@ -6364,6 +6364,7 @@ function renderDashboard() {
   // amount that spreads any overspend proportionally across all of them (fired
   // included — reconciliation can claw back from already-funded goals before the
   // card is paid). Goal-generic: new goals appear automatically.
+  let secSaveCycle = '';
   if (_viewOffset === 0) {
     const _ovS = leftToSpend < 0 ? Math.abs(leftToSpend) : 0;
     const _sb = getCycleSavingsBreakdown(_ovS);
@@ -6416,11 +6417,12 @@ function renderDashboard() {
         t += '<div style="margin-top:10px;padding:9px 11px;background:rgba(255,59,48,0.08);border:1px solid rgba(255,59,48,0.25);border-radius:8px;font-size:11px;color:var(--red);line-height:1.5">⚠️ <strong>' + fmt(_sb.uncovered) + '</strong> of your overspend can\'t come out of savings — your other goals are already at $0' + (_sb.protectedTotal > 0.005 ? ' and your 🔒 protected savings are locked' : '') + '. You\'ll need to cover this from somewhere else.</div>';
       }
       t += '</div>';
-      html += t;
+      secSaveCycle = t;
     }
   }
 
   // ── Mortgage rate snapshot — visibility of rate, minimum & forecast; taps through ──
+  let secMortgage = '';
   const _mgSnap = state.mortgage || {};
   if (_mgSnap.interestRate > 0 || (_mgSnap.rateHistory || []).length) {
     const _curMin = getCurrentMinRepayment();
@@ -6447,12 +6449,13 @@ function renderDashboard() {
       }
     }
     ms += '</div>';
-    html += ms;
+    secMortgage = ms;
   }
 
-  // ── 3. NEXT 7 DAYS ────────────────────────────────────────────────────
+  // ── 2. NEXT 7 DAYS ────────────────────────────────────────────────────
+  let secNext7 = '';
   if (upcoming7.length > 0) {
-    html += '<div style="background:var(--surface);border-radius:var(--r);padding:14px 16px;margin-bottom:12px">' +
+    secNext7 = '<div style="background:var(--surface);border-radius:var(--r);padding:14px 16px;margin-bottom:12px">' +
       '<div style="font-size:12px;font-weight:700;color:var(--text);margin-bottom:10px">📅 Next 7 days</div>';
     upcoming7.forEach((item, i) => {
       const d = new Date(item.date + 'T00:00:00');
@@ -6461,7 +6464,7 @@ function renderDashboard() {
       const dateLabel = isToday ? 'Today' : isTomorrow ? 'Tomorrow' : d.toLocaleDateString('en-AU',{weekday:'short',day:'numeric',month:'short'});
       const isFullyCovered = item.covered >= item.amount && item.amount > 0;
       const isPending = item.type === 'pending';
-      html += '<div style="display:flex;align-items:center;gap:10px;padding:9px 0;' + (i>0?'border-top:1px solid var(--surface2)':'') + '">' +
+      secNext7 += '<div style="display:flex;align-items:center;gap:10px;padding:9px 0;' + (i>0?'border-top:1px solid var(--surface2)':'') + '">' +
         '<div style="font-size:22px;width:32px;text-align:center;flex-shrink:0">' + item.icon + '</div>' +
         '<div style="flex:1;min-width:0">' +
           '<div style="font-size:13px;font-weight:500">' + item.label + '</div>' +
@@ -6474,16 +6477,16 @@ function renderDashboard() {
         '</div>' +
       '</div>';
     });
-    html += '</div>';
+    secNext7 += '</div>';
   } else {
-    html += '<div style="background:var(--surface);border-radius:var(--r);padding:14px 16px;margin-bottom:12px">' +
+    secNext7 = '<div style="background:var(--surface);border-radius:var(--r);padding:14px 16px;margin-bottom:12px">' +
       '<div style="font-size:12px;font-weight:700;color:var(--text);margin-bottom:6px">📅 Next 7 days</div>' +
       '<div style="font-size:12px;color:var(--muted)">Nothing scheduled — enjoy the quiet 😌</div>' +
     '</div>';
   }
 
-  // ── 4. SAVINGS SNAPSHOT ────────────────────────────────────────────────
-  html += '<div style="background:var(--surface);border-radius:var(--r);padding:14px 16px;margin-bottom:12px">' +
+  // ── 4. SAVINGS SNAPSHOT (all active goals) ─────────────────────────────
+  let secSavings = '<div style="background:var(--surface);border-radius:var(--r);padding:14px 16px;margin-bottom:12px">' +
     '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">' +
       '<div style="font-size:12px;font-weight:700;color:var(--text)">💰 Savings</div>' +
       '<div style="text-align:right">' +
@@ -6495,7 +6498,7 @@ function renderDashboard() {
   if (goalsWithData.length > 0) {
     goalsWithData.forEach((item, i) => {
       const { g, bal, pct: gPct } = item;
-      html += '<div style="' + (i>0?'border-top:1px solid var(--surface2);margin-top:8px;padding-top:8px':'') + '">' +
+      secSavings += '<div style="' + (i>0?'border-top:1px solid var(--surface2);margin-top:8px;padding-top:8px':'') + '">' +
         '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">' +
           '<div style="display:flex;align-items:center;gap:6px">' +
             '<span style="font-size:16px">' + g.icon + '</span>' +
@@ -6511,31 +6514,24 @@ function renderDashboard() {
         '</div>' : '') +
       '</div>';
     });
-    if (activeGoals.length > 4) {
-      html += '<div style="margin-top:10px;font-size:11px;color:var(--accent);cursor:pointer;text-align:center" onclick="switchTab(\'savings\')">See all ' + activeGoals.length + ' goals →</div>';
-    }
   } else {
-    html += '<div style="font-size:12px;color:var(--muted)">No goals yet — tap Save to create one</div>';
+    secSavings += '<div style="font-size:12px;color:var(--muted)">No goals yet — tap Save to create one</div>';
   }
-  html += '</div>';
+  secSavings += '</div>';
 
-  // ── 5. QUICK ACTIONS ──────────────────────────────────────────────────
-  const pendingCount = (state.pendingPayments||[]).filter(p => p.status === 'pending').length;
+  // ── QUICK ACTIONS (top action bar — stays above the ordered sections) ──
   html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">' +
     '<button onclick="openAddExpense&&openAddExpense();switchTab(\'expenses\')" style="background:var(--accent);color:#fff;border:none;border-radius:var(--r);padding:14px;font-size:14px;font-weight:700;font-family:var(--font);cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px">+ Expense</button>' +
     '<button onclick="switchTab(\'savings\')" style="background:var(--surface);border:1.5px solid var(--border);border-radius:var(--r);padding:14px;font-size:14px;font-weight:600;font-family:var(--font);cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;color:var(--text)">💰 Save</button>' +
   '</div>';
 
-  if (pendingCount > 0) {
-    html += '<button onclick="switchMainTab(\'save\')" style="width:100%;background:rgba(240,168,96,0.1);border:1.5px solid rgba(240,168,96,0.3);border-radius:var(--r);padding:13px;font-size:14px;font-weight:600;font-family:var(--font);cursor:pointer;color:var(--orange);display:flex;align-items:center;justify-content:center;gap:8px;margin-bottom:12px">⏳ ' + pendingCount + ' pending payment' + (pendingCount>1?'s':'') + ' to review</button>';
-  }
-
-  // ── 6. OFFSET SNAPSHOT ────────────────────────────────────────────────
+  // ── 5. OFFSET SNAPSHOT ────────────────────────────────────────────────
+  let secOffset = '';
   if (offsetBal > 0) {
     const mg = state.mortgage || {};
     const annualRate = (mg.interestRate || 0) / 100;
     const dailySaving = offsetBal * (annualRate / 365);
-    html += '<div style="background:var(--surface);border-radius:var(--r);padding:14px 16px;margin-bottom:12px">' +
+    secOffset = '<div style="background:var(--surface);border-radius:var(--r);padding:14px 16px;margin-bottom:12px">' +
       '<div style="font-size:12px;font-weight:700;color:var(--text);margin-bottom:8px">🏠 Offset account</div>' +
       '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">' +
         '<div>' +
@@ -6549,6 +6545,44 @@ function renderDashboard() {
       '</div>' +
     '</div>';
   }
+
+  // ── 7. PENDING PAYMENTS ───────────────────────────────────────────────
+  // A full section (not just a button) listing every pending saving payment
+  // awaiting review, due-date ordered, with a running total and a tap-through.
+  let secPending = '';
+  const _pendList = (state.pendingPayments||[]).filter(p => p.status === 'pending')
+    .slice().sort((a,b) => (a.dueDate||'').localeCompare(b.dueDate||''));
+  if (_pendList.length > 0) {
+    const _pendTotal = _pendList.reduce((s,p) => s + (p.amount||0), 0);
+    secPending = '<div style="background:var(--surface);border-radius:var(--r);padding:14px 16px;margin-bottom:12px">' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">' +
+        '<div style="font-size:12px;font-weight:700;color:var(--text)">⏳ Pending payments</div>' +
+        '<span onclick="switchMainTab(\'save\')" style="font-size:12px;color:var(--accent);font-weight:600;cursor:pointer">Review →</span>' +
+      '</div>';
+    _pendList.forEach((p, i) => {
+      const _pg = savingsCatById(p.goalId) || {};
+      const _pd = p.dueDate ? new Date(p.dueDate + 'T00:00:00') : null;
+      const _pdLabel = _pd ? _pd.toLocaleDateString('en-AU',{day:'numeric',month:'short'}) : '';
+      secPending += '<div style="display:flex;align-items:center;gap:10px;padding:9px 0;' + (i>0?'border-top:1px solid var(--surface2)':'') + '">' +
+        '<div style="font-size:20px;width:30px;text-align:center;flex-shrink:0">' + (_pg.icon || '💰') + '</div>' +
+        '<div style="flex:1;min-width:0">' +
+          '<div style="font-size:13px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + (p.note || _pg.name || 'Saving') + '</div>' +
+          '<div style="font-size:10px;color:var(--muted)">' + (_pdLabel ? 'Due ' + _pdLabel : 'Pending') + '</div>' +
+        '</div>' +
+        '<div style="font-size:13px;font-weight:600;flex-shrink:0">' + fmt2(p.amount||0) + '</div>' +
+      '</div>';
+    });
+    secPending += '<div style="display:flex;justify-content:space-between;align-items:center;border-top:1px solid var(--border);padding-top:9px;margin-top:4px">' +
+        '<span style="font-size:12px;font-weight:700;color:var(--text)">Total pending</span>' +
+        '<span style="font-size:14px;font-weight:800;color:var(--orange)">' + fmt2(_pendTotal) + '</span>' +
+      '</div>';
+    secPending += '</div>';
+  }
+
+  // ── Assemble sections in the requested home-tab order ─────────────────
+  // 1 Spending pulse · 2 Next 7 days · 3 Saving this cycle · 4 Savings (all
+  // active goals) · 5 Offset account · 6 Mortgage rate · 7 Pending payments
+  html += secPulse + secNext7 + secSaveCycle + secSavings + secOffset + secMortgage + secPending;
 
   html += '</div>';
   el.innerHTML = html;
