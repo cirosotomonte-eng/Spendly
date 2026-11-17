@@ -5516,6 +5516,49 @@ await check('the Wallet savings summary is net of fees (source)', () => {
   assertTrue(/d\.bonusProgram === 'virgin'\) _vPts \+= d\.bonusPoints/.test(html), 'the summary tallies bonus points under their own program');
 });
 
+await check('a future-dated mortgage rate is scheduled, not current — current stays the latest effective entry', () => {
+  ctx.state = buildMockState();
+  ctx.state.mortgage = { rateHistory: [
+    { rate: 4.0, fromDate: '2000-01-01' },
+    { rate: 5.0, fromDate: '2020-01-01' },
+    { rate: 6.0, fromDate: '2999-01-01' }, // scheduled, far future
+  ], interestRate: 6.0 };
+  const eff = ctx.getEffectiveRateEntry(ctx.state.mortgage);
+  assertEqual(eff.rate, 5.0, 'effective = latest entry on or before today (2020), not the future 2999 one');
+  assertEqual(eff.fromDate, '2020-01-01', 'effective date is the latest past date');
+});
+
+await check('reconcileMortgageRate corrects interestRate to the effective rate (fixes a prematurely-applied future rate)', () => {
+  ctx.state = buildMockState();
+  ctx.state.mortgage = { rateHistory: [
+    { rate: 5.0, fromDate: '2000-01-01' },
+    { rate: 5.5, fromDate: '2999-01-01' },
+  ], interestRate: 5.5 }; // wrongly set to the future rate
+  const changed = ctx.reconcileMortgageRate();
+  assertTrue(changed, 'reconcile detected and corrected the rate');
+  assertEqual(ctx.state.mortgage.interestRate, 5.0, 'interestRate is the effective (current) rate, not the scheduled one');
+  // when the future date has passed, reconcile promotes it
+  ctx.state.mortgage.rateHistory[1].fromDate = '2000-06-01';
+  ctx.reconcileMortgageRate();
+  assertEqual(ctx.state.mortgage.interestRate, 5.5, 'once a scheduled rate\'s date has arrived it becomes current');
+});
+
+await check('getCurrentMinRepayment ignores a scheduled future rate entry', () => {
+  ctx.state = buildMockState();
+  ctx.state.mortgage = { rateHistory: [
+    { rate: 5.0, fromDate: '2000-01-01', minWeeklyRepayment: 600 },
+    { rate: 5.5, fromDate: '2999-01-01', minWeeklyRepayment: 800 },
+  ] };
+  assertEqual(ctx.getCurrentMinRepayment(), 600, 'uses the effective entry\'s min repayment, not the scheduled one');
+});
+
+await check('the rate-history render marks current=effective and future=scheduled (source)', () => {
+  const fs = require('fs'); const html = fs.readFileSync(APP_PATH, 'utf8');
+  assertTrue(/const isCurrentRate = r\.fromDate === _effDate;/.test(html), 'current badge is on the effective entry');
+  assertTrue(/const isScheduled = r\.fromDate > _today;/.test(html) && html.includes('>scheduled</span>'), 'future entries show a scheduled badge');
+  assertTrue(/reconcileMortgageRate\(\);/.test(html.slice(html.indexOf('function updateHeader'), html.indexOf('function updateHeader') + 120)), 'updateHeader reconciles the rate each render');
+});
+
 await check('the header shows a projected-savings strip (current cycle), driven by the breakdown adjusted total', () => {
   const fs = require('fs'); const html = fs.readFileSync(APP_PATH, 'utf8');
   assertTrue(html.includes('id="projSaveStrip"') && html.includes('id="projSaveAmount"'), 'the header strip markup exists');

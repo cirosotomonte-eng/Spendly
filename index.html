@@ -26,8 +26,8 @@ const SPENDLY_MODE = 'cloud';
 // derive its cache name and reported version from the SAME constants the app uses.
 // Previously the worker carried its own hardcoded version that was never bumped,
 // so its cache name never changed and its version never matched the running app.
-const APP_VERSION = '2.103.1';
-const BUILD_TIME = '16 Nov 2026 8:19 AM AEDT';
+const APP_VERSION = '2.104.0';
+const BUILD_TIME = '17 Nov 2026 7:33 PM AEDT';
 // Max characters shown for a statement merchant name in the reconciliation review.
 // Display-only: the full name is always kept on the data and used when the charge is added.
 const RECONCILE_NAME_DISPLAY_MAX = 10;
@@ -4279,6 +4279,7 @@ function updateGreetingAndQuote() {
 }
 
 function updateHeader() {
+  reconcileMortgageRate(); // promote a scheduled rate to current once its date has arrived
   const _hdrOffset = state.viewingCycleOffset || 0;
 
   let budget, remain, committed, total, upcomingTotal = 0;
@@ -11229,11 +11230,35 @@ let editingMortgageExtraId = null;
 // if it has a minWeeklyRepayment recorded, otherwise falls back to mg.minimumRepayment.
 function getCurrentMinRepayment() {
   const mg = state.mortgage || {};
-  const history = (mg.rateHistory || []).slice().sort((a,b) => b.fromDate.localeCompare(a.fromDate));
+  const today = todayStr();
+  // Only entries already in effect (fromDate on or before today) count — a scheduled
+  // future rate change hasn't taken effect yet.
+  const history = (mg.rateHistory || []).filter(r => r.fromDate <= today).slice().sort((a,b) => b.fromDate.localeCompare(a.fromDate));
   for (const entry of history) {
     if (entry.minWeeklyRepayment > 0) return entry.minWeeklyRepayment;
   }
   return mg.minimumRepayment || 0;
+}
+
+// The rate entry in effect today = the latest entry whose fromDate is on or before today.
+// A future-dated entry is "scheduled", not current.
+function getEffectiveRateEntry(mg) {
+  mg = mg || state.mortgage || {};
+  const today = todayStr();
+  const past = (mg.rateHistory || []).filter(r => r.fromDate <= today);
+  if (!past.length) return null;
+  return past.reduce((a, b) => (b.fromDate > a.fromDate ? b : a));
+}
+
+// Keeps mg.interestRate pointing at the effective (today-or-earlier) rate, so a scheduled
+// future rate neither takes effect early nor is missed once its date arrives. Returns true
+// if it changed the stored rate.
+function reconcileMortgageRate() {
+  const mg = state.mortgage;
+  if (!mg || !(mg.rateHistory || []).length) return false;
+  const eff = getEffectiveRateEntry(mg);
+  if (eff && mg.interestRate !== eff.rate) { mg.interestRate = eff.rate; return true; }
+  return false;
 }
 
 function getEstimatedBalance() {
@@ -11491,8 +11516,10 @@ function openEditHistoricalRate(fromDate) {
   document.getElementById('mgRateSaveBtn').textContent = 'Save changes';
   document.getElementById('mgRateSaveBtn').disabled = false;
   document.getElementById('mgRateSaveBtn').style.opacity = '1';
-  // Show delete for all entries except the current rate
-  const isCurrent = (state.mortgage.rateHistory || []).sort((a,b)=>b.fromDate.localeCompare(a.fromDate))[0]?.fromDate === fromDate;
+  // Show delete for every entry except the one currently in effect (a scheduled future
+  // entry can be deleted; the effective current rate cannot).
+  const _eff = getEffectiveRateEntry(state.mortgage);
+  const isCurrent = _eff && _eff.fromDate === fromDate;
   document.getElementById('mgRateDeleteBtn').style.display = isCurrent ? 'none' : 'block';
   openModal('mortgageRateModal');
   setTimeout(() => { document.getElementById('mgNewRate').focus(); checkRateChanged(); }, 350);
@@ -11512,9 +11539,10 @@ function saveMortgageRate() {
   state.mortgage.rateHistory = state.mortgage.rateHistory.filter(r => r.fromDate !== fromDate);
   state.mortgage.rateHistory.push({ rate: newRate, fromDate, minWeeklyRepayment: minRepayment });
   state.mortgage.rateHistory.sort((a,b) => a.fromDate.localeCompare(b.fromDate));
-  // Update current rate to the most recent entry
-  const latest = state.mortgage.rateHistory[state.mortgage.rateHistory.length - 1];
-  state.mortgage.interestRate = latest.rate;
+  // Set the current rate to the one effective TODAY; a future-dated entry stays scheduled
+  // and only becomes current once its date arrives (handled by reconcileMortgageRate).
+  const eff = getEffectiveRateEntry(state.mortgage);
+  state.mortgage.interestRate = eff ? eff.rate : state.mortgage.rateHistory[0].rate;
   saveState(); closeModal('mortgageRateModal'); renderContent();
 }
 
@@ -11522,10 +11550,11 @@ function deleteMortgageRateEntry() {
   if (!editingRateFromDate) return;
   if (!confirm('Remove this rate entry?')) return;
   state.mortgage.rateHistory = (state.mortgage.rateHistory || []).filter(r => r.fromDate !== editingRateFromDate);
-  // Update current rate to most recent remaining entry
+  // Update current rate to the effective (today-or-earlier) remaining entry
   if (state.mortgage.rateHistory.length > 0) {
     state.mortgage.rateHistory.sort((a,b) => a.fromDate.localeCompare(b.fromDate));
-    state.mortgage.interestRate = state.mortgage.rateHistory[state.mortgage.rateHistory.length - 1].rate;
+    const eff = getEffectiveRateEntry(state.mortgage);
+    state.mortgage.interestRate = eff ? eff.rate : state.mortgage.rateHistory[0].rate;
   }
   saveState(); closeModal('mortgageRateModal'); renderContent();
 }
@@ -12159,17 +12188,23 @@ function renderMortgage() {
           '<div></div>' +
           '<div style="font-size:10px;color:var(--muted);font-weight:600;text-align:right">RATE</div>' +
           '<div style="font-size:10px;color:var(--muted);font-weight:600;text-align:right">MIN/WK</div>' +
-          rateHistory.map((r, i) => {
-            const isCurrentRate = i === 0;
+          (() => { const _eff = getEffectiveRateEntry(mg); const _effDate = _eff ? _eff.fromDate : null; const _today = todayStr(); return rateHistory.map((r, i) => {
+            const isCurrentRate = r.fromDate === _effDate;
+            const isScheduled = r.fromDate > _today;
+            const badge = isCurrentRate
+              ? '<span style="font-size:10px;background:var(--accent-dim);color:var(--accent);border-radius:4px;padding:1px 6px;font-weight:700">current</span>'
+              : isScheduled
+                ? '<span style="font-size:10px;background:rgba(255,149,0,0.15);color:var(--orange);border-radius:4px;padding:1px 6px;font-weight:700">scheduled</span>'
+                : '';
             const minRep = r.minWeeklyRepayment ? '$' + parseFloat(r.minWeeklyRepayment).toLocaleString('en-AU', {minimumFractionDigits:2,maximumFractionDigits:2}) : '—';
             return '<div style="font-size:12px;color:var(--muted)">' + new Date(r.fromDate+'T00:00:00').toLocaleDateString('en-AU',{day:'numeric',month:'short',year:'numeric'}) + '</div>' +
-              '<div>' + (isCurrentRate ? '<span style="font-size:10px;background:var(--accent-dim);color:var(--accent);border-radius:4px;padding:1px 6px;font-weight:700">current</span>' : '') + '</div>' +
+              '<div>' + badge + '</div>' +
               '<div style="font-size:12px;font-weight:700;text-align:right;color:' + (isCurrentRate?'var(--text)':'var(--muted)') + '">' + r.rate + '%</div>' +
               '<div style="display:flex;align-items:center;gap:6px;justify-content:flex-end">' +
                 '<span style="font-size:12px;font-weight:600;color:' + (isCurrentRate?'var(--text)':'var(--muted)') + '">' + minRep + '</span>' +
                 '<button onclick="openEditHistoricalRate(\'' + r.fromDate + '\')" style="background:var(--surface2);border:none;border-radius:6px;padding:3px 8px;font-size:11px;color:var(--muted);cursor:pointer;font-family:var(--font)">Edit</button>' +
               '</div>';
-          }).join('') +
+          }).join(''); })() +
         '</div>' +
       '</div>'
       : '') +
