@@ -26,8 +26,8 @@ const SPENDLY_MODE = 'cloud';
 // derive its cache name and reported version from the SAME constants the app uses.
 // Previously the worker carried its own hardcoded version that was never bumped,
 // so its cache name never changed and its version never matched the running app.
-const APP_VERSION = '2.105.0';
-const BUILD_TIME = '17 Nov 2026 7:39 PM AEDT';
+const APP_VERSION = '2.106.0';
+const BUILD_TIME = '17 Nov 2026 7:48 PM AEDT';
 // Max characters shown for a statement merchant name in the reconciliation review.
 // Display-only: the full name is always kept on the data and used when the charge is added.
 const RECONCILE_NAME_DISPLAY_MAX = 10;
@@ -11272,6 +11272,29 @@ function getRepaymentSummary() {
   };
 }
 
+// Cumulative extra paid vs your lowest weekly repayment, from the date you were at that
+// lowest through today — (repayment − lowest) × weeks summed over each rate period. An
+// estimate based on the recorded weekly minimums.
+function getRepaymentExtraPaid() {
+  const mg = state.mortgage || {};
+  const today = todayStr();
+  const entries = (mg.rateHistory || []).filter(r => r.minWeeklyRepayment > 0 && r.fromDate <= today).slice().sort((a,b) => a.fromDate.localeCompare(b.fromDate));
+  if (entries.length < 2) return null;
+  const lowest = Math.min.apply(null, entries.map(e => e.minWeeklyRepayment));
+  const lowIdx = entries.findIndex(e => e.minWeeklyRepayment <= lowest + 0.005);
+  const todayD = new Date(today + 'T00:00:00');
+  let extra = 0;
+  for (let i = lowIdx; i < entries.length; i++) {
+    const start = new Date(entries[i].fromDate + 'T00:00:00');
+    const end = i < entries.length - 1 ? new Date(entries[i+1].fromDate + 'T00:00:00') : todayD;
+    if (end <= start) continue;
+    const weeks = (end - start) / (7 * 86400000);
+    extra += (entries[i].minWeeklyRepayment - lowest) * weeks;
+  }
+  if (extra <= 0.5) return null;
+  return { extra: Math.round(extra * 100) / 100, sinceDate: entries[lowIdx].fromDate, lowest };
+}
+
 // Keeps mg.interestRate pointing at the effective (today-or-earlier) rate, so a scheduled
 // future rate neither takes effect early nor is missed once its date arrives. Returns true
 // if it changed the stored rate.
@@ -12245,11 +12268,26 @@ function renderMortgage() {
   if (_rs && (_rs.vsStart > 0.005 || _rs.vsLowest > 0.005)) {
     const _row = (label, delta, base) => {
       if (delta <= 0.005) return '';
-      return '<div style="display:flex;justify-content:space-between;align-items:baseline;padding:7px 0;border-top:1px solid var(--surface2)">' +
+      return '<div style="display:flex;justify-content:space-between;align-items:flex-start;padding:8px 0;border-top:1px solid var(--surface2)">' +
         '<span style="font-size:12px;color:var(--muted)">' + label + ' <span style="color:var(--muted)">(' + fmt(base) + ')</span></span>' +
-        '<span style="font-size:13px;font-weight:700;color:var(--orange);text-align:right">+' + fmt(delta) + '/wk<span style="font-size:11px;font-weight:600;color:var(--muted)"> · +' + fmt(delta * 52) + '/yr</span></span>' +
+        '<span style="text-align:right">' +
+          '<span style="font-size:14px;font-weight:700;color:var(--orange)">+' + fmt(delta) + '/wk</span>' +
+          '<span style="display:block;font-size:11px;font-weight:600;color:var(--muted);margin-top:1px">+' + fmt(delta * 52 / 12) + '/mo · +' + fmt(delta * 52) + '/yr</span>' +
+        '</span>' +
       '</div>';
     };
+    // Cumulative extra paid vs the lowest, since you were at that lowest.
+    const _ex = getRepaymentExtraPaid();
+    let _totalBlock = '';
+    if (_ex && _ex.extra > 0.5) {
+      const _sinceD = new Date(_ex.sinceDate + 'T00:00:00');
+      const _months = Math.max(1, Math.round((new Date(todayStr() + 'T00:00:00') - _sinceD) / (30.44 * 86400000)));
+      _totalBlock = '<div style="margin-top:12px;padding:11px 13px;background:rgba(255,149,0,0.08);border:1px solid rgba(255,149,0,0.25);border-radius:10px">' +
+        '<div style="font-size:11px;color:var(--muted);margin-bottom:2px">Total extra paid vs your lowest · since ' + _sinceD.toLocaleDateString('en-AU',{month:'short',year:'numeric'}) + '</div>' +
+        '<div style="font-size:22px;font-weight:800;color:var(--orange)">+' + fmt(_ex.extra) + '</div>' +
+        '<div style="font-size:10px;color:var(--muted)">over ~' + _months + ' month' + (_months!==1?'s':'') + ' · estimated from your recorded weekly repayments</div>' +
+      '</div>';
+    }
     html += '<div style="background:var(--surface);border-radius:var(--r);padding:14px;margin-bottom:8px">' +
       '<div style="display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:8px">' +
         '<div>' +
@@ -12259,6 +12297,7 @@ function renderMortgage() {
       '</div>' +
       _row('vs when you started', _rs.vsStart, _rs.first) +
       _row('vs your lowest', _rs.vsLowest, _rs.lowest) +
+      _totalBlock +
     '</div>';
   }
 

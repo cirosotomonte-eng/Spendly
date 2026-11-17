@@ -5516,6 +5516,33 @@ await check('the Wallet savings summary is net of fees (source)', () => {
   assertTrue(/d\.bonusProgram === 'virgin'\) _vPts \+= d\.bonusPoints/.test(html), 'the summary tallies bonus points under their own program');
 });
 
+await check('getRepaymentExtraPaid sums cumulative extra vs the lowest since the lowest-date', () => {
+  ctx.state = buildMockState();
+  ctx.state.mortgage = { rateHistory: [
+    { rate: 5.0, fromDate: '2020-01-01', minWeeklyRepayment: 807 },
+    { rate: 4.5, fromDate: '2020-02-01', minWeeklyRepayment: 752 }, // lowest
+    { rate: 5.5, fromDate: '2020-03-01', minWeeklyRepayment: 848 },
+  ], interestRate: 5.5 };
+  const ex = ctx.getRepaymentExtraPaid();
+  assertEqual(ex.sinceDate, '2020-02-01', 'counted from the date you were at your lowest');
+  assertEqual(ex.lowest, 752, 'baseline is the lowest repayment');
+  // the 752 period adds 0; only the 848 period (96/wk) accrues, from 2020-03-01 to today
+  const weeks848 = (new Date(ctx.todayStr() + 'T00:00:00') - new Date('2020-03-01T00:00:00')) / (7 * 86400000);
+  assertTrue(Math.abs(ex.extra - 96 * weeks848) < 1, 'cumulative extra ≈ 96/wk × weeks since the 848 step');
+});
+
+await check('getRepaymentExtraPaid is null with fewer than two in-effect repayments', () => {
+  ctx.state = buildMockState();
+  ctx.state.mortgage = { rateHistory: [{ rate: 5.0, fromDate: '2020-01-01', minWeeklyRepayment: 807 }] };
+  assertTrue(ctx.getRepaymentExtraPaid() === null, 'no "extra" without at least one change');
+});
+
+await check('the repayment panel shows a monthly figure and a cumulative total block (source)', () => {
+  const fs = require('fs'); const html = fs.readFileSync(APP_PATH, 'utf8');
+  assertTrue(/fmt\(delta \* 52 \/ 12\) \+ '\/mo/.test(html), 'each baseline row shows a per-month figure');
+  assertTrue(html.includes('Total extra paid vs your lowest') && /function getRepaymentExtraPaid/.test(html), 'the cumulative total block is wired');
+});
+
 await check('getRepaymentSummary reports current weekly repayment and the extra vs start and vs lowest', () => {
   ctx.state = buildMockState();
   ctx.state.mortgage = { rateHistory: [
