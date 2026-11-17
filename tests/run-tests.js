@@ -5530,9 +5530,11 @@ await check('getScheduledRateEntry returns the next future-dated rate change', (
 
 await check('the home tab shows a mortgage-rate snapshot that taps through to the mortgage tab (source)', () => {
   const fs = require('fs'); const html = fs.readFileSync(APP_PATH, 'utf8');
-  assertTrue(html.includes('Mortgage rate') && html.includes("switchTab(\\'mortgage\\')"), 'the snapshot card links to the mortgage tab');
+  assertTrue(html.includes('Mortgage rate') && html.includes('onclick="goToMortgageRates()"'), 'the snapshot card links to the mortgage rate section');
   assertTrue(/getRateRiseForecast\(\)/.test(html.slice(html.indexOf('Mortgage rate snapshot'), html.indexOf('Mortgage rate snapshot') + 1500)), 'the snapshot shows the forecast');
   assertTrue(/_curMin > 0 \?/.test(html) && html.includes('min/wk'), 'the snapshot shows the current minimum');
+  // the link scrolls to the interest-rate section
+  assertTrue(/function goToMortgageRates/.test(html) && html.includes('id="mortgageRateSection"') && /getElementById\('mortgageRateSection'\)[\s\S]{0,60}scrollIntoView/.test(html), 'it scrolls to the interest-rate section');
 });
 
 await check('the mortgage modal min-repayment field reflects the current rate and syncs edits back to it', () => {

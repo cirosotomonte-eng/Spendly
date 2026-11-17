@@ -26,8 +26,8 @@ const SPENDLY_MODE = 'cloud';
 // derive its cache name and reported version from the SAME constants the app uses.
 // Previously the worker carried its own hardcoded version that was never bumped,
 // so its cache name never changed and its version never matched the running app.
-const APP_VERSION = '2.109.0';
-const BUILD_TIME = '17 Nov 2026 8:26 PM AEDT';
+const APP_VERSION = '2.109.1';
+const BUILD_TIME = '17 Nov 2026 8:32 PM AEDT';
 // Max characters shown for a statement merchant name in the reconciliation review.
 // Display-only: the full name is always kept on the data and used when the charge is added.
 const RECONCILE_NAME_DISPLAY_MAX = 10;
@@ -4745,6 +4745,13 @@ function saveTabConfig() {
   renderContent();
 }
 
+// Open the mortgage tab and scroll to the interest-rate section (rate history → repayment
+// summary → rate-rise forecast). Used by the home-tab mortgage snapshot.
+function goToMortgageRates() {
+  switchTab('mortgage');
+  setTimeout(() => { const el = document.getElementById('mortgageRateSection'); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 120);
+}
+
 function switchTab(tab) {
   if (tab !== 'expenses') expenseSearchQuery = '';
   if (tab !== 'accounts') { _viewingAccountId = null; _salaryCycleOffset = 0; }
@@ -6419,7 +6426,7 @@ function renderDashboard() {
     const _curMin = getCurrentMinRepayment();
     const _fcSnap = getRateRiseForecast();
     const _schSnap = getScheduledRateEntry();
-    let ms = '<div onclick="switchTab(\'mortgage\')" style="background:var(--surface);border-radius:var(--r);padding:14px 16px;margin-bottom:12px;cursor:pointer">' +
+    let ms = '<div onclick="goToMortgageRates()" style="background:var(--surface);border-radius:var(--r);padding:14px 16px;margin-bottom:12px;cursor:pointer">' +
       '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">' +
         '<div style="font-size:12px;font-weight:700;color:var(--text)">🏠 Mortgage rate</div>' +
         '<span style="font-size:12px;color:var(--accent);font-weight:600">View →</span>' +
@@ -12327,7 +12334,7 @@ function renderMortgage() {
 
   // ── Interest rate card ────────────────────────────────────────────────────
   const rateHistory = (mg.rateHistory || []).slice().sort((a,b) => b.fromDate.localeCompare(a.fromDate));
-  html += '<div style="background:var(--surface);border-radius:var(--r);padding:14px;margin-bottom:8px">' +
+  html += '<div id="mortgageRateSection" style="background:var(--surface);border-radius:var(--r);padding:14px;margin-bottom:8px;scroll-margin-top:16px">' +
     '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">' +
       '<div>' +
         '<div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:4px">Interest rate</div>' +
