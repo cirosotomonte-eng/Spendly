@@ -5516,6 +5516,40 @@ await check('the Wallet savings summary is net of fees (source)', () => {
   assertTrue(/d\.bonusProgram === 'virgin'\) _vPts \+= d\.bonusPoints/.test(html), 'the summary tallies bonus points under their own program');
 });
 
+await check('getRepaymentSummary reports current weekly repayment and the extra vs start and vs lowest', () => {
+  ctx.state = buildMockState();
+  ctx.state.mortgage = { rateHistory: [
+    { rate: 5.0, fromDate: '2020-01-01', minWeeklyRepayment: 807 },
+    { rate: 4.5, fromDate: '2021-01-01', minWeeklyRepayment: 752 },
+    { rate: 5.5, fromDate: '2022-01-01', minWeeklyRepayment: 848 },
+  ], interestRate: 5.5 };
+  const rs = ctx.getRepaymentSummary();
+  assertEqual(rs.current, 848, 'current = the effective (latest-past) weekly repayment');
+  assertEqual(rs.first, 807, 'first recorded repayment');
+  assertEqual(rs.lowest, 752, 'lowest ever repayment');
+  assertEqual(rs.vsStart, 41, 'extra vs start = 848 − 807');
+  assertEqual(rs.vsLowest, 96, 'extra vs lowest = 848 − 752');
+});
+
+await check('a scheduled future repayment does not skew the summary start/lowest/current', () => {
+  ctx.state = buildMockState();
+  ctx.state.mortgage = { rateHistory: [
+    { rate: 5.0, fromDate: '2020-01-01', minWeeklyRepayment: 807 },
+    { rate: 5.5, fromDate: '2022-01-01', minWeeklyRepayment: 848 },
+    { rate: 4.0, fromDate: '2999-01-01', minWeeklyRepayment: 700 }, // scheduled, would be the lowest
+  ], interestRate: 5.5 };
+  const rs = ctx.getRepaymentSummary();
+  assertEqual(rs.current, 848, 'current ignores the scheduled future repayment');
+  assertEqual(rs.lowest, 807, 'lowest is among in-effect repayments only, not the scheduled 700');
+});
+
+await check('the weekly-repayment summary and per-row change indicator are wired (source)', () => {
+  const fs = require('fs'); const html = fs.readFileSync(APP_PATH, 'utf8');
+  assertTrue(html.includes('Weekly repayment') && html.includes('vs when you started') && html.includes('vs your lowest'), 'the summary panel renders both baselines');
+  assertTrue(/\+' \+ fmt\(delta \* 52\) \+ '\/yr/.test(html), 'the summary shows an annualised figure');
+  assertTrue(/_deltaBadge/.test(html) && /_up\?'↑':'↓'/.test(html), 'each rate row shows an up/down change indicator');
+});
+
 await check('a future-dated mortgage rate is scheduled, not current — current stays the latest effective entry', () => {
   ctx.state = buildMockState();
   ctx.state.mortgage = { rateHistory: [

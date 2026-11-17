@@ -26,8 +26,8 @@ const SPENDLY_MODE = 'cloud';
 // derive its cache name and reported version from the SAME constants the app uses.
 // Previously the worker carried its own hardcoded version that was never bumped,
 // so its cache name never changed and its version never matched the running app.
-const APP_VERSION = '2.104.0';
-const BUILD_TIME = '17 Nov 2026 7:33 PM AEDT';
+const APP_VERSION = '2.105.0';
+const BUILD_TIME = '17 Nov 2026 7:39 PM AEDT';
 // Max characters shown for a statement merchant name in the reconciliation review.
 // Display-only: the full name is always kept on the data and used when the charge is added.
 const RECONCILE_NAME_DISPLAY_MAX = 10;
@@ -11250,6 +11250,28 @@ function getEffectiveRateEntry(mg) {
   return past.reduce((a, b) => (b.fromDate > a.fromDate ? b : a));
 }
 
+// How the current weekly minimum repayment compares to the start and the lowest ever,
+// using the weekly repayment recorded against each rate-history entry.
+function getRepaymentSummary() {
+  const mg = state.mortgage || {};
+  const today = todayStr();
+  // Only repayments already in effect count — a scheduled future repayment isn't something
+  // you're paying yet, so it must not skew the start/lowest figures.
+  const entries = (mg.rateHistory || []).filter(r => r.minWeeklyRepayment > 0 && r.fromDate <= today).slice().sort((a,b) => a.fromDate.localeCompare(b.fromDate));
+  if (entries.length < 1) return null;
+  const current = getCurrentMinRepayment();
+  if (!(current > 0)) return null;
+  const amounts = entries.map(e => e.minWeeklyRepayment);
+  const first = amounts[0];
+  const lowest = Math.min.apply(null, amounts);
+  const highest = Math.max.apply(null, amounts);
+  return {
+    current, first, lowest, highest, count: entries.length,
+    vsStart: Math.round((current - first) * 100) / 100,
+    vsLowest: Math.round((current - lowest) * 100) / 100,
+  };
+}
+
 // Keeps mg.interestRate pointing at the effective (today-or-earlier) rate, so a scheduled
 // future rate neither takes effect early nor is missed once its date arrives. Returns true
 // if it changed the stored rate.
@@ -12197,10 +12219,18 @@ function renderMortgage() {
                 ? '<span style="font-size:10px;background:rgba(255,149,0,0.15);color:var(--orange);border-radius:4px;padding:1px 6px;font-weight:700">scheduled</span>'
                 : '';
             const minRep = r.minWeeklyRepayment ? '$' + parseFloat(r.minWeeklyRepayment).toLocaleString('en-AU', {minimumFractionDigits:2,maximumFractionDigits:2}) : '—';
+            // Change vs the chronologically previous entry (next in this date-desc list).
+            const _prev = rateHistory[i+1];
+            let _deltaBadge = '';
+            if (r.minWeeklyRepayment > 0 && _prev && _prev.minWeeklyRepayment > 0) {
+              const _d = r.minWeeklyRepayment - _prev.minWeeklyRepayment;
+              if (Math.abs(_d) > 0.005) { const _up = _d > 0; _deltaBadge = '<span style="font-size:10px;font-weight:700;color:' + (_up?'var(--orange)':'#34C759') + '">' + (_up?'↑':'↓') + '$' + Math.abs(Math.round(_d)) + '</span>'; }
+            }
             return '<div style="font-size:12px;color:var(--muted)">' + new Date(r.fromDate+'T00:00:00').toLocaleDateString('en-AU',{day:'numeric',month:'short',year:'numeric'}) + '</div>' +
               '<div>' + badge + '</div>' +
               '<div style="font-size:12px;font-weight:700;text-align:right;color:' + (isCurrentRate?'var(--text)':'var(--muted)') + '">' + r.rate + '%</div>' +
               '<div style="display:flex;align-items:center;gap:6px;justify-content:flex-end">' +
+                _deltaBadge +
                 '<span style="font-size:12px;font-weight:600;color:' + (isCurrentRate?'var(--text)':'var(--muted)') + '">' + minRep + '</span>' +
                 '<button onclick="openEditHistoricalRate(\'' + r.fromDate + '\')" style="background:var(--surface2);border:none;border-radius:6px;padding:3px 8px;font-size:11px;color:var(--muted);cursor:pointer;font-family:var(--font)">Edit</button>' +
               '</div>';
@@ -12209,6 +12239,28 @@ function renderMortgage() {
       '</div>'
       : '') +
   '</div>';
+
+  // ── Weekly repayment — how much more you're paying now vs start & lowest ───────
+  const _rs = getRepaymentSummary();
+  if (_rs && (_rs.vsStart > 0.005 || _rs.vsLowest > 0.005)) {
+    const _row = (label, delta, base) => {
+      if (delta <= 0.005) return '';
+      return '<div style="display:flex;justify-content:space-between;align-items:baseline;padding:7px 0;border-top:1px solid var(--surface2)">' +
+        '<span style="font-size:12px;color:var(--muted)">' + label + ' <span style="color:var(--muted)">(' + fmt(base) + ')</span></span>' +
+        '<span style="font-size:13px;font-weight:700;color:var(--orange);text-align:right">+' + fmt(delta) + '/wk<span style="font-size:11px;font-weight:600;color:var(--muted)"> · +' + fmt(delta * 52) + '/yr</span></span>' +
+      '</div>';
+    };
+    html += '<div style="background:var(--surface);border-radius:var(--r);padding:14px;margin-bottom:8px">' +
+      '<div style="display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:8px">' +
+        '<div>' +
+          '<div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:4px">Weekly repayment</div>' +
+          '<div style="font-size:26px;font-weight:800;letter-spacing:-0.5px">' + fmt(_rs.current) + '<span style="font-size:13px;font-weight:600;color:var(--muted)">/wk</span></div>' +
+        '</div>' +
+      '</div>' +
+      _row('vs when you started', _rs.vsStart, _rs.first) +
+      _row('vs your lowest', _rs.vsLowest, _rs.lowest) +
+    '</div>';
+  }
 
   // ── Monthly interest log ──────────────────────────────────────────────────
   const intLog = (state.mortgageInterestLog||[]).slice().sort((a,b)=>b.month.localeCompare(a.month));
