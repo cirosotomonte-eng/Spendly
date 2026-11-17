@@ -5870,6 +5870,27 @@ await check('dashboard renders every active goal and the pending section in orde
     'order on screen: Spending pulse → Next 7 days → Savings → Pending payments');
 });
 
+// ── v2.111.0 — Home Savings section lists goals alphabetically ascending ──
+await check('home Savings section lists active goals A→Z by name', () => {
+  ctx.state = buildMockState();
+  ctx.state.viewingCycleOffset = 0;
+  // Insert deliberately out of alphabetical order; render must reorder them A→Z.
+  ctx.state.savingsCategories = [
+    { id: 'gZ', name: 'Zephyr',  icon: '🎯', status: 'active', target: 500 },
+    { id: 'gM', name: 'mango',   icon: '🎯', status: 'active', target: 500 }, // lowercase — case-insensitive
+    { id: 'gA', name: 'Apple',   icon: '🎯', status: 'active', target: 500 },
+    { id: 'gD', name: 'Delta',   icon: '🎯', status: 'active', target: 500 },
+  ];
+  ctx.renderDashboard();
+  const out = ctx.document.getElementById('content').innerHTML;
+  const iApple  = out.indexOf('Apple');
+  const iDelta  = out.indexOf('Delta');
+  const iMango  = out.indexOf('mango');
+  const iZephyr = out.indexOf('Zephyr');
+  assertTrue(iApple >= 0 && iDelta > iApple && iMango > iDelta && iZephyr > iMango,
+    'goals render in ascending alphabetical order: Apple → Delta → mango → Zephyr');
+});
+
 console.log(`\x1b[1mResults: ${pass} passed, ${fail} failed\x1b[0m`);
 if (fail > 0) {
   console.log('\nFailed tests:');

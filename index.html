@@ -26,8 +26,8 @@ const SPENDLY_MODE = 'cloud';
 // derive its cache name and reported version from the SAME constants the app uses.
 // Previously the worker carried its own hardcoded version that was never bumped,
 // so its cache name never changed and its version never matched the running app.
-const APP_VERSION = '2.110.0';
-const BUILD_TIME = '17 Nov 2026 8:45 PM AEDT';
+const APP_VERSION = '2.111.0';
+const BUILD_TIME = '17 Nov 2026 8:49 PM AEDT';
 // Max characters shown for a statement merchant name in the reconciliation review.
 // Display-only: the full name is always kept on the data and used when the charge is added.
 const RECONCILE_NAME_DISPLAY_MAX = 10;
@@ -6302,12 +6302,11 @@ function renderDashboard() {
     const bal = totalSavedForCat(g.id);
     const pct = g.target > 0 ? Math.min((bal / g.target) * 100, 100) : 0;
     return { g, bal, pct };
-  }).sort((a,b) => {
-    // Sort: in-progress with target first, then no-target
-    if (a.g.target && !b.g.target) return -1;
-    if (!a.g.target && b.g.target) return 1;
-    return b.pct - a.pct;
-  }); // show ALL active goals on the home tab (no truncation)
+  }).sort((a,b) =>
+    // Show ALL active goals on the home tab (no truncation), ordered A→Z by name
+    // (case-insensitive) so the list reads alphabetically ascending.
+    (a.g.name||'').localeCompare(b.g.name||'', undefined, { sensitivity: 'base' })
+  );
 
   const totalAllSavings = (state.savingsDeposits||[]).reduce((s,d) =>
     s + (d.type==='withdrawal'||d.type==='bill-payment' ? -d.amount : d.amount), 0);
