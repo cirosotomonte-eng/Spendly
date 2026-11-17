@@ -26,8 +26,8 @@ const SPENDLY_MODE = 'cloud';
 // derive its cache name and reported version from the SAME constants the app uses.
 // Previously the worker carried its own hardcoded version that was never bumped,
 // so its cache name never changed and its version never matched the running app.
-const APP_VERSION = '2.108.1';
-const BUILD_TIME = '17 Nov 2026 8:16 PM AEDT';
+const APP_VERSION = '2.109.0';
+const BUILD_TIME = '17 Nov 2026 8:26 PM AEDT';
 // Max characters shown for a statement merchant name in the reconciliation review.
 // Display-only: the full name is always kept on the data and used when the charge is added.
 const RECONCILE_NAME_DISPLAY_MAX = 10;
@@ -6413,6 +6413,36 @@ function renderDashboard() {
     }
   }
 
+  // ── Mortgage rate snapshot — visibility of rate, minimum & forecast; taps through ──
+  const _mgSnap = state.mortgage || {};
+  if (_mgSnap.interestRate > 0 || (_mgSnap.rateHistory || []).length) {
+    const _curMin = getCurrentMinRepayment();
+    const _fcSnap = getRateRiseForecast();
+    const _schSnap = getScheduledRateEntry();
+    let ms = '<div onclick="switchTab(\'mortgage\')" style="background:var(--surface);border-radius:var(--r);padding:14px 16px;margin-bottom:12px;cursor:pointer">' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">' +
+        '<div style="font-size:12px;font-weight:700;color:var(--text)">🏠 Mortgage rate</div>' +
+        '<span style="font-size:12px;color:var(--accent);font-weight:600">View →</span>' +
+      '</div>' +
+      '<div style="display:flex;gap:20px;flex-wrap:wrap;align-items:baseline">' +
+        '<div><span style="font-size:20px;font-weight:800;letter-spacing:-0.3px">' + (_mgSnap.interestRate || '—') + '%</span> <span style="font-size:11px;color:var(--muted)">rate</span></div>' +
+        (_curMin > 0 ? '<div><span style="font-size:20px;font-weight:800;letter-spacing:-0.3px">' + fmt(_curMin) + '</span> <span style="font-size:11px;color:var(--muted)">min/wk</span></div>' : '') +
+      '</div>';
+    if (_schSnap) {
+      ms += '<div style="font-size:11px;color:var(--orange);margin-top:8px">📅 ' + _schSnap.rate + '% scheduled from ' + new Date(_schSnap.fromDate + 'T00:00:00').toLocaleDateString('en-AU',{day:'numeric',month:'short'}) + (_schSnap.minWeeklyRepayment > 0 ? ' · ' + fmt(_schSnap.minWeeklyRepayment) + '/wk' : '') + '</div>';
+    }
+    if (_fcSnap && _fcSnap.actual > 0) {
+      if (_fcSnap.crossoverStep) {
+        const _cr = _fcSnap.rows.find(r => r.k === _fcSnap.crossoverStep);
+        ms += '<div style="font-size:11px;color:var(--muted);line-height:1.5;margin-top:8px;padding-top:8px;border-top:1px solid var(--surface2)">⚠️ Your <strong style="color:var(--text)">' + fmt(_fcSnap.actual) + '/wk</strong> payment is overtaken at <strong style="color:var(--orange)">+' + _cr.k + ' rate rise' + (_cr.k !== 1 ? 's' : '') + '</strong> (' + _cr.rate + '%) → min ' + fmt(_cr.min) + '/wk</div>';
+      } else {
+        ms += '<div style="font-size:11px;color:#34C759;line-height:1.5;margin-top:8px;padding-top:8px;border-top:1px solid var(--surface2)">✓ Even +' + _fcSnap.rows.length + ' rate rises stays under your ' + fmt(_fcSnap.actual) + '/wk payment</div>';
+      }
+    }
+    ms += '</div>';
+    html += ms;
+  }
+
   // ── 3. NEXT 7 DAYS ────────────────────────────────────────────────────
   if (upcoming7.length > 0) {
     html += '<div style="background:var(--surface);border-radius:var(--r);padding:14px 16px;margin-bottom:12px">' +
@@ -11302,6 +11332,14 @@ function getRepaymentSummary() {
     vsStart: Math.round((current - first) * 100) / 100,
     vsLowest: Math.round((current - lowest) * 100) / 100,
   };
+}
+
+// The next scheduled (future-dated) rate entry, if any — used to flag an upcoming change.
+function getScheduledRateEntry(mg) {
+  mg = mg || state.mortgage || {};
+  const today = todayStr();
+  const future = (mg.rateHistory || []).filter(r => r.fromDate > today).slice().sort((a,b) => a.fromDate.localeCompare(b.fromDate));
+  return future.length ? future[0] : null;
 }
 
 // Cumulative extra paid vs your lowest weekly repayment, from the date you were at that

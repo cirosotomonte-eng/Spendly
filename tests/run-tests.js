@@ -5516,6 +5516,25 @@ await check('the Wallet savings summary is net of fees (source)', () => {
   assertTrue(/d\.bonusProgram === 'virgin'\) _vPts \+= d\.bonusPoints/.test(html), 'the summary tallies bonus points under their own program');
 });
 
+await check('getScheduledRateEntry returns the next future-dated rate change', () => {
+  ctx.state = buildMockState();
+  ctx.state.mortgage = { rateHistory: [
+    { rate: 5.0, fromDate: '2020-01-01', minWeeklyRepayment: 807 },
+    { rate: 5.5, fromDate: '2999-01-01', minWeeklyRepayment: 848 },
+  ] };
+  const s = ctx.getScheduledRateEntry();
+  assertTrue(!!s && s.fromDate === '2999-01-01' && s.rate === 5.5, 'the upcoming scheduled entry is returned');
+  ctx.state.mortgage.rateHistory = [{ rate: 5.0, fromDate: '2020-01-01' }];
+  assertTrue(ctx.getScheduledRateEntry() === null, 'null when nothing is scheduled');
+});
+
+await check('the home tab shows a mortgage-rate snapshot that taps through to the mortgage tab (source)', () => {
+  const fs = require('fs'); const html = fs.readFileSync(APP_PATH, 'utf8');
+  assertTrue(html.includes('Mortgage rate') && html.includes("switchTab(\\'mortgage\\')"), 'the snapshot card links to the mortgage tab');
+  assertTrue(/getRateRiseForecast\(\)/.test(html.slice(html.indexOf('Mortgage rate snapshot'), html.indexOf('Mortgage rate snapshot') + 1500)), 'the snapshot shows the forecast');
+  assertTrue(/_curMin > 0 \?/.test(html) && html.includes('min/wk'), 'the snapshot shows the current minimum');
+});
+
 await check('the mortgage modal min-repayment field reflects the current rate and syncs edits back to it', () => {
   const fs = require('fs'); const html = fs.readFileSync(APP_PATH, 'utf8');
   // populate shows the current (rate-history) minimum, not the stale stored value
