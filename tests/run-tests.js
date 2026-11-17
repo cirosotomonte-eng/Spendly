@@ -5516,6 +5516,23 @@ await check('the Wallet savings summary is net of fees (source)', () => {
   assertTrue(/d\.bonusProgram === 'virgin'\) _vPts \+= d\.bonusPoints/.test(html), 'the summary tallies bonus points under their own program');
 });
 
+await check('the mortgage modal min-repayment field reflects the current rate and syncs edits back to it', () => {
+  const fs = require('fs'); const html = fs.readFileSync(APP_PATH, 'utf8');
+  // populate shows the current (rate-history) minimum, not the stale stored value
+  assertTrue(/mgMinWeekly'\)\.value = getCurrentMinRepayment\(\)/.test(html), 'the field is populated from getCurrentMinRepayment()');
+  // editing it writes through to the current rate entry
+  ctx.state = buildMockState();
+  ctx.state.mortgage = { rateHistory: [{ rate: 5.5, fromDate: '2020-01-01', minWeeklyRepayment: 848 }], interestRate: 5.5 };
+  ['mgLoanAmount','mgCurrentBalance','mgBalanceAsOf','mgRate','mgStartDate','mgTerm','mgWeekly','mgOffset','mgRedraw'].forEach(id => { ctx.document.getElementById(id).value = ''; });
+  ctx.document.getElementById('mgRate').value = '5.5';
+  ctx.document.getElementById('mgMinWeekly').value = '850';
+  const saved = {}; ['saveState','closeModal','renderContent'].forEach(fn => { saved[fn] = ctx[fn]; ctx[fn] = () => {}; });
+  try { ctx.saveMortgageSettings(); } finally { Object.keys(saved).forEach(fn => { ctx[fn] = saved[fn]; }); }
+  assertEqual(ctx.state.mortgage.minimumRepayment, 850, 'the field value is saved');
+  assertEqual(ctx.getEffectiveRateEntry(ctx.state.mortgage).minWeeklyRepayment, 850, 'the current rate entry is kept in sync');
+  assertEqual(ctx.getCurrentMinRepayment(), 850, 'the current minimum reflects the edit');
+});
+
 await check('getRateRiseForecast projects a rising minimum and finds when it overtakes the actual payment', () => {
   ctx.state = buildMockState();
   ctx.state.mortgage = {
