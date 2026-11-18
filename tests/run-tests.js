@@ -5831,8 +5831,8 @@ await check('dashboard assembles sections in the requested order (source)', () =
   const fs = require('fs'); const html = fs.readFileSync(APP_PATH, 'utf8');
   // The single assembly line is the invariant for the home-tab order.
   assertTrue(
-    html.includes('html += secPulse + secNext7 + secSaveCycle + secSavings + secOffset + secMortgage + secPending;'),
-    'order is pulse → next7 → saveCycle → savings → offset → mortgage → pending'
+    html.includes('html += secReminders + secPulse + secNext7 + secSaveCycle + secSavings + secOffset + secMortgage + secPending;'),
+    'order is reminders → pulse → next7 → saveCycle → savings → offset → mortgage → pending'
   );
   // The savings snapshot no longer truncates to the top 4 goals.
   const dash = html.slice(html.indexOf('function renderDashboard'), html.indexOf('function renderAnalytics'));
@@ -5906,6 +5906,38 @@ await check('getDailyQuote() shows no repeat for a year (cycles the full pool)',
   assertTrue(seen.size === period, 'every day in the cycle shows a distinct quote (' + seen.size + '/' + period + ')');
   // The shuffle is stable: same day ordinal always yields the same quote.
   assertTrue(ctx.getDailyQuote(42) === ctx.getDailyQuote(42), 'a given day is deterministic');
+});
+
+// ── v2.113.0 — monthly "keep your data fresh" update reminders ────────────
+await check('update reminders: stale value is overdue, ✅ resets it, shows on home tab', () => {
+  ctx.state = buildMockState();
+  const today = ctx.todayStr();
+  // A holding whose price was last updated 60 days ago → overdue.
+  ctx.state.portfolio = [{ id:'h1', ticker:'A200', name:'A200', units:10, avgCost:100, currentPrice:120,
+    priceHistory:[{ date: addDays(today, -60), price:120 }] }];
+  ctx.state.updateChecks = {};
+  let shares = ctx.getUpdateReminders().find(r => r.type === 'shares');
+  assertTrue(shares && shares.status === 'overdue', 'stale share prices are overdue');
+
+  // Ticking ✅ today (or editing) resets it to fresh for a month.
+  ctx.state.updateChecks = { shares: today };
+  shares = ctx.getUpdateReminders().find(r => r.type === 'shares');
+  assertTrue(shares && shares.status === 'fresh', 'after update/✅ today → fresh');
+
+  // Overdue reminders surface on the home tab; fresh ones don't.
+  ctx.state.updateChecks = {};
+  ctx.renderDashboard();
+  const out = ctx.document.getElementById('content').innerHTML;
+  assertTrue(out.includes('Keep your data fresh') && out.includes('Update share prices'),
+    'overdue reminder renders on the home tab');
+
+  // touchUpdate stamps today (the auto-reset editors call this).
+  ctx.touchUpdate('shares');
+  assertTrue(ctx.state.updateChecks.shares === today, 'touchUpdate stamps today');
+
+  // Applicability: no portfolio → no shares reminder (no nagging for data you don't have).
+  ctx.state.portfolio = [];
+  assertTrue(!ctx.getUpdateReminders().some(r => r.type === 'shares'), 'no shares reminder without holdings');
 });
 
 console.log(`\x1b[1mResults: ${pass} passed, ${fail} failed\x1b[0m`);

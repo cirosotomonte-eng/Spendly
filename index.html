@@ -26,8 +26,8 @@ const SPENDLY_MODE = 'cloud';
 // derive its cache name and reported version from the SAME constants the app uses.
 // Previously the worker carried its own hardcoded version that was never bumped,
 // so its cache name never changed and its version never matched the running app.
-const APP_VERSION = '2.112.0';
-const BUILD_TIME = '17 Nov 2026 8:55 PM AEDT';
+const APP_VERSION = '2.113.0';
+const BUILD_TIME = '18 Nov 2026 6:37 PM AEDT';
 // Max characters shown for a statement merchant name in the reconciliation review.
 // Display-only: the full name is always kept on the data and used when the charge is added.
 const RECONCILE_NAME_DISPLAY_MAX = 10;
@@ -2665,7 +2665,7 @@ async function signOut() {
   _sbSession = null;
   try { sessionStorage.clear(); } catch(e) {}
   // Reset state and show auth screen
-  state = { currentTab:'dashboard', viewingCycleOffset:0, budget:0, cycleDay:1, appName:'', categories:[], expenses:[], recurringExpenses:[], recurringSavings:[], recurringIncome:[], recurringSkips:[], savingsCategories:[], savingsSubcategories:[], savingsDeposits:[], recyclingTrips:[], mortgage:{}, taxCategories:[], taxTransactions:[], giftCards:[], portfolio:[], netWorth:[], notes:[], accounts:[], accountTransactions:[], pendingPayments:[], ccPayments:[], lastActiveDate:'', setupDone:false };
+  state = { currentTab:'dashboard', viewingCycleOffset:0, budget:0, cycleDay:1, appName:'', categories:[], expenses:[], recurringExpenses:[], recurringSavings:[], recurringIncome:[], recurringSkips:[], savingsCategories:[], savingsSubcategories:[], savingsDeposits:[], recyclingTrips:[], mortgage:{}, taxCategories:[], taxTransactions:[], giftCards:[], portfolio:[], netWorth:[], notes:[], accounts:[], accountTransactions:[], pendingPayments:[], ccPayments:[], updateChecks:{}, lastActiveDate:'', setupDone:false };
   applyTheme(); // fresh empty state — defaults to blue/auto for a clean login screen
   showAuthScreen();
   document.getElementById('app').style.visibility = 'hidden';
@@ -6218,6 +6218,63 @@ function getMultiCycleData(numCycles) {
 }
 
 
+// ── Monthly "keep your data fresh" reminders ────────────────────────────────
+// Manually-entered values (share prices, super balance, mortgage balance,
+// property value) go stale and quietly distort net worth / projections. Each
+// already leaves a dated trail, so "fresh as of" = the later of the last real
+// edit and the last ✅ "I checked it" tick. Due one month after that.
+function _maxDateStr(dates) {
+  let m = null;
+  (dates || []).forEach(d => { if (d && (!m || d > m)) m = d; });
+  return m;
+}
+function updateItemLastData(type) {
+  if (type === 'shares') {
+    const ds = [];
+    (state.portfolio || []).forEach(h => (h.priceHistory || []).forEach(p => ds.push(p.date)));
+    return _maxDateStr(ds);
+  }
+  if (type === 'super')    return _maxDateStr(((state.super || {}).balanceHistory || []).map(e => e.date));
+  if (type === 'mortgage') return (state.mortgage || {}).balanceAsOf || null;
+  if (type === 'property') return _maxDateStr((state.propertyHistory || []).map(h => h.date));
+  return null;
+}
+// Records that the user updated (or confirmed) a value, so its reminder resets.
+function touchUpdate(type) {
+  if (!state.updateChecks) state.updateChecks = {};
+  state.updateChecks[type] = todayStr();
+}
+function markUpdateDone(type) {
+  touchUpdate(type);
+  saveState();
+  showToast('✅ Marked updated — reminder reset for a month', 2500);
+  renderContent();
+}
+function getUpdateReminders() {
+  const defs = [
+    { type:'shares',   label:'Update share prices',    icon:'📈', editor:"switchTab('portfolio')",  applies:(state.portfolio||[]).length > 0 },
+    { type:'super',    label:'Update super balance',   icon:'🏛️', editor:'openSuperSettings()',      applies:((state.accounts||[]).some(a => a.type === 'super') || ((state.super||{}).balance||0) > 0) },
+    { type:'mortgage', label:'Update mortgage balance',icon:'🏠', editor:'openMortgageSettings()',   applies:(((state.mortgage||{}).currentBalance||0) > 0 || ((state.mortgage||{}).rateHistory||[]).length > 0) },
+    { type:'property', label:'Update property value',  icon:'🏡', editor:'openPropertySettings()',   applies:(((state.propertyValue||0) > 0) || (state.propertyHistory||[]).length > 0) },
+  ];
+  const checks = state.updateChecks || {};
+  const today = todayStr();
+  const todayD = new Date(today + 'T00:00:00');
+  return defs.filter(d => d.applies).map(d => {
+    const fresh = _maxDateStr([updateItemLastData(d.type), checks[d.type]]);
+    let dueDate = null, daysUntil = null, status = 'fresh';
+    if (!fresh) {
+      status = 'overdue'; // never updated — nudge to set a baseline
+    } else {
+      const f = new Date(fresh + 'T00:00:00'); f.setMonth(f.getMonth() + 1);
+      dueDate = dateToStr(f);
+      daysUntil = Math.round((f - todayD) / 86400000);
+      status = daysUntil < 0 ? 'overdue' : daysUntil <= 7 ? 'due' : 'fresh';
+    }
+    return { ...d, lastUpdated: fresh, dueDate, daysUntil, status };
+  });
+}
+
 function renderDashboard() {
   const el = document.getElementById('content');
   if (!isSetupComplete()) { el.innerHTML = onboardingHTML(); return; }
@@ -6562,6 +6619,34 @@ function renderDashboard() {
     '</div>';
   }
 
+  // ── 0. KEEP YOUR DATA FRESH (monthly update reminders) ────────────────
+  // Only surfaces items that are actually due or overdue — stays invisible when
+  // everything's current.
+  let secReminders = '';
+  const _due = getUpdateReminders().filter(r => r.status === 'overdue' || r.status === 'due');
+  if (_due.length > 0) {
+    secReminders = '<div style="background:var(--surface);border-radius:var(--r);padding:14px 16px;margin-bottom:12px">' +
+      '<div style="font-size:12px;font-weight:700;color:var(--text);margin-bottom:10px">🔄 Keep your data fresh</div>';
+    _due.forEach((r, i) => {
+      const overdue = r.status === 'overdue';
+      const col = overdue ? 'var(--red)' : 'var(--orange)';
+      const dueText = !r.lastUpdated ? 'Never updated — set a baseline'
+        : overdue ? 'Overdue by ' + Math.abs(r.daysUntil) + ' day' + (Math.abs(r.daysUntil) !== 1 ? 's' : '')
+        : (r.daysUntil === 0 ? 'Due today' : 'Due in ' + r.daysUntil + ' day' + (r.daysUntil !== 1 ? 's' : ''));
+      secReminders += '<div style="display:flex;align-items:center;gap:10px;padding:9px 0;' + (i > 0 ? 'border-top:1px solid var(--surface2)' : '') + '">' +
+          '<div onclick="' + r.editor + '" style="flex:1;min-width:0;cursor:pointer;display:flex;align-items:center;gap:10px">' +
+            '<div style="font-size:20px;width:30px;text-align:center;flex-shrink:0">' + r.icon + '</div>' +
+            '<div style="min-width:0">' +
+              '<div style="font-size:13px;font-weight:500">' + r.label + '</div>' +
+              '<div style="font-size:10px;color:' + col + '">' + dueText + '</div>' +
+            '</div>' +
+          '</div>' +
+          '<button data-ut="' + r.type + '" onclick="markUpdateDone(this.dataset.ut)" style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:6px 10px;font-size:12px;font-weight:600;font-family:var(--font);cursor:pointer;color:var(--text);flex-shrink:0">✅ Done</button>' +
+        '</div>';
+    });
+    secReminders += '</div>';
+  }
+
   // ── 7. PENDING PAYMENTS ───────────────────────────────────────────────
   // A full section (not just a button) listing every pending saving payment
   // awaiting review, due-date ordered, with a running total and a tap-through.
@@ -6598,7 +6683,7 @@ function renderDashboard() {
   // ── Assemble sections in the requested home-tab order ─────────────────
   // 1 Spending pulse · 2 Next 7 days · 3 Saving this cycle · 4 Savings (all
   // active goals) · 5 Offset account · 6 Mortgage rate · 7 Pending payments
-  html += secPulse + secNext7 + secSaveCycle + secSavings + secOffset + secMortgage + secPending;
+  html += secReminders + secPulse + secNext7 + secSaveCycle + secSavings + secOffset + secMortgage + secPending;
 
   html += '</div>';
   el.innerHTML = html;
@@ -11646,7 +11731,7 @@ function saveMortgageSettings() {
   if ((!state.mortgage.rateHistory || state.mortgage.rateHistory.length === 0) && state.mortgage.interestRate > 0) {
     state.mortgage.rateHistory = [{ rate: state.mortgage.interestRate, fromDate: state.mortgage.startDate || todayStr() }];
   }
-  saveState(); closeModal('mortgageSettingsModal'); renderContent();
+  touchUpdate('mortgage'); saveState(); closeModal('mortgageSettingsModal'); renderContent();
 }
 
 
@@ -16285,13 +16370,13 @@ function saveHolding() {
       dividends: []
     });
   }
-  saveState(); closeModal('holdingModal'); renderContent();
+  touchUpdate('shares'); saveState(); closeModal('holdingModal'); renderContent();
 }
 
 function deleteHolding() {
   if (!editingHoldingId) return;
   state.portfolio = (state.portfolio||[]).filter(h=>h.id!==editingHoldingId);
-  saveState(); closeModal('holdingModal'); renderContent();
+  touchUpdate('shares'); saveState(); closeModal('holdingModal'); renderContent();
 }
 
 function updateHoldingPrice(id) {
@@ -16301,6 +16386,7 @@ function updateHoldingPrice(id) {
   h.priceHistory = h.priceHistory || [];
   h.priceHistory.push({ date: todayStr(), price: newPrice });
   h.currentPrice = newPrice;
+  touchUpdate('shares');
   saveState(); renderContent();
 }
 
@@ -16726,7 +16812,7 @@ function saveSuperSettings() {
   state.super.expectedReturn = parseFloat(document.getElementById('superReturn').value) || 7;
   if (!state.super.balanceHistory) state.super.balanceHistory = [];
   state.super.balanceHistory.push({ date: todayStr(), balance });
-  saveState(); closeModal('superModal'); renderContent();
+  touchUpdate('super'); saveState(); closeModal('superModal'); renderContent();
 }
 
 let _editingValDate = null; // null = new, date string = editing existing
@@ -16792,7 +16878,7 @@ function savePropertyValue() {
   }
   state.propertyHistory.sort((a,b) => b.date.localeCompare(a.date));
   state.propertyValue = state.propertyHistory[0].value;
-  saveState(); closeModal('propertyModal'); renderContent();
+  touchUpdate('property'); saveState(); closeModal('propertyModal'); renderContent();
   showToast('🏠 Valuation saved — $' + Math.round(value).toLocaleString('en-AU'), 3000);
 }
 
