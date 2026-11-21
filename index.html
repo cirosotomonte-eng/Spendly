@@ -26,8 +26,8 @@ const SPENDLY_MODE = 'cloud';
 // derive its cache name and reported version from the SAME constants the app uses.
 // Previously the worker carried its own hardcoded version that was never bumped,
 // so its cache name never changed and its version never matched the running app.
-const APP_VERSION = '2.113.0';
-const BUILD_TIME = '18 Nov 2026 6:37 PM AEDT';
+const APP_VERSION = '2.114.0';
+const BUILD_TIME = '21 Nov 2026 3:36 PM AEDT';
 // Max characters shown for a statement merchant name in the reconciliation review.
 // Display-only: the full name is always kept on the data and used when the charge is added.
 const RECONCILE_NAME_DISPLAY_MAX = 10;
@@ -6467,21 +6467,38 @@ function renderDashboard() {
            '<div style="text-align:right;border-top:1px solid var(--border);padding-top:7px;margin-top:2px;font-weight:700;color:var(--text)">' + fmt(_sb.target) + '</div>' +
            '<div style="text-align:right;border-top:1px solid var(--border);padding-top:7px;margin-top:2px;font-weight:700;color:' + (_ovS > 0.005 ? 'var(--orange)' : '#34C759') + '">' + fmt(_sb.adjustedTotal) + '</div>';
       t += '</div>';
-      // Savings as a % of the cycle budget: what you aimed to save (target ÷ budget) vs
-      // what you're on track to save after spending (adjusted ÷ budget).
+      // Savings as a % of the cycle budget: what you aimed to save (target ÷ budget),
+      // what you're on track to save (adjusted ÷ budget), and that on-track total split
+      // into 🔒 always-save-full goals vs the rest. All %s are of budget, so the two
+      // sub-lines add up to the on-track total.
       if (budget > 0) {
+        const _pp = v => (Math.round(v * 10) / 10) + '%';
         const _tgtPct = (_sb.target / budget) * 100;
         const _actPct = (_sb.adjustedTotal / budget) * 100;
-        const _pp = v => (Math.round(v * 10) / 10) + '%';
-        t += '<div style="display:flex;gap:10px;margin-top:12px">' +
-          '<div style="flex:1;background:var(--surface2);border-radius:10px;padding:9px 10px;text-align:center">' +
-            '<div style="font-size:17px;font-weight:800;color:var(--text)">' + _pp(_tgtPct) + '</div>' +
-            '<div style="font-size:10px;color:var(--muted);margin-top:1px">of budget targeted</div>' +
+        const _protTotal = _sb.protectedTotal;
+        const _restTotal = Math.round((_sb.adjustedTotal - _protTotal) * 100) / 100;
+        const _protPct = (_protTotal / budget) * 100;
+        const _restPct = (_restTotal / budget) * 100;
+        const _trk = _ovS > 0.005 ? 'var(--orange)' : '#34C759';
+        t += '<div style="margin-top:12px;background:var(--surface2);border-radius:10px;padding:11px 12px">' +
+          '<div style="display:flex;justify-content:space-between;align-items:baseline">' +
+            '<span style="font-size:11px;color:var(--muted)">Of budget targeted</span>' +
+            '<span style="font-size:12px;font-weight:600;color:var(--text)">' + fmt(_sb.target) + ' · ' + _pp(_tgtPct) + '</span>' +
           '</div>' +
-          '<div style="flex:1;background:var(--surface2);border-radius:10px;padding:9px 10px;text-align:center">' +
-            '<div style="font-size:17px;font-weight:800;color:' + (_ovS > 0.005 ? 'var(--orange)' : '#34C759') + '">' + _pp(_actPct) + '</div>' +
-            '<div style="font-size:10px;color:var(--muted);margin-top:1px">on track to save</div>' +
+          '<div style="display:flex;justify-content:space-between;align-items:baseline;border-top:1px solid var(--border);margin-top:7px;padding-top:7px">' +
+            '<span style="font-size:12px;font-weight:700;color:var(--text)">On track to save</span>' +
+            '<span style="font-size:14px;font-weight:800;color:' + _trk + '">' + fmt(_sb.adjustedTotal) + ' · ' + _pp(_actPct) + '</span>' +
           '</div>' +
+          (_protTotal > 0.005
+            ? '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-top:6px;padding-left:2px">' +
+                '<span style="font-size:11px;color:var(--muted)">🔒 Always save full</span>' +
+                '<span style="font-size:11px;font-weight:600;color:var(--text)">' + fmt(_protTotal) + ' · ' + _pp(_protPct) + '</span>' +
+              '</div>' +
+              '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-top:3px;padding-left:2px">' +
+                '<span style="font-size:11px;color:var(--muted)">Other goals</span>' +
+                '<span style="font-size:11px;font-weight:600;color:var(--text)">' + fmt(_restTotal) + ' · ' + _pp(_restPct) + '</span>' +
+              '</div>'
+            : '') +
         '</div>';
       }
       // Overspend that the (non-protected) savings can't absorb — floored at $0, the rest

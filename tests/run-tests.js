@@ -5713,7 +5713,8 @@ await check('the Savings-this-cycle section shows target % and projected % of bu
   const fs = require('fs'); const html = fs.readFileSync(APP_PATH, 'utf8');
   assertTrue(/\(_sb\.target \/ budget\) \* 100/.test(html), 'target % = savings target ÷ budget');
   assertTrue(/\(_sb\.adjustedTotal \/ budget\) \* 100/.test(html), 'projected % = adjusted savings ÷ budget');
-  assertTrue(html.includes('of budget targeted') && html.includes('on track to save'), 'both percentage labels render');
+  assertTrue(html.includes('Of budget targeted') && html.includes('On track to save'), 'targeted + on-track labels render');
+  assertTrue(html.includes('Always save full') && html.includes('Other goals'), 'protected-vs-rest breakdown labels render');
 });
 
 await check('both finished-card sections (used + expired) collapse by default and only render rows when expanded', () => {
@@ -5938,6 +5939,41 @@ await check('update reminders: stale value is overdue, ✅ resets it, shows on h
   // Applicability: no portfolio → no shares reminder (no nagging for data you don't have).
   ctx.state.portfolio = [];
   assertTrue(!ctx.getUpdateReminders().some(r => r.type === 'shares'), 'no shares reminder without holdings');
+});
+
+// ── v2.114.0 — Savings-this-cycle protected vs rest breakdown ─────────────
+await check('savings breakdown splits on-track into protected (always-full) vs rest', () => {
+  ctx.state = buildMockState();
+  const today = ctx.todayStr();
+  ctx.state.cycleDay = 1;
+  ctx.state.viewingCycleOffset = 0;
+  ctx.state.budget = 8000;
+  ctx.state.expenses = [];
+  ctx.state.savingsCategories = [
+    { id:'g1', name:'Mortgage', icon:'🏠', status:'active' },
+    { id:'g2', name:'Holidays', icon:'✈️', status:'active' },
+  ];
+  ctx.state.recurringSavings = [
+    { id:'r1', name:'Mortgage', amount:875, savingsGoalId:'g1', active:true, monthDay:1, frequency:'monthly', protectedFromAdjustment:true },
+    { id:'r2', name:'Holidays', amount:500, savingsGoalId:'g2', active:true, monthDay:1, frequency:'monthly', protectedFromAdjustment:false },
+  ];
+  ctx.state.savingsDeposits = [
+    { id:'d1', date:today, type:'deposit', catId:'g1', amount:875, recurringId:'r1' },
+    { id:'d2', date:today, type:'deposit', catId:'g2', amount:500, recurringId:'r2' },
+  ];
+  const bd = ctx.getCycleSavingsBreakdown(0);
+  // Invariants the home-tab breakdown relies on:
+  const expProtected = bd.rows.filter(r => r.protected).reduce((s, r) => s + r.scheduled, 0);
+  const expRest = bd.rows.filter(r => !r.protected).reduce((s, r) => s + r.adjusted, 0);
+  assertTrue(Math.abs(bd.protectedTotal - expProtected) < 0.01, 'protectedTotal = sum of always-full goals (' + bd.protectedTotal + ')');
+  assertTrue(Math.abs((bd.adjustedTotal - bd.protectedTotal) - expRest) < 0.01, 'adjustedTotal − protectedTotal = rest (' + (bd.adjustedTotal - bd.protectedTotal) + ')');
+  assertTrue(bd.protectedTotal > 0.005, 'the protected goal is counted as protected');
+
+  // The home tab renders the three-way split with amounts + %.
+  ctx.renderDashboard();
+  const out = ctx.document.getElementById('content').innerHTML;
+  assertTrue(out.includes('On track to save') && out.includes('Always save full') && out.includes('Other goals'),
+    'home tab shows total / always-full / other-goals breakdown');
 });
 
 console.log(`\x1b[1mResults: ${pass} passed, ${fail} failed\x1b[0m`);
