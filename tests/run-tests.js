@@ -5976,6 +5976,32 @@ await check('savings breakdown splits on-track into protected (always-full) vs r
     'home tab shows total / always-full / other-goals breakdown');
 });
 
+// ── v2.115.0 — header "On track to save" strip carries the protected/rest split ──
+await check('header projected-savings strip shows protected vs other breakdown', () => {
+  const fs = require('fs'); const html = fs.readFileSync(APP_PATH, 'utf8');
+  assertTrue(html.includes('id="projSaveBreakdown"'), 'strip has a breakdown element');
+  // Functional: updateHeader populates it when a protected goal is funded this cycle.
+  ctx.state = buildMockState();
+  const today = ctx.todayStr();
+  ctx.state.cycleDay = 1; ctx.state.viewingCycleOffset = 0; ctx.state.budget = 8000; ctx.state.expenses = [];
+  ctx.state.savingsCategories = [
+    { id:'g1', name:'Mortgage', icon:'🏠', status:'active' },
+    { id:'g2', name:'Holidays', icon:'✈️', status:'active' },
+  ];
+  ctx.state.recurringSavings = [
+    { id:'r1', name:'Mortgage', amount:875, savingsGoalId:'g1', active:true, monthDay:1, frequency:'monthly', protectedFromAdjustment:true },
+    { id:'r2', name:'Holidays', amount:500, savingsGoalId:'g2', active:true, monthDay:1, frequency:'monthly', protectedFromAdjustment:false },
+  ];
+  ctx.state.savingsDeposits = [
+    { id:'d1', date:today, type:'deposit', catId:'g1', amount:875, recurringId:'r1' },
+    { id:'d2', date:today, type:'deposit', catId:'g2', amount:500, recurringId:'r2' },
+  ];
+  ctx.updateHeader();
+  const bd = ctx.document.getElementById('projSaveBreakdown').innerHTML;
+  assertTrue(bd.includes('Always save full') && bd.includes('Other goals'),
+    'header strip breakdown names both groups');
+});
+
 console.log(`\x1b[1mResults: ${pass} passed, ${fail} failed\x1b[0m`);
 if (fail > 0) {
   console.log('\nFailed tests:');
